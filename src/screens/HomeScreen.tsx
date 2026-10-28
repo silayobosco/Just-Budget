@@ -381,6 +381,8 @@ export const HomeScreen: React.FC = () => {
   ).current;
 
   // Group transactions by date with total spent/income that day
+  // INVERTED: chronological order where newest date is at the bottom,
+  // and inside each day, transactions are ordered so newest is at the bottom.
   const groupedTransactions = useMemo(() => {
     const groups: {
       date: string;
@@ -403,7 +405,8 @@ export const HomeScreen: React.FC = () => {
     const yesterdayStr = yesterday.toISOString().slice(0, 10);
 
     Array.from(map.entries())
-      .sort((a, b) => b[0].localeCompare(a[0]))
+      // Ascending sort by date (oldest at top, newest at bottom)
+      .sort((a, b) => a[0].localeCompare(b[0]))
       .forEach(([d, items]) => {
         let displayDate = d;
         if (d === todayStr) displayDate = 'Today';
@@ -416,12 +419,19 @@ export const HomeScreen: React.FC = () => {
           .filter((t) => t.type === 'income')
           .reduce((sum, t) => sum + (t.amount || t.base_amount || 0), 0);
 
+        // Sort items inside this day ascending by created_at/id so newest is at the bottom
+        const sortedItems = [...items].sort((a, b) => {
+          const timeA = a.created_at || a.id;
+          const timeB = b.created_at || b.id;
+          return timeA.localeCompare(timeB);
+        });
+
         groups.push({
           date: d,
           displayDate,
           totalSpent: daySpent,
           totalIncome: dayIncome,
-          items,
+          items: sortedItems,
         });
       });
 
@@ -892,14 +902,11 @@ export const HomeScreen: React.FC = () => {
           </View>
         </View>
 
-        {/* 2B. RECENT ACTIVITY LIST (REVEALED WHEN SHEET PULLS DOWN) */}
+        {/* 2B. HISTORY LIST (REVEALED WHEN SHEET PULLS DOWN) */}
         <View style={styles.activityContentWrapper}>
           <View style={[styles.historyHeader, { borderBottomColor: theme.divider }]}>
             <View>
-              <Text style={[styles.historyTitle, { color: theme.onSurface }]}>Recent Activity</Text>
-              <Text style={[styles.historySubtitle, { color: theme.onSurfaceVariant }]}>
-                Grouped by date • swipe up or tap handle to close
-              </Text>
+              <Text style={[styles.historyTitle, { color: theme.onSurface }]}>History</Text>
             </View>
             <TouchableOpacity onPress={closeSheet} style={styles.closeSheetBtn}>
               <MaterialCommunityIcons name="chevron-up" size={20} color={theme.onSurfaceVariant} />
@@ -914,7 +921,7 @@ export const HomeScreen: React.FC = () => {
                 color={theme.outlineVariant}
               />
               <Text style={[styles.emptyHistoryText, { color: theme.onSurfaceVariant }]}>
-                No transactions recorded yet
+                No history recorded yet
               </Text>
             </View>
           ) : (
@@ -925,23 +932,11 @@ export const HomeScreen: React.FC = () => {
             >
               {groupedTransactions.map((group) => (
                 <View key={group.date} style={styles.dateGroupContainer}>
-                  {/* Date Group Header with Day's Total */}
+                  {/* Date Group Header */}
                   <View style={[styles.dateGroupHeaderRow, { borderBottomColor: theme.divider }]}>
                     <Text style={[styles.dateGroupTitle, { color: theme.onSurface }]}>
                       {group.displayDate}
                     </Text>
-                    <View style={styles.dateGroupTotalsRow}>
-                      {group.totalSpent > 0 && (
-                        <Text style={[styles.daySpentPill, { color: theme.error }]}>
-                          Spent: {formatCurrency(group.totalSpent, curr)}
-                        </Text>
-                      )}
-                      {group.totalIncome > 0 && (
-                        <Text style={[styles.dayIncomePill, { color: theme.success }]}>
-                          +{formatCurrency(group.totalIncome, curr)}
-                        </Text>
-                      )}
-                    </View>
                   </View>
 
                   {/* Individual transaction items for this date */}
@@ -1030,6 +1025,30 @@ export const HomeScreen: React.FC = () => {
                       </View>
                     );
                   })}
+
+                  {/* Day Summary Total at the END of the date's list */}
+                  <View style={[styles.daySummaryFooter, { backgroundColor: theme.surfaceVariant }]}>
+                    <Text style={[styles.daySummaryLabel, { color: theme.onSurfaceVariant }]}>
+                      Total for {group.displayDate}:
+                    </Text>
+                    <View style={styles.dateGroupTotalsRow}>
+                      {group.totalSpent > 0 && (
+                        <Text style={[styles.daySpentPill, { color: theme.error }]}>
+                          Spent: {formatCurrency(group.totalSpent, curr)}
+                        </Text>
+                      )}
+                      {group.totalIncome > 0 && (
+                        <Text style={[styles.dayIncomePill, { color: theme.success }]}>
+                          Income: +{formatCurrency(group.totalIncome, curr)}
+                        </Text>
+                      )}
+                      {group.totalSpent === 0 && group.totalIncome === 0 && (
+                        <Text style={[styles.daySpentPill, { color: theme.onSurfaceVariant }]}>
+                          0.00
+                        </Text>
+                      )}
+                    </View>
+                  </View>
                 </View>
               ))}
             </ScrollView>
@@ -1657,9 +1676,6 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   dateGroupHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     paddingBottom: 5,
     borderBottomWidth: 1,
     marginBottom: 6,
@@ -1672,6 +1688,20 @@ const styles = StyleSheet.create({
   dateGroupTotalsRow: {
     flexDirection: 'row',
     gap: 8,
+  },
+  daySummaryFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: M3Shape.medium,
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  daySummaryLabel: {
+    fontSize: 11,
+    fontWeight: '700',
   },
   daySpentPill: {
     fontSize: 10.5,
