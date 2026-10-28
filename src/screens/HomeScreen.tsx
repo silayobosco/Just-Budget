@@ -1029,7 +1029,7 @@ export const HomeScreen: React.FC = () => {
                   {/* Day Summary Total at the END of the date's list */}
                   <View style={[styles.daySummaryFooter, { backgroundColor: theme.surfaceVariant }]}>
                     <Text style={[styles.daySummaryLabel, { color: theme.onSurfaceVariant }]}>
-                      Total for {group.displayDate}:
+                      Total:
                     </Text>
                     <View style={styles.dateGroupTotalsRow}>
                       {group.totalSpent > 0 && (
