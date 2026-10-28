@@ -52,7 +52,90 @@ export const HomeScreen: React.FC = () => {
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
   const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<string>('');
   const [note, setNote] = useState<string>('');
-  const [dateStr] = useState<string>(new Date().toISOString().slice(0, 10));
+  
+  // Date & Time states (default to current local date and time)
+  const [dateStr, setDateStr] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [timeStr, setTimeStr] = useState<string>(() => {
+    const d = new Date();
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  });
+
+  // Calendar & Time picker modal visibility
+  const [calendarModalVisible, setCalendarModalVisible] = useState(false);
+  const [timeModalVisible, setTimeModalVisible] = useState(false);
+  const [calendarViewMonth, setCalendarViewMonth] = useState(() => new Date());
+  const [tempHours, setTempHours] = useState(() => String(new Date().getHours()).padStart(2, '0'));
+  const [tempMinutes, setTempMinutes] = useState(() => String(new Date().getMinutes()).padStart(2, '0'));
+
+  // Paid / Not Paid Toggle State (default to not paid if date/time is in the future)
+  const isFuture = useMemo(() => {
+    const now = new Date();
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const [hh, mm] = timeStr.split(':').map(Number);
+    const selectedDt = new Date(y, m - 1, d, hh || 0, mm || 0, 0);
+    return selectedDt.getTime() > now.getTime();
+  }, [dateStr, timeStr]);
+
+  const [isPaidUserOverride, setIsPaidUserOverride] = useState<boolean | null>(null);
+  const isPaid = isPaidUserOverride !== null ? isPaidUserOverride : !isFuture;
+
+  // Whenever date or time changes, update default isPaid if user hasn't explicitly locked it
+  useEffect(() => {
+    setIsPaidUserOverride(null);
+  }, [dateStr, timeStr]);
+
+  // Date helper formatting
+  const formattedDateLabel = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().slice(0, 10);
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().slice(0, 10);
+
+    if (dateStr === today) return 'Today';
+    if (dateStr === yesterdayStr) return 'Yesterday';
+    if (dateStr === tomorrowStr) return 'Tomorrow';
+    return dateStr;
+  }, [dateStr]);
+
+  // Calendar modal grid generator
+  const calendarModalGrid = useMemo(() => {
+    const year = calendarViewMonth.getFullYear();
+    const month = calendarViewMonth.getMonth();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const cells: { dayNum: number; dateString: string }[] = [];
+
+    for (let i = 0; i < firstDay; i++) {
+      cells.push({ dayNum: 0, dateString: '' });
+    }
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateString = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      cells.push({ dayNum: d, dateString });
+    }
+    return cells;
+  }, [calendarViewMonth]);
+
+  const monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
+  ];
+
+  const handleOpenTimeModal = () => {
+    const [hh, mm] = timeStr.split(':');
+    setTempHours(hh || '12');
+    setTempMinutes(mm || '00');
+    setTimeModalVisible(true);
+  };
+
+  const handleSaveTime = () => {
+    const h = Math.min(23, Math.max(0, parseInt(tempHours) || 0));
+    const m = Math.min(59, Math.max(0, parseInt(tempMinutes) || 0));
+    setTimeStr(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+    setTimeModalVisible(false);
+  };
 
   // Quick Action / Manager modals
   const [categoryModalVisible, setCategoryModalVisible] = useState(false);
@@ -385,6 +468,65 @@ export const HomeScreen: React.FC = () => {
 
         {/* LOWER SECTION: CHIPS DIRECTLY DOCKED ON TOP OF KEYPAD */}
         <View style={styles.dockedLowerSection}>
+          {/* TOP ENTRY BAR: DATE CHIP, TIME CHIP, PAID/NOT PAID TOGGLE */}
+          <View style={[styles.dateTimeToggleBar, { backgroundColor: theme.surface, borderBottomColor: theme.divider }]}>
+            {/* Calendar Date Chip */}
+            <TouchableOpacity
+              style={[styles.dateTimeChip, { backgroundColor: theme.pillBg }]}
+              onPress={() => {
+                const [y, m] = dateStr.split('-').map(Number);
+                setCalendarViewMonth(new Date(y, m - 1, 1));
+                setCalendarModalVisible(true);
+              }}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons name="calendar-month-outline" size={15} color={theme.primary} />
+              <Text style={[styles.dateTimeChipText, { color: theme.onSurface }]}>
+                {formattedDateLabel}
+              </Text>
+              <MaterialCommunityIcons name="menu-down" size={14} color={theme.onSurfaceVariant} />
+            </TouchableOpacity>
+
+            {/* Time Chip */}
+            <TouchableOpacity
+              style={[styles.dateTimeChip, { backgroundColor: theme.pillBg }]}
+              onPress={handleOpenTimeModal}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons name="clock-time-four-outline" size={15} color={theme.primary} />
+              <Text style={[styles.dateTimeChipText, { color: theme.onSurface }]}>
+                {timeStr}
+              </Text>
+              <MaterialCommunityIcons name="menu-down" size={14} color={theme.onSurfaceVariant} />
+            </TouchableOpacity>
+
+            {/* Paid / Not Paid Switcher Chip */}
+            <TouchableOpacity
+              style={[
+                styles.paidStatusChip,
+                {
+                  backgroundColor: isPaid ? theme.successContainer : theme.errorContainer,
+                },
+              ]}
+              onPress={() => setIsPaidUserOverride(!isPaid)}
+              activeOpacity={0.8}
+            >
+              <MaterialCommunityIcons
+                name={isPaid ? 'check-circle' : 'clock-alert-outline'}
+                size={15}
+                color={isPaid ? theme.success : theme.error}
+              />
+              <Text
+                style={[
+                  styles.paidStatusText,
+                  { color: isPaid ? theme.onSuccessContainer : theme.onErrorContainer },
+                ]}
+              >
+                {isPaid ? 'Paid' : 'Not Paid'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
           {/* CHIP SELECTION STRIPS: Wallet, Category, Subcategory, Notes */}
           <View style={[styles.chipsWorkspace, { backgroundColor: theme.surface }]}>
             {/* WALLETS ROW */}
@@ -983,6 +1125,201 @@ export const HomeScreen: React.FC = () => {
         </View>
       )}
 
+      {/* CALENDAR PICKER MODAL */}
+      {calendarModalVisible && (
+        <View style={styles.quickModalBackdrop}>
+          <View style={[styles.quickModalBox, { backgroundColor: theme.surface }]}>
+            <View style={styles.calendarModalHeader}>
+              <Text style={[styles.quickModalTitle, { color: theme.onSurface }]}>
+                {monthNames[calendarViewMonth.getMonth()]} {calendarViewMonth.getFullYear()}
+              </Text>
+              <View style={styles.calNavRow}>
+                <TouchableOpacity
+                  onPress={() => {
+                    const prev = new Date(calendarViewMonth);
+                    prev.setMonth(prev.getMonth() - 1);
+                    setCalendarViewMonth(prev);
+                  }}
+                  style={[styles.calNavBtn, { backgroundColor: theme.pillBg }]}
+                >
+                  <MaterialCommunityIcons name="chevron-left" size={20} color={theme.onSurface} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => {
+                    const next = new Date(calendarViewMonth);
+                    next.setMonth(next.getMonth() + 1);
+                    setCalendarViewMonth(next);
+                  }}
+                  style={[styles.calNavBtn, { backgroundColor: theme.pillBg }]}
+                >
+                  <MaterialCommunityIcons name="chevron-right" size={20} color={theme.onSurface} />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Weekday indicators */}
+            <View style={styles.calWeekdayRow}>
+              {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((w, idx) => (
+                <Text key={idx} style={[styles.calWeekdayText, { color: theme.onSurfaceVariant }]}>
+                  {w}
+                </Text>
+              ))}
+            </View>
+
+            {/* Month Days Grid */}
+            <View style={styles.calDaysGrid}>
+              {calendarModalGrid.map((cell, idx) => {
+                if (cell.dayNum === 0) {
+                  return <View key={idx} style={styles.calEmptyCell} />;
+                }
+                const isSelected = cell.dateString === dateStr;
+                const isToday = cell.dateString === new Date().toISOString().slice(0, 10);
+
+                return (
+                  <TouchableOpacity
+                    key={idx}
+                    style={[
+                      styles.calDayCell,
+                      {
+                        backgroundColor: isSelected ? theme.primaryContainer : 'transparent',
+                        borderColor: isSelected ? theme.primary : isToday ? theme.secondary : 'transparent',
+                      },
+                    ]}
+                    onPress={() => {
+                      setDateStr(cell.dateString);
+                      setCalendarModalVisible(false);
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.calDayNum,
+                        {
+                          color: isSelected
+                            ? theme.onPrimaryContainer
+                            : isToday
+                            ? theme.primary
+                            : theme.onSurface,
+                          fontWeight: isSelected || isToday ? '700' : '500',
+                        },
+                      ]}
+                    >
+                      {cell.dayNum}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Actions: Today shortcut & Cancel */}
+            <View style={styles.quickModalBtnRow}>
+              <TouchableOpacity
+                style={[styles.quickModalBtn, { backgroundColor: theme.pillBg }]}
+                onPress={() => {
+                  setDateStr(new Date().toISOString().slice(0, 10));
+                  setCalendarModalVisible(false);
+                }}
+              >
+                <Text style={{ color: theme.primary, fontWeight: '700' }}>Today</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.quickModalBtn, { backgroundColor: theme.pillBg }]}
+                onPress={() => setCalendarModalVisible(false)}
+              >
+                <Text style={{ color: theme.onSurface }}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* TIME PICKER MODAL */}
+      {timeModalVisible && (
+        <View style={styles.quickModalBackdrop}>
+          <View style={[styles.quickModalBox, { backgroundColor: theme.surface }]}>
+            <Text style={[styles.quickModalTitle, { color: theme.onSurface }]}>Set Time</Text>
+            <View style={styles.timeInputRow}>
+              <View style={styles.timeUnitCol}>
+                <Text style={[styles.timeUnitLabel, { color: theme.onSurfaceVariant }]}>HOURS (00-23)</Text>
+                <TextInput
+                  style={[styles.timeTextInput, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
+                  keyboardType="numeric"
+                  maxLength={2}
+                  value={tempHours}
+                  onChangeText={setTempHours}
+                />
+              </View>
+              <Text style={[styles.timeColon, { color: theme.onSurface }]}>:</Text>
+              <View style={styles.timeUnitCol}>
+                <Text style={[styles.timeUnitLabel, { color: theme.onSurfaceVariant }]}>MINUTES (00-59)</Text>
+                <TextInput
+                  style={[styles.timeTextInput, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
+                  keyboardType="numeric"
+                  maxLength={2}
+                  value={tempMinutes}
+                  onChangeText={setTempMinutes}
+                />
+              </View>
+            </View>
+
+            {/* Quick Presets */}
+            <View style={styles.timePresetsRow}>
+              <TouchableOpacity
+                style={[styles.timePresetChip, { backgroundColor: theme.pillBg }]}
+                onPress={() => {
+                  const now = new Date();
+                  setTempHours(String(now.getHours()).padStart(2, '0'));
+                  setTempMinutes(String(now.getMinutes()).padStart(2, '0'));
+                }}
+              >
+                <Text style={[styles.timePresetText, { color: theme.primary }]}>Now</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.timePresetChip, { backgroundColor: theme.pillBg }]}
+                onPress={() => {
+                  setTempHours('09');
+                  setTempMinutes('00');
+                }}
+              >
+                <Text style={[styles.timePresetText, { color: theme.onSurface }]}>09:00 AM</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.timePresetChip, { backgroundColor: theme.pillBg }]}
+                onPress={() => {
+                  setTempHours('13');
+                  setTempMinutes('00');
+                }}
+              >
+                <Text style={[styles.timePresetText, { color: theme.onSurface }]}>01:00 PM</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.timePresetChip, { backgroundColor: theme.pillBg }]}
+                onPress={() => {
+                  setTempHours('20');
+                  setTempMinutes('00');
+                }}
+              >
+                <Text style={[styles.timePresetText, { color: theme.onSurface }]}>08:00 PM</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.quickModalBtnRow}>
+              <TouchableOpacity
+                style={[styles.quickModalBtn, { backgroundColor: theme.pillBg }]}
+                onPress={() => setTimeModalVisible(false)}
+              >
+                <Text style={{ color: theme.onSurface }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.quickModalBtn, { backgroundColor: theme.primary }]}
+                onPress={handleSaveTime}
+              >
+                <Text style={{ color: theme.onPrimary, fontWeight: '700' }}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
+
       {/* CATEGORY & BUDGET MANAGER MODAL */}
       <CategoryManagerModal visible={categoryModalVisible} onClose={() => setCategoryModalVisible(false)} />
     </View>
@@ -1001,6 +1338,42 @@ const styles = StyleSheet.create({
   },
   dockedLowerSection: {
     width: '100%',
+  },
+
+  // TOP ENTRY BAR (DATE CHIP, TIME CHIP, PAID TOGGLE)
+  dateTimeToggleBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderBottomWidth: 0.5,
+    gap: 8,
+  },
+  dateTimeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: M3Shape.full,
+    gap: 5,
+  },
+  dateTimeChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  paidStatusChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: M3Shape.full,
+    gap: 5,
+  },
+  paidStatusText: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.3,
   },
 
   // INPUT SPACE
@@ -1423,5 +1796,106 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: M3Shape.full,
+  },
+
+  // CALENDAR MODAL STYLES
+  calendarModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  calNavRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  calNavBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  calWeekdayRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingVertical: 6,
+  },
+  calWeekdayText: {
+    fontSize: 11,
+    fontWeight: '700',
+    width: 36,
+    textAlign: 'center',
+  },
+  calDaysGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-around',
+  },
+  calEmptyCell: {
+    width: 38,
+    height: 38,
+    marginVertical: 2,
+  },
+  calDayCell: {
+    width: 38,
+    height: 38,
+    marginVertical: 2,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+  },
+  calDayNum: {
+    fontSize: 13,
+  },
+
+  // TIME MODAL STYLES
+  timeInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    paddingVertical: 12,
+  },
+  timeUnitCol: {
+    alignItems: 'center',
+    width: 100,
+  },
+  timeUnitLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    marginBottom: 6,
+  },
+  timeTextInput: {
+    width: '100%',
+    height: 52,
+    borderRadius: M3Shape.large,
+    textAlign: 'center',
+    fontSize: 26,
+    fontWeight: '800',
+  },
+  timeColon: {
+    fontSize: 32,
+    fontWeight: '800',
+    marginTop: 14,
+  },
+  timePresetsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    gap: 6,
+  },
+  timePresetChip: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: M3Shape.medium,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timePresetText: {
+    fontSize: 11,
+    fontWeight: '700',
   },
 });
