@@ -287,12 +287,18 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       .filter((t) => t.type === 'expense' && t.date === todayStr)
       .reduce((sum, t) => sum + (t.amount || t.base_amount || 0), 0);
 
-    // Available for day formula:
+    const hasTargetBudget = (currentCycle?.target_budget ?? 0) > 0;
+
+    // Daily Allowance ("Available for Day") formula when budget exists:
     // (Remaining Cycle Balance + Today's Expenses) / Days Remaining
     const cyclePoolForRemainingDays = Math.max(0, remainingCycleBalance);
-    const baselineDaily = (cyclePoolForRemainingDays + todayExpenses) / daysRemaining;
+    const baselineDaily = hasTargetBudget ? (cyclePoolForRemainingDays + todayExpenses) / daysRemaining : 0;
     const availableForDay = Math.max(0, baselineDaily);
     const remainingToday = availableForDay - todayExpenses;
+
+    // Daily average spent so far in this cycle
+    const daysElapsed = Math.max(1, dayIndex);
+    const dailyAverage = Math.round(spentInCycle / daysElapsed);
 
     return {
       totalDays,
@@ -301,9 +307,11 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       availableForDay,
       spentToday: todayExpenses,
       remainingToday,
-      isOverDaily: todayExpenses > availableForDay && availableForDay > 0,
+      isOverDaily: hasTargetBudget && todayExpenses > availableForDay && availableForDay > 0,
+      hasBudget: hasTargetBudget,
+      dailyAverage,
     };
-  }, [currentCycle, transactions, remainingCycleBalance]);
+  }, [currentCycle, transactions, remainingCycleBalance, spentInCycle]);
 
   // Overall Budget metrics
   const overallBudgetLimit = currentCycle?.target_budget || 0;

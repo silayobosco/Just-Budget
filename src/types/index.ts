@@ -109,4 +109,6 @@ export interface DailyAllowanceStats {
   spentToday: number;
   remainingToday: number;
   isOverDaily: boolean;
+  hasBudget: boolean;
+  dailyAverage: number;
 }

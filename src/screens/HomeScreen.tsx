@@ -50,26 +50,36 @@ export const HomeScreen: React.FC = () => {
       ? Math.min(100, Math.round((dailyAllowanceStats.spentToday / dailyAllowanceStats.availableForDay) * 100))
       : 0;
 
-  // Recent transactions (last 6)
+  // Check if active cycle has a budget configured
+  const hasCycleBudget = dailyAllowanceStats.hasBudget;
+
+  // Net Cash Flow for pure expense tracking mode
+  const netCashFlow = totalConvertedBalance;
+
+  // Recent transactions (last 8)
   const recentTransactions = transactions.slice(0, 8);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        {/* HERO CARD: "AVAILABLE FOR DAY" (Signature Budge Feature) */}
+        {/* HERO CARD: ADAPTS TO BUDGET OR EXPENSE TRACKING */}
         <View style={[styles.heroCard, { backgroundColor: theme.heroBg }, M3Elevation.level2]}>
           <View style={styles.heroTopRow}>
             <View>
-              <Text style={[styles.heroLabel, { color: theme.onSurfaceVariant }]}>AVAILABLE FOR TODAY</Text>
+              <Text style={[styles.heroLabel, { color: theme.onSurfaceVariant }]}>
+                {hasCycleBudget ? 'AVAILABLE FOR TODAY' : 'SPENT TODAY'}
+              </Text>
               <Text
                 style={[
                   styles.heroAmount,
                   {
-                    color: dailyAllowanceStats.isOverDaily ? theme.error : theme.primary,
+                    color: hasCycleBudget && dailyAllowanceStats.isOverDaily ? theme.error : theme.primary,
                   },
                 ]}
               >
-                {formatMoney(Math.max(0, dailyAllowanceStats.remainingToday))}
+                {hasCycleBudget
+                  ? formatMoney(Math.max(0, dailyAllowanceStats.remainingToday))
+                  : formatMoney(dailyAllowanceStats.spentToday)}
               </Text>
             </View>
 
@@ -81,42 +91,62 @@ export const HomeScreen: React.FC = () => {
             </View>
           </View>
 
-          {/* Daily Allowance Progress Bar */}
-          <View style={styles.progressContainer}>
-            <View style={[styles.progressBarBg, { backgroundColor: theme.surfaceVariant }]}>
-              <View
-                style={[
-                  styles.progressBarFill,
-                  {
-                    width: `${dailyProgress}%`,
-                    backgroundColor: dailyAllowanceStats.isOverDaily ? theme.error : theme.primary,
-                  },
-                ]}
-              />
-            </View>
-            <View style={styles.progressMeta}>
-              <Text style={[styles.progressMetaText, { color: theme.onSurfaceVariant }]}>
-                Spent today: {formatMoney(dailyAllowanceStats.spentToday)}
-              </Text>
-              <Text style={[styles.progressMetaText, { color: theme.onSurfaceVariant }]}>
-                Daily target: {formatMoney(dailyAllowanceStats.availableForDay)}
-              </Text>
-            </View>
-          </View>
-
-          {/* Daily Status Warning / Praise */}
-          {dailyAllowanceStats.isOverDaily ? (
-            <View style={[styles.statusBanner, { backgroundColor: theme.errorContainer }]}>
-              <MaterialCommunityIcons name="alert-circle-outline" size={16} color={theme.onErrorContainer} />
-              <Text style={[styles.statusBannerText, { color: theme.onErrorContainer }]}>
-                Exceeded daily budget by {formatMoney(dailyAllowanceStats.spentToday - dailyAllowanceStats.availableForDay)}
-              </Text>
+          {/* Daily Allowance or Daily Spend Progress */}
+          {hasCycleBudget ? (
+            <View style={styles.progressContainer}>
+              <View style={[styles.progressBarBg, { backgroundColor: theme.surfaceVariant }]}>
+                <View
+                  style={[
+                    styles.progressBarFill,
+                    {
+                      width: `${dailyProgress}%`,
+                      backgroundColor: dailyAllowanceStats.isOverDaily ? theme.error : theme.primary,
+                    },
+                  ]}
+                />
+              </View>
+              <View style={styles.progressMeta}>
+                <Text style={[styles.progressMetaText, { color: theme.onSurfaceVariant }]}>
+                  Spent today: {formatMoney(dailyAllowanceStats.spentToday)}
+                </Text>
+                <Text style={[styles.progressMetaText, { color: theme.onSurfaceVariant }]}>
+                  Daily target: {formatMoney(dailyAllowanceStats.availableForDay)}
+                </Text>
+              </View>
             </View>
           ) : (
-            <View style={[styles.statusBanner, { backgroundColor: theme.successContainer }]}>
-              <MaterialCommunityIcons name="check-circle-outline" size={16} color={theme.onSuccessContainer} />
-              <Text style={[styles.statusBannerText, { color: theme.onSuccessContainer }]}>
-                You are well within your daily budget today!
+            <View style={styles.progressMeta}>
+              <Text style={[styles.progressMetaText, { color: theme.onSurfaceVariant }]}>
+                Cycle spent: {formatMoney(spentInCycle)}
+              </Text>
+              <Text style={[styles.progressMetaText, { color: theme.onSurfaceVariant }]}>
+                Daily average: {formatMoney(dailyAllowanceStats.dailyAverage)}
+              </Text>
+            </View>
+          )}
+
+          {/* Status banner: only show alert if budget exists, else show neutral encouragement */}
+          {hasCycleBudget ? (
+            dailyAllowanceStats.isOverDaily ? (
+              <View style={[styles.statusBanner, { backgroundColor: theme.errorContainer }]}>
+                <MaterialCommunityIcons name="alert-circle-outline" size={16} color={theme.onErrorContainer} />
+                <Text style={[styles.statusBannerText, { color: theme.onErrorContainer }]}>
+                  Exceeded daily budget by {formatMoney(dailyAllowanceStats.spentToday - dailyAllowanceStats.availableForDay)}
+                </Text>
+              </View>
+            ) : (
+              <View style={[styles.statusBanner, { backgroundColor: theme.successContainer }]}>
+                <MaterialCommunityIcons name="check-circle-outline" size={16} color={theme.onSuccessContainer} />
+                <Text style={[styles.statusBannerText, { color: theme.onSuccessContainer }]}>
+                  You are well within your daily budget today!
+                </Text>
+              </View>
+            )
+          ) : (
+            <View style={[styles.statusBanner, { backgroundColor: theme.surfaceVariant }]}>
+              <MaterialCommunityIcons name="chart-timeline-variant" size={16} color={theme.primary} />
+              <Text style={[styles.statusBannerText, { color: theme.onSurface }]}>
+                Tracking mode active: Log spendings freely across your wallets.
               </Text>
             </View>
           )}
@@ -124,59 +154,116 @@ export const HomeScreen: React.FC = () => {
 
         {/* 3 METRIC PILLS ROW */}
         <View style={styles.metricsRow}>
-          {/* Cycle Target */}
-          <View style={[styles.metricCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }]}>
-            <Text style={[styles.metricLabel, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
-              TARGET ({settings.base_currency})
-            </Text>
-            <Text
-              style={[styles.metricVal, { color: theme.onSurface }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.65}
-            >
-              {formatNumberOnly(currentCycle?.target_budget || totalConvertedBalance)}
-            </Text>
-          </View>
+          {hasCycleBudget ? (
+            <>
+              {/* Cycle Target */}
+              <View style={[styles.metricCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }]}>
+                <Text style={[styles.metricLabel, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
+                  TARGET ({settings.base_currency})
+                </Text>
+                <Text
+                  style={[styles.metricVal, { color: theme.onSurface }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.65}
+                >
+                  {formatNumberOnly(currentCycle?.target_budget || 0)}
+                </Text>
+              </View>
 
-          {/* Spent */}
-          <View style={[styles.metricCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }]}>
-            <Text style={[styles.metricLabel, { color: theme.error }]} numberOfLines={1}>
-              SPENT ({settings.base_currency})
-            </Text>
-            <Text
-              style={[styles.metricVal, { color: theme.error }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.65}
-            >
-              {formatNumberOnly(spentInCycle)}
-            </Text>
-          </View>
+              {/* Spent */}
+              <View style={[styles.metricCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }]}>
+                <Text style={[styles.metricLabel, { color: theme.error }]} numberOfLines={1}>
+                  SPENT ({settings.base_currency})
+                </Text>
+                <Text
+                  style={[styles.metricVal, { color: theme.error }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.65}
+                >
+                  {formatNumberOnly(spentInCycle)}
+                </Text>
+              </View>
 
-          {/* Remaining */}
-          <View style={[styles.metricCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }]}>
-            <Text style={[styles.metricLabel, { color: theme.success }]} numberOfLines={1}>
-              REMAINING ({settings.base_currency})
-            </Text>
-            <Text
-              style={[styles.metricVal, { color: theme.success }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.65}
-            >
-              {formatNumberOnly(remainingCycleBalance)}
-            </Text>
-          </View>
+              {/* Remaining */}
+              <View style={[styles.metricCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }]}>
+                <Text style={[styles.metricLabel, { color: theme.success }]} numberOfLines={1}>
+                  REMAINING ({settings.base_currency})
+                </Text>
+                <Text
+                  style={[styles.metricVal, { color: theme.success }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.65}
+                >
+                  {formatNumberOnly(remainingCycleBalance)}
+                </Text>
+              </View>
+            </>
+          ) : (
+            <>
+              {/* Total Wallet Balance */}
+              <View style={[styles.metricCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }]}>
+                <Text style={[styles.metricLabel, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
+                  WALLETS ({settings.base_currency})
+                </Text>
+                <Text
+                  style={[styles.metricVal, { color: theme.primary }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.65}
+                >
+                  {formatNumberOnly(totalConvertedBalance)}
+                </Text>
+              </View>
+
+              {/* Spent in Cycle */}
+              <View style={[styles.metricCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }]}>
+                <Text style={[styles.metricLabel, { color: theme.error }]} numberOfLines={1}>
+                  SPENT ({settings.base_currency})
+                </Text>
+                <Text
+                  style={[styles.metricVal, { color: theme.error }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.65}
+                >
+                  {formatNumberOnly(spentInCycle)}
+                </Text>
+              </View>
+
+              {/* Cycle Income */}
+              <View style={[styles.metricCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }]}>
+                <Text style={[styles.metricLabel, { color: theme.success }]} numberOfLines={1}>
+                  SAVED ({settings.base_currency})
+                </Text>
+                <Text
+                  style={[styles.metricVal, { color: theme.success }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.65}
+                >
+                  {formatNumberOnly(Math.max(0, totalConvertedBalance))}
+                </Text>
+              </View>
+            </>
+          )}
         </View>
 
-        {/* BUDGET ENVELOPES & ALLOCATION CARD */}
+        {/* BUDGET ENVELOPES & ALLOCATION / CATEGORY SPENDING CARD */}
         <View style={[styles.budgetCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
           <View style={styles.budgetCardHeader}>
             <View style={{ flex: 1, marginRight: 8 }}>
-              <Text style={[styles.budgetCardLabel, { color: theme.onSurfaceVariant }]}>BUDGET ENVELOPES</Text>
+              <Text style={[styles.budgetCardLabel, { color: theme.onSurfaceVariant }]}>
+                {hasCycleBudget || allocatedCategoriesBudget > 0 ? 'BUDGET ENVELOPES' : 'SPENDING BY CATEGORY'}
+              </Text>
               <Text style={[styles.budgetCardTitle, { color: theme.onSurface }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
-                Allocated {formatMoney(allocatedCategoriesBudget)} of {overallBudgetLimit > 0 ? formatMoney(overallBudgetLimit) : 'No limit'}
+                {hasCycleBudget
+                  ? `Allocated ${formatMoney(allocatedCategoriesBudget)} of ${formatMoney(overallBudgetLimit)}`
+                  : allocatedCategoriesBudget > 0
+                  ? `Allocated ${formatMoney(allocatedCategoriesBudget)} in limits`
+                  : `Total Spent: ${formatMoney(spentInCycle)}`}
               </Text>
             </View>
             <TouchableOpacity
@@ -189,8 +276,8 @@ export const HomeScreen: React.FC = () => {
             </TouchableOpacity>
           </View>
 
-          {/* Envelope Allocation progress bar */}
-          {overallBudgetLimit > 0 && (
+          {/* Envelope Allocation progress bar (shown when cycle budget is defined) */}
+          {hasCycleBudget && overallBudgetLimit > 0 && (
             <View style={[styles.budgetProgressBarBg, { backgroundColor: theme.surfaceVariant }]}>
               <View
                 style={[
@@ -209,7 +296,7 @@ export const HomeScreen: React.FC = () => {
 
           {/* Unallocated and Category envelopes carousel */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.budgetChipsScroll}>
-            {overallBudgetLimit > 0 && (
+            {hasCycleBudget && overallBudgetLimit > 0 && (
               <View style={[styles.unallocatedChip, { backgroundColor: theme.heroBg, borderColor: theme.divider }]}>
                 <MaterialCommunityIcons name="creation" size={14} color={theme.primary} />
                 <Text style={[styles.unallocatedChipText, { color: theme.onSurface }]}>
@@ -218,7 +305,7 @@ export const HomeScreen: React.FC = () => {
               </View>
             )}
 
-            {categoryBudgetProgressList.slice(0, 6).map((cat) => {
+            {categoryBudgetProgressList.slice(0, 8).map((cat) => {
               const hasLimit = cat.limit > 0;
               return (
                 <TouchableOpacity
