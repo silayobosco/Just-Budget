@@ -15,14 +15,14 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
 import { TransactionType } from '../types';
-import { formatCurrency, formatTypingNumber } from '../utils/format';
+import { formatCurrency } from '../utils/format';
 import { CategoryManagerModal } from '../components/CategoryManagerModal';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 // Top Sheet Heights:
-// In collapsed state: shows today's balance + expense|income switcher + preview of the latest transaction + drag handle (~215px)
-const COLLAPSED_SHEET_HEIGHT = 215;
+// In collapsed state: shows today's balance + expense|income switcher + preview of the latest transaction + drag handle (~205px)
+const COLLAPSED_SHEET_HEIGHT = 238;
 
 export const HomeScreen: React.FC = () => {
   const {
@@ -180,37 +180,96 @@ export const HomeScreen: React.FC = () => {
     }
   };
 
-  // Dial Pad Keypress
+  // Selection state for cursor tracking inside amount input
+  const [amountSelection, setAmountSelection] = useState<{ start: number; end: number }>({
+    start: 1,
+    end: 1,
+  });
+  const amountInputRef = useRef<any>(null);
+
+  // Handle direct text changes (typing from soft keyboard or pasting from native context menu / Gboard)
+  const handleAmountChange = (text: string) => {
+    if (!text || text === '') {
+      setAmountStr('0');
+      setAmountSelection({ start: 1, end: 1 });
+      return;
+    }
+    const cleaned = text.replace(/,/g, '').replace(/[^0-9.]/g, '');
+    const parts = cleaned.split('.');
+    let valid = parts[0] || '0';
+    if (parts.length > 1) {
+      valid += '.' + parts.slice(1).join('').slice(0, 2);
+    }
+    if (valid.length > 1 && valid.startsWith('0') && !valid.startsWith('0.')) {
+      valid = valid.replace(/^0+/, '') || '0';
+    }
+    if (valid.length > 14) valid = valid.slice(0, 14);
+    const finalVal = valid || '0';
+    setAmountStr(finalVal);
+  };
+
+  // Dial Pad Keypress (inserts or deletes at the current cursor selection position)
   const handleKeyPress = (val: string) => {
+    const rawStart = amountSelection.start ?? amountStr.length;
+    const rawEnd = amountSelection.end ?? amountStr.length;
+    const curStart = Math.min(amountStr.length, Math.max(0, rawStart));
+    const curEnd = Math.min(amountStr.length, Math.max(0, rawEnd));
+
+    if (val === 'clear') {
+      setAmountStr('0');
+      setAmountSelection({ start: 1, end: 1 });
+      return;
+    }
+
     if (val === 'backspace') {
-      if (amountStr.length <= 1) {
-        setAmountStr('0');
-      } else {
-        setAmountStr(amountStr.slice(0, -1));
+      if (curStart !== curEnd) {
+        // Selection range active: delete selected range
+        const before = amountStr.slice(0, curStart);
+        const after = amountStr.slice(curEnd);
+        const next = (before + after) || '0';
+        setAmountStr(next);
+        setAmountSelection({ start: curStart, end: curStart });
+      } else if (curStart > 0) {
+        // Delete single char before cursor
+        const before = amountStr.slice(0, curStart - 1);
+        const after = amountStr.slice(curStart);
+        const next = (before + after) || '0';
+        setAmountStr(next);
+        const newPos = Math.max(0, curStart - 1);
+        setAmountSelection({ start: newPos, end: newPos });
       }
       return;
     }
 
     if (val === '.') {
-      if (!amountStr.includes('.')) {
-        setAmountStr(amountStr + '.');
+      if (amountStr.includes('.')) {
+        const selectedText = amountStr.slice(curStart, curEnd);
+        if (!selectedText.includes('.')) return;
       }
+      const before = amountStr.slice(0, curStart);
+      const after = amountStr.slice(curEnd);
+      const next = before + '.' + after;
+      setAmountStr(next);
+      setAmountSelection({ start: curStart + 1, end: curStart + 1 });
       return;
     }
 
-    if (val === 'clear') {
-      setAmountStr('0');
-      return;
-    }
-
+    // Digit typed
     if (amountStr === '0') {
       setAmountStr(val);
-    } else {
-      const parts = amountStr.split('.');
-      if (parts.length === 2 && parts[1].length >= 2) return;
-      if (amountStr.replace(/[^0-9]/g, '').length >= 12) return;
-      setAmountStr(amountStr + val);
+      setAmountSelection({ start: 1, end: 1 });
+      return;
     }
+
+    const before = amountStr.slice(0, curStart);
+    const after = amountStr.slice(curEnd);
+    const nextCandidate = before + val + after;
+    const parts = nextCandidate.split('.');
+    if (parts.length === 2 && parts[1].length > 2) return;
+    if (nextCandidate.replace(/[^0-9]/g, '').length >= 12) return;
+
+    setAmountStr(nextCandidate);
+    setAmountSelection({ start: curStart + 1, end: curStart + 1 });
   };
 
   // Record Transaction
@@ -370,26 +429,21 @@ export const HomeScreen: React.FC = () => {
     return Math.max(COLLAPSED_SHEET_HEIGHT, SCREEN_HEIGHT - 210);
   }, [screenContainerHeight]);
 
-  // Content height computed purely from items and groups — zero layout feedback loops
+  // Content height computed accurately from items and groups
   const historyContentHeight = useMemo(() => {
-    if (transactions.length === 0) return 70;
-    const groupsHeight = groupedTransactions.length * 29;
-    const itemsHeight = Math.max(0, transactions.length - 1) * 56 + 50;
-    return groupsHeight + itemsHeight + 4;
+    if (transactions.length === 0) return 75;
+    // Each date group header is ~30px, plus 14px spacing between different dates
+    const groupsHeight = groupedTransactions.length * 30 + Math.max(0, groupedTransactions.length - 1) * 14;
+    // Each transaction card is ~54px + 6px marginBottom = 60px
+    const itemsHeight = transactions.length * 60;
+    return groupsHeight + itemsHeight;
   }, [groupedTransactions, transactions]);
 
-  // Determine whether the items exceed the maximum available expanded viewport.
-  // When there are few items (not scrollable), the sheet expands only to display available items with NO GAP,
-  // scrolling is disabled so the last item never scrolls up away from the handle, and items are bottom-docked.
-  const isScrollable = useMemo(() => {
-    const maxAvailableViewport = maxExpandedSheetHeight - 186;
-    return historyContentHeight > maxAvailableViewport;
-  }, [historyContentHeight, maxExpandedSheetHeight]);
-
-  // Dynamic Expanded Height: expands ONLY to display available items if few,
+  // Dynamic Expanded Height: accurately fits all available items with full visibility,
   // clamped at maxExpandedSheetHeight (strictly bounded above the bottom bar tab).
   const expandedSheetHeight = useMemo(() => {
-    const totalTarget = 186 + historyContentHeight;
+    // Base overhead: hero (~96) + history header (41) + drag handle (36) + scroll padding (12) + buffer = 192px
+    const totalTarget = 192 + historyContentHeight;
     return Math.min(maxExpandedSheetHeight, Math.max(COLLAPSED_SHEET_HEIGHT, totalTarget));
   }, [historyContentHeight, maxExpandedSheetHeight]);
 
@@ -448,12 +502,9 @@ export const HomeScreen: React.FC = () => {
       bounciness: 3,
       speed: 14,
     }).start(() => {
-      // Auto-scroll to the bottom so the latest transactions are directly in view if scrollable
-      if (isScrollable) {
-        setTimeout(() => {
-          historyScrollRef.current?.scrollToEnd?.({ animated: true });
-        }, 50);
-      }
+      setTimeout(() => {
+        historyScrollRef.current?.scrollToEnd?.({ animated: true });
+      }, 50);
     });
     setIsSheetExpanded(true);
     isExpandedRef.current = true;
@@ -466,10 +517,7 @@ export const HomeScreen: React.FC = () => {
       bounciness: 3,
       speed: 14,
     }).start(() => {
-      // Ensure bottom transaction remains perfectly aligned when collapsed
-      if (isScrollable) {
-        historyScrollRef.current?.scrollToEnd?.({ animated: false });
-      }
+      historyScrollRef.current?.scrollToEnd?.({ animated: false });
     });
     setIsSheetExpanded(false);
     isExpandedRef.current = false;
@@ -546,20 +594,38 @@ export const HomeScreen: React.FC = () => {
       {/* 1. BASE SCREEN: ENTRY WORKSPACE WITH CHIPS DOCKED ON KEYPAD     */}
       {/* ============================================================== */}
       <View style={[styles.baseEntryContainer, { paddingTop: COLLAPSED_SHEET_HEIGHT }]}>
-        {/* UPPER WORKSPACE: Amount Display (centered in remaining upper space) */}
+        {/* UPPER WORKSPACE: Amount Display with currency on left, native cursor, and paste ability */}
         <View style={styles.inputSpace}>
-          <Text style={[styles.currencyPrefix, { color: theme.onSurfaceVariant }]}>{curr}</Text>
-          <Text
-            style={[
-              styles.displayAmountText,
-              { color: txType === 'expense' ? theme.error : theme.success },
-            ]}
-            numberOfLines={1}
-            adjustsFontSizeToFit
-            minimumFontScale={0.5}
+          <TouchableOpacity
+            style={styles.amountDisplayRow}
+            activeOpacity={1}
+            onPress={() => amountInputRef.current?.focus()}
           >
-            {formatTypingNumber(amountStr)}
-          </Text>
+            <Text style={[styles.currencyPrefixLeft, { color: theme.onSurfaceVariant }]}>{curr}</Text>
+            <TextInput
+              ref={amountInputRef}
+              style={[
+                styles.displayAmountInput,
+                { color: txType === 'expense' ? theme.error : theme.success },
+              ]}
+              value={amountStr}
+              onChangeText={handleAmountChange}
+              onSelectionChange={(e) => setAmountSelection(e.nativeEvent.selection)}
+              selection={{
+                start: Math.min(amountSelection.start, amountStr.length),
+                end: Math.min(amountSelection.end, amountStr.length),
+              }}
+              keyboardType="decimal-pad"
+              cursorColor={txType === 'expense' ? theme.error : theme.success}
+              selectionColor={txType === 'expense' ? 'rgba(239, 68, 68, 0.25)' : 'rgba(16, 185, 129, 0.25)'}
+              selectTextOnFocus={false}
+              autoCapitalize="none"
+              autoCorrect={false}
+              contextMenuHidden={false}
+              scrollEnabled={false}
+            />
+          </TouchableOpacity>
+
           {isDuplicate && (
             <View style={[styles.duplicateBanner, { backgroundColor: '#FEF3C7' }]}>
               <MaterialCommunityIcons name="alert-outline" size={14} color="#D97706" />
@@ -1040,12 +1106,9 @@ export const HomeScreen: React.FC = () => {
             <ScrollView
               ref={historyScrollRef}
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={[
-                styles.historyScrollContent,
-                !isScrollable && styles.historyScrollContentFewItems,
-              ]}
+              contentContainerStyle={styles.historyScrollContent}
               nestedScrollEnabled={true}
-              scrollEnabled={isScrollable}
+              scrollEnabled={true}
               bounces={false}
               overScrollMode="never"
               onScroll={(e) => {
@@ -1087,7 +1150,6 @@ export const HomeScreen: React.FC = () => {
 
                     {/* Individual transaction items for this date */}
                     {group.items.map((tx, txIdx) => {
-                      const isLastItem = isLastGroup && txIdx === group.items.length - 1;
                       const cat = categories.find((c) => c.id === tx.category_id);
                       const sub = cat?.subcategories?.find((s) => s.id === tx.subcategory_id);
                       const wallet = wallets.find((w) => w.id === tx.wallet_id);
@@ -1111,7 +1173,6 @@ export const HomeScreen: React.FC = () => {
                           style={[
                             styles.txItemRow,
                             { backgroundColor: theme.cardBg, borderColor: theme.divider },
-                            isLastItem && { marginBottom: 0 },
                           ]}
                         >
                           <View
@@ -1526,18 +1587,31 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
+    paddingVertical: 10,
     paddingHorizontal: 16,
+    gap: 6,
   },
-  currencyPrefix: {
-    fontSize: 11,
+  amountDisplayRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    maxWidth: '100%',
+  },
+  currencyPrefixLeft: {
+    fontSize: 20,
     fontWeight: '800',
-    letterSpacing: 1.5,
+    letterSpacing: 0.5,
   },
-  displayAmountText: {
-    fontSize: 36,
+  displayAmountInput: {
+    fontSize: 42,
     fontWeight: '800',
     letterSpacing: -1,
+    paddingVertical: 0,
+    paddingHorizontal: 4,
+    minWidth: 40,
+    textAlign: 'left',
+    includeFontPadding: false,
   },
   duplicateBanner: {
     flexDirection: 'row',
@@ -1546,7 +1620,6 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: M3Shape.full,
     gap: 4,
-    marginTop: 2,
   },
   duplicateBannerText: {
     fontSize: 10,
@@ -1689,13 +1762,13 @@ const styles = StyleSheet.create({
   heroSection: {
     paddingHorizontal: 16,
     paddingTop: 10,
-    paddingBottom: 14,
+    paddingBottom: 8,
   },
   todayBalanceRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 2,
   },
   todayBalanceLabel: {
     fontSize: 10,
@@ -1795,11 +1868,7 @@ const styles = StyleSheet.create({
   historyScrollContent: {
     paddingHorizontal: 16,
     paddingTop: 4,
-    paddingBottom: 0, // flush against bottom
-  },
-  historyScrollContentFewItems: {
-    flexGrow: 1,
-    justifyContent: 'flex-end',
+    paddingBottom: 0, // 6px space between last item and drag handle
   },
   dateGroupContainer: {
     marginBottom: 14,
