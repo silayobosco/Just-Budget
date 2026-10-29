@@ -10,6 +10,8 @@ import {
   Dimensions,
   TextInput,
   Alert,
+  Keyboard,
+  Pressable,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
@@ -151,26 +153,30 @@ export const HomeScreen: React.FC = () => {
     }
   }, [wallets, selectedWalletId]);
 
+  // When transaction type or categories list change, clear category if current one is no longer applicable.
+  // Category is NOT auto-initialized; it only becomes active when explicitly selected by the user.
   useEffect(() => {
-    const activeCats = categories.filter((c) => c.type === (txType === 'income' ? 'income' : 'expense'));
-    if (activeCats.length > 0) {
+    if (selectedCategoryId) {
+      const activeCats = categories.filter((c) => c.type === (txType === 'income' ? 'income' : 'expense'));
       const found = activeCats.find((c) => c.id === selectedCategoryId);
       if (!found) {
-        setSelectedCategoryId(activeCats[0].id);
-        if (activeCats[0].subcategories && activeCats[0].subcategories.length > 0) {
-          setSelectedSubcategoryId(activeCats[0].subcategories[0].id);
-        } else {
-          setSelectedSubcategoryId('');
-        }
+        setSelectedCategoryId('');
+        setSelectedSubcategoryId('');
       }
-    } else {
-      setSelectedCategoryId('');
-      setSelectedSubcategoryId('');
     }
   }, [txType, categories, selectedCategoryId]);
 
-  // Handle category switch
+  // Handle category switch (tap selected category to deselect)
   const handleSelectCategory = (catId: string) => {
+    if (noteInputRef.current?.isFocused?.()) {
+      noteInputRef.current.blur();
+    }
+    Keyboard.dismiss();
+    if (selectedCategoryId === catId) {
+      setSelectedCategoryId('');
+      setSelectedSubcategoryId('');
+      return;
+    }
     setSelectedCategoryId(catId);
     const cat = categories.find((c) => c.id === catId);
     if (cat?.subcategories && cat.subcategories.length > 0) {
@@ -186,6 +192,30 @@ export const HomeScreen: React.FC = () => {
     end: 1,
   });
   const amountInputRef = useRef<any>(null);
+  const noteInputRef = useRef<any>(null);
+
+  // Tracks whether user is currently editing the note (with system keyboard visible)
+  const [isNoteEditing, setIsNoteEditing] = useState(false);
+
+  useEffect(() => {
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      setIsNoteEditing(false);
+    });
+    return () => {
+      hideSub.remove();
+    };
+  }, []);
+
+  // Keep amount input focused so cursor is ALWAYS visible and blinking on the amount,
+  // both on screen load and whenever returning from note editing.
+  useEffect(() => {
+    if (!isNoteEditing) {
+      const timer = setTimeout(() => {
+        amountInputRef.current?.focus();
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [isNoteEditing]);
 
   // Handle direct text changes (typing from soft keyboard or pasting from native context menu / Gboard)
   const handleAmountChange = (text: string) => {
@@ -210,6 +240,12 @@ export const HomeScreen: React.FC = () => {
 
   // Dial Pad Keypress (inserts or deletes at the current cursor selection position)
   const handleKeyPress = (val: string) => {
+    if (isNoteEditing || noteInputRef.current?.isFocused?.()) {
+      noteInputRef.current?.blur();
+      Keyboard.dismiss();
+      setIsNoteEditing(false);
+    }
+    amountInputRef.current?.focus();
     const rawStart = amountSelection.start ?? amountStr.length;
     const rawEnd = amountSelection.end ?? amountStr.length;
     const curStart = Math.min(amountStr.length, Math.max(0, rawStart));
@@ -218,6 +254,7 @@ export const HomeScreen: React.FC = () => {
     if (val === 'clear') {
       setAmountStr('0');
       setAmountSelection({ start: 1, end: 1 });
+      setTimeout(() => amountInputRef.current?.setSelection?.(1, 1), 10);
       return;
     }
 
@@ -229,6 +266,7 @@ export const HomeScreen: React.FC = () => {
         const next = (before + after) || '0';
         setAmountStr(next);
         setAmountSelection({ start: curStart, end: curStart });
+        setTimeout(() => amountInputRef.current?.setSelection?.(curStart, curStart), 10);
       } else if (curStart > 0) {
         // Delete single char before cursor
         const before = amountStr.slice(0, curStart - 1);
@@ -237,6 +275,7 @@ export const HomeScreen: React.FC = () => {
         setAmountStr(next);
         const newPos = Math.max(0, curStart - 1);
         setAmountSelection({ start: newPos, end: newPos });
+        setTimeout(() => amountInputRef.current?.setSelection?.(newPos, newPos), 10);
       }
       return;
     }
@@ -250,7 +289,9 @@ export const HomeScreen: React.FC = () => {
       const after = amountStr.slice(curEnd);
       const next = before + '.' + after;
       setAmountStr(next);
-      setAmountSelection({ start: curStart + 1, end: curStart + 1 });
+      const nextPos = curStart + 1;
+      setAmountSelection({ start: nextPos, end: nextPos });
+      setTimeout(() => amountInputRef.current?.setSelection?.(nextPos, nextPos), 10);
       return;
     }
 
@@ -258,6 +299,7 @@ export const HomeScreen: React.FC = () => {
     if (amountStr === '0') {
       setAmountStr(val);
       setAmountSelection({ start: 1, end: 1 });
+      setTimeout(() => amountInputRef.current?.setSelection?.(1, 1), 10);
       return;
     }
 
@@ -269,7 +311,9 @@ export const HomeScreen: React.FC = () => {
     if (nextCandidate.replace(/[^0-9]/g, '').length >= 12) return;
 
     setAmountStr(nextCandidate);
-    setAmountSelection({ start: curStart + 1, end: curStart + 1 });
+    const nextPos = curStart + 1;
+    setAmountSelection({ start: nextPos, end: nextPos });
+    setTimeout(() => amountInputRef.current?.setSelection?.(nextPos, nextPos), 10);
   };
 
   // Record Transaction
@@ -317,6 +361,8 @@ export const HomeScreen: React.FC = () => {
       // Reset entry state
       setAmountStr('0');
       setNote('');
+      setSelectedCategoryId('');
+      setSelectedSubcategoryId('');
     };
 
     if (isDuplicate) {
@@ -594,14 +640,31 @@ export const HomeScreen: React.FC = () => {
       {/* 1. BASE SCREEN: ENTRY WORKSPACE WITH CHIPS DOCKED ON KEYPAD     */}
       {/* ============================================================== */}
       <View style={[styles.baseEntryContainer, { paddingTop: COLLAPSED_SHEET_HEIGHT }]}>
+        {/* Dismiss overlay when keyboard is open for note editing:
+            Tapping anywhere outside note card cleanly closes the keyboard BEFORE number entry is touched */}
+        {isNoteEditing && (
+          <Pressable
+            style={[StyleSheet.absoluteFill, { zIndex: 90 }]}
+            onPress={() => {
+              noteInputRef.current?.blur();
+              Keyboard.dismiss();
+              setIsNoteEditing(false);
+              setTimeout(() => {
+                amountInputRef.current?.focus();
+              }, 120);
+            }}
+          />
+        )}
+
         {/* UPPER WORKSPACE: Amount Display with currency on left, native cursor, and paste ability */}
         <View style={styles.inputSpace}>
-          <TouchableOpacity
-            style={styles.amountDisplayRow}
-            activeOpacity={1}
-            onPress={() => amountInputRef.current?.focus()}
-          >
-            <Text style={[styles.currencyPrefixLeft, { color: theme.onSurfaceVariant }]}>{curr}</Text>
+          <View style={styles.amountDisplayRow}>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => amountInputRef.current?.focus()}
+            >
+              <Text style={[styles.currencyPrefixLeft, { color: theme.onSurfaceVariant }]}>{curr}</Text>
+            </TouchableOpacity>
             <TextInput
               ref={amountInputRef}
               style={[
@@ -611,11 +674,8 @@ export const HomeScreen: React.FC = () => {
               value={amountStr}
               onChangeText={handleAmountChange}
               onSelectionChange={(e) => setAmountSelection(e.nativeEvent.selection)}
-              selection={{
-                start: Math.min(amountSelection.start, amountStr.length),
-                end: Math.min(amountSelection.end, amountStr.length),
-              }}
-              keyboardType="decimal-pad"
+              showSoftInputOnFocus={false}
+              caretHidden={false}
               cursorColor={txType === 'expense' ? theme.error : theme.success}
               selectionColor={txType === 'expense' ? 'rgba(239, 68, 68, 0.25)' : 'rgba(16, 185, 129, 0.25)'}
               selectTextOnFocus={false}
@@ -624,7 +684,7 @@ export const HomeScreen: React.FC = () => {
               contextMenuHidden={false}
               scrollEnabled={false}
             />
-          </TouchableOpacity>
+          </View>
 
           {isDuplicate && (
             <View style={[styles.duplicateBanner, { backgroundColor: '#FEF3C7' }]}>
@@ -695,8 +755,45 @@ export const HomeScreen: React.FC = () => {
             </TouchableOpacity>
           </View>
 
-          {/* CHIP SELECTION STRIPS: Wallet, Category, Subcategory, Notes */}
+          {/* CHIP SELECTION STRIPS: Note, Wallet, Category, Subcategory */}
           <View style={[styles.chipsWorkspace, { backgroundColor: theme.surface }]}>
+            {/* NOTE INPUT CARD (Positioned above Wallets with enhanced card size) */}
+            <View style={[styles.noteRow, { backgroundColor: theme.pillBg, borderColor: theme.divider, zIndex: 100 }]}>
+              <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.primary} />
+              <TextInput
+                ref={noteInputRef}
+                style={[styles.noteInput, { color: theme.onSurface }]}
+                placeholder="Add optional note or tag..."
+                placeholderTextColor={theme.onSurfaceVariant}
+                value={note}
+                onChangeText={setNote}
+                maxLength={80}
+                onFocus={() => setIsNoteEditing(true)}
+                onBlur={() => {
+                  setIsNoteEditing(false);
+                  Keyboard.dismiss();
+                  setTimeout(() => {
+                    amountInputRef.current?.focus();
+                  }, 120);
+                }}
+                returnKeyType="done"
+                blurOnSubmit={true}
+                onSubmitEditing={() => {
+                  noteInputRef.current?.blur();
+                  Keyboard.dismiss();
+                  setIsNoteEditing(false);
+                  setTimeout(() => {
+                    amountInputRef.current?.focus();
+                  }, 120);
+                }}
+              />
+              {note.length > 0 && (
+                <TouchableOpacity onPress={() => setNote('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <MaterialCommunityIcons name="close-circle" size={18} color={theme.outline} />
+                </TouchableOpacity>
+              )}
+            </View>
+
             {/* WALLETS ROW */}
             <View style={styles.chipRowWrap}>
               <Text style={[styles.chipSectionLabel, { color: theme.onSurfaceVariant }]}>WALLET</Text>
@@ -713,7 +810,13 @@ export const HomeScreen: React.FC = () => {
                           borderColor: isSelected ? theme.primary : 'transparent',
                         },
                       ]}
-                      onPress={() => setSelectedWalletId(w.id)}
+                      onPress={() => {
+                        if (noteInputRef.current?.isFocused?.()) {
+                          noteInputRef.current.blur();
+                        }
+                        Keyboard.dismiss();
+                        setSelectedWalletId(w.id);
+                      }}
                       activeOpacity={0.7}
                     >
                       <MaterialCommunityIcons
@@ -811,7 +914,13 @@ export const HomeScreen: React.FC = () => {
                             backgroundColor: isSelected ? theme.secondaryContainer : theme.pillBg,
                           },
                         ]}
-                        onPress={() => setSelectedSubcategoryId(s.id)}
+                        onPress={() => {
+                          if (noteInputRef.current?.isFocused?.()) {
+                            noteInputRef.current.blur();
+                          }
+                          Keyboard.dismiss();
+                          setSelectedSubcategoryId(isSelected ? '' : s.id);
+                        }}
                         activeOpacity={0.7}
                       >
                         <Text
@@ -840,24 +949,6 @@ export const HomeScreen: React.FC = () => {
                 </ScrollView>
               </View>
             )}
-
-            {/* NOTE INPUT ROW */}
-            <View style={[styles.noteRow, { backgroundColor: theme.pillBg }]}>
-              <MaterialCommunityIcons name="pencil-outline" size={15} color={theme.onSurfaceVariant} />
-              <TextInput
-                style={[styles.noteInput, { color: theme.onSurface }]}
-                placeholder="Add optional note or tag..."
-                placeholderTextColor={theme.onSurfaceVariant}
-                value={note}
-                onChangeText={setNote}
-                maxLength={80}
-              />
-              {note.length > 0 && (
-                <TouchableOpacity onPress={() => setNote('')}>
-                  <MaterialCommunityIcons name="close-circle" size={15} color={theme.outline} />
-                </TouchableOpacity>
-              )}
-            </View>
           </View>
 
           {/* 1B. DOCKED DIAL PAD (PINNED TO BOTTOM) */}
@@ -1607,11 +1698,10 @@ const styles = StyleSheet.create({
     fontSize: 42,
     fontWeight: '800',
     letterSpacing: -1,
-    paddingVertical: 0,
-    paddingHorizontal: 4,
-    minWidth: 40,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    minWidth: 50,
     textAlign: 'left',
-    includeFontPadding: false,
   },
   duplicateBanner: {
     flexDirection: 'row',
@@ -1680,15 +1770,18 @@ const styles = StyleSheet.create({
   noteRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    minHeight: 44,
     borderRadius: M3Shape.medium,
-    gap: 8,
-    marginTop: 2,
+    borderWidth: 1,
+    gap: 10,
+    marginVertical: 4,
   },
   noteInput: {
     flex: 1,
-    fontSize: 12,
+    fontSize: 14,
+    fontWeight: '500',
     paddingVertical: 0,
   },
 
