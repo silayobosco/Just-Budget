@@ -395,7 +395,6 @@ export const HomeScreen: React.FC = () => {
   const scrollOffsetRef = useRef(0);
   const contentHeightRef = useRef(0);
   const layoutHeightRef = useRef(0);
-  const isAtBottomRef = useRef(true);
 
   // ==============================================================
   // TOP SHEET PULL-DOWN GESTURE & ANIMATION
@@ -458,7 +457,6 @@ export const HomeScreen: React.FC = () => {
       if (isScrollable) {
         setTimeout(() => {
           historyScrollRef.current?.scrollToEnd?.({ animated: true });
-          isAtBottomRef.current = true;
         }, 50);
       }
     });
@@ -476,7 +474,6 @@ export const HomeScreen: React.FC = () => {
       // Ensure bottom transaction remains perfectly aligned when collapsed
       if (isScrollable) {
         historyScrollRef.current?.scrollToEnd?.({ animated: false });
-        isAtBottomRef.current = true;
       }
     });
     setIsSheetExpanded(false);
@@ -491,81 +488,20 @@ export const HomeScreen: React.FC = () => {
     }
   };
 
-  // Main Handle & Hero Section PanResponder
+  // Top Sheet Pull-Down PanResponder (for expanding when collapsed; no gesture for collapsing)
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dy) > 5,
-      onPanResponderGrant: () => {},
-      onPanResponderMove: (_, gestureState) => {
-        const baseH = isExpandedRef.current ? expandedSheetHeight : COLLAPSED_SHEET_HEIGHT;
-        let nextH = baseH + gestureState.dy;
-        if (nextH < COLLAPSED_SHEET_HEIGHT) {
-          nextH = COLLAPSED_SHEET_HEIGHT;
-        } else if (nextH > expandedSheetHeight) {
-          nextH = expandedSheetHeight + (nextH - expandedSheetHeight) * 0.2;
-        }
-        animatedHeight.setValue(nextH);
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        const currentH = currentHeightRef.current;
-        const threshold = (COLLAPSED_SHEET_HEIGHT + expandedSheetHeight) / 2;
-
-        if (isExpandedRef.current) {
-          // In expanded mode: collapsing upwards
-          const isFlickUp = gestureState.vy < -0.45;
-          const isDragUp = gestureState.dy < -60;
-          if (isFlickUp || isDragUp || currentH < threshold) {
-            closeSheet();
-          } else {
-            // Less contact -> spring back open
-            openSheet();
-          }
-        } else {
-          // In collapsed mode: expanding downwards
-          const isFlickDown = gestureState.vy > 0.4;
-          const isDragDown = gestureState.dy > 35;
-          if (isFlickDown || isDragDown || currentH > threshold) {
-            openSheet();
-          } else {
-            closeSheet();
-          }
-        }
-      },
-      onPanResponderTerminate: () => {
-        const currentH = currentHeightRef.current;
-        const threshold = (COLLAPSED_SHEET_HEIGHT + expandedSheetHeight) / 2;
-        if (currentH < threshold) {
-          closeSheet();
-        } else {
-          openSheet();
-        }
-      },
-    })
-  ).current;
-
-  // History List PanResponder:
-  // When at the bottom (latest item reached) and user drags/overscrolls upward,
-  // it dynamically drives the sheet height interactively (acting like the drag handle).
-  // If released with high velocity or distance -> collapses.
-  // If finger had less contact/low travel -> springs back open (like universal home gesture).
-  const historyPanResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (_, gestureState) => {
-        if (!isExpandedRef.current) return false;
-        // If not scrollable (few items), ANY upward pull collapses the sheet
-        // If scrollable, only capture when at the bottom (latest item reached)
-        if (gestureState.dy < -6 && (!isScrollable || isAtBottomRef.current)) {
+        // Only pull down to expand when collapsed; no gesture for collapsing
+        if (!isExpandedRef.current && gestureState.dy > 5) {
           return true;
         }
         return false;
       },
       onPanResponderGrant: () => {},
       onPanResponderMove: (_, gestureState) => {
-        // Interactively collapse the top sheet as the finger moves up
-        const baseH = expandedSheetHeight;
-        let nextH = baseH + gestureState.dy;
+        let nextH = COLLAPSED_SHEET_HEIGHT + gestureState.dy;
         if (nextH < COLLAPSED_SHEET_HEIGHT) {
           nextH = COLLAPSED_SHEET_HEIGHT;
         } else if (nextH > expandedSheetHeight) {
@@ -574,27 +510,23 @@ export const HomeScreen: React.FC = () => {
         animatedHeight.setValue(nextH);
       },
       onPanResponderRelease: (_, gestureState) => {
-        const dragUpDistance = -gestureState.dy; // positive when dragged up
-        const isFlickUp = gestureState.vy < -0.45;
         const currentH = currentHeightRef.current;
-        const threshold = (COLLAPSED_SHEET_HEIGHT + expandedSheetHeight) * 0.65;
-
-        // Universal bottom nav / home gesture behavior:
-        // If released with fast upward velocity or dragged past threshold -> collapse
-        // If finger had less contact (small drag / low speed) -> spring back open
-        if (isFlickUp || dragUpDistance > 65 || currentH < threshold) {
-          closeSheet();
-        } else {
+        const threshold = (COLLAPSED_SHEET_HEIGHT + expandedSheetHeight) / 2;
+        const isFlickDown = gestureState.vy > 0.4;
+        const isDragDown = gestureState.dy > 35;
+        if (isFlickDown || isDragDown || currentH > threshold) {
           openSheet();
+        } else {
+          closeSheet();
         }
       },
       onPanResponderTerminate: () => {
         const currentH = currentHeightRef.current;
         const threshold = (COLLAPSED_SHEET_HEIGHT + expandedSheetHeight) / 2;
-        if (currentH < threshold) {
-          closeSheet();
-        } else {
+        if (currentH > threshold) {
           openSheet();
+        } else {
+          closeSheet();
         }
       },
     })
@@ -1069,7 +1001,7 @@ export const HomeScreen: React.FC = () => {
         </View>
 
         {/* 2B. HISTORY LIST (REVEALED WHEN SHEET PULLS DOWN) */}
-        <View {...historyPanResponder.panHandlers} style={styles.activityContentWrapper}>
+        <View style={styles.activityContentWrapper}>
           {/* STICKY TOP HISTORY HEADER (Fades in when expanded, hides when collapsed) */}
           <Animated.View
             style={[
@@ -1127,7 +1059,6 @@ export const HomeScreen: React.FC = () => {
                 scrollOffsetRef.current = contentOffset.y;
                 contentHeightRef.current = contentSize.height;
                 layoutHeightRef.current = layoutMeasurement.height;
-                isAtBottomRef.current = contentOffset.y + layoutMeasurement.height >= contentSize.height - 12;
               }}
               onContentSizeChange={(_, h) => {
                 contentHeightRef.current = h;
@@ -1273,7 +1204,7 @@ export const HomeScreen: React.FC = () => {
                 color={theme.onSurfaceVariant}
               />
               <Text style={[styles.dragHandleHintText, { color: theme.onSurfaceVariant }]}>
-                {isSheetExpanded ? 'Slide up for dial pad' : 'Pull down to see more history'}
+                {isSheetExpanded ? 'Tap to close history' : 'Pull down to see more history'}
               </Text>
             </View>
           </TouchableOpacity>
