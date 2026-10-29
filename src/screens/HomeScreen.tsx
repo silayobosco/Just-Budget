@@ -22,9 +22,7 @@ const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 // Top Sheet Heights:
 // In collapsed state: shows today's balance + expense|income switcher + preview of the latest transaction + drag handle (~215px)
-// Maximum allowed expanded height: covers the workspace down to the top of the bottom navigation tabs
 const COLLAPSED_SHEET_HEIGHT = 215;
-const MAX_EXPANDED_SHEET_HEIGHT = Math.round(SCREEN_HEIGHT * 0.94);
 
 export const HomeScreen: React.FC = () => {
   const {
@@ -360,11 +358,20 @@ export const HomeScreen: React.FC = () => {
   }, [transactions]);
 
   // Measured layout heights for pixel-perfect dynamic sizing
-  const [measuredContentHeight, setMeasuredContentHeight] = useState(0);
-  const [heroHeight, setHeroHeight] = useState(110);
+  const [screenContainerHeight, setScreenContainerHeight] = useState(0);
 
-  // Fallback calculation in case layout hasn't measured yet
-  const computedFallbackContentHeight = useMemo(() => {
+  // Maximum allowed expanded height: rigorously bounded by the actual container height,
+  // leaving 6px clearance so it NEVER passes, touches, or overlaps the bottom navigation tabs.
+  const maxExpandedSheetHeight = useMemo(() => {
+    if (screenContainerHeight > 0) {
+      return Math.max(COLLAPSED_SHEET_HEIGHT, screenContainerHeight - 6);
+    }
+    // Safe initial fallback before onLayout: window height minus status bar, header, and bottom tabs (~210px)
+    return Math.max(COLLAPSED_SHEET_HEIGHT, SCREEN_HEIGHT - 210);
+  }, [screenContainerHeight]);
+
+  // Content height computed purely from items and groups — zero layout feedback loops
+  const historyContentHeight = useMemo(() => {
     if (transactions.length === 0) return 70;
     const groupsHeight = groupedTransactions.length * 29;
     const itemsHeight = Math.max(0, transactions.length - 1) * 56 + 50;
@@ -375,20 +382,16 @@ export const HomeScreen: React.FC = () => {
   // When there are few items (not scrollable), the sheet expands only to display available items with NO GAP,
   // scrolling is disabled so the last item never scrolls up away from the handle, and items are bottom-docked.
   const isScrollable = useMemo(() => {
-    const contentH = measuredContentHeight > 0 ? measuredContentHeight : computedFallbackContentHeight;
-    const maxAvailableViewport = MAX_EXPANDED_SHEET_HEIGHT - (heroHeight + 80);
-    return contentH > maxAvailableViewport;
-  }, [measuredContentHeight, computedFallbackContentHeight, heroHeight]);
+    const maxAvailableViewport = maxExpandedSheetHeight - 186;
+    return historyContentHeight > maxAvailableViewport;
+  }, [historyContentHeight, maxExpandedSheetHeight]);
 
   // Dynamic Expanded Height: expands ONLY to display available items if few,
-  // clamped at MAX_EXPANDED_SHEET_HEIGHT (never goes below bottom navigation tabs).
+  // clamped at maxExpandedSheetHeight (strictly bounded above the bottom bar tab).
   const expandedSheetHeight = useMemo(() => {
-    const contentH = measuredContentHeight > 0 ? measuredContentHeight : computedFallbackContentHeight;
-    // Base overhead: hero + history header (40) + drag handle (36) + scroll padding (4)
-    const overhead = heroHeight + 80;
-    const totalTarget = overhead + contentH;
-    return Math.min(MAX_EXPANDED_SHEET_HEIGHT, Math.max(COLLAPSED_SHEET_HEIGHT, totalTarget));
-  }, [measuredContentHeight, computedFallbackContentHeight, heroHeight]);
+    const totalTarget = 186 + historyContentHeight;
+    return Math.min(maxExpandedSheetHeight, Math.max(COLLAPSED_SHEET_HEIGHT, totalTarget));
+  }, [historyContentHeight, maxExpandedSheetHeight]);
 
   // Ref to hold the scrollview to auto-scroll to the end (newest transactions at bottom)
   const historyScrollRef = useRef<any>(null);
@@ -404,14 +407,13 @@ export const HomeScreen: React.FC = () => {
   const isExpandedRef = useRef(false);
   const currentHeightRef = useRef(COLLAPSED_SHEET_HEIGHT);
 
-  // Auto-adapt sheet height if content changes (e.g. items added or deleted) while expanded
+  // Smoothly glide sheet height if content count changes (e.g. items added or deleted) while expanded
   useEffect(() => {
     if (isExpandedRef.current) {
-      Animated.spring(animatedHeight, {
+      Animated.timing(animatedHeight, {
         toValue: expandedSheetHeight,
+        duration: 180,
         useNativeDriver: false,
-        bounciness: 2,
-        speed: 16,
       }).start();
     }
   }, [expandedSheetHeight]);
@@ -433,18 +435,11 @@ export const HomeScreen: React.FC = () => {
   useEffect(() => {
     const id = animatedHeight.addListener(({ value }) => {
       currentHeightRef.current = value;
-      // When sheet is collapsing (height shrinking), scroll items up in lockstep
-      // so the bottom items stay docked to the handle and visible in the collapsed sheet
-      if (isScrollable && contentHeightRef.current > 0 && value < expandedSheetHeight - 5) {
-        const visibleH = Math.max(40, value - (heroHeight + 40));
-        const maxScroll = Math.max(0, contentHeightRef.current - visibleH);
-        historyScrollRef.current?.scrollTo?.({ y: maxScroll, animated: false });
-      }
     });
     return () => {
       animatedHeight.removeListener(id);
     };
-  }, [animatedHeight, expandedSheetHeight, isScrollable, heroHeight]);
+  }, [animatedHeight]);
 
   const openSheet = () => {
     Animated.spring(animatedHeight, {
@@ -543,7 +538,10 @@ export const HomeScreen: React.FC = () => {
   const todayNetBalance = todayIncome - todaySpent;
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
+    <View
+      onLayout={(e) => setScreenContainerHeight(e.nativeEvent.layout.height)}
+      style={[styles.container, { backgroundColor: theme.background }]}
+    >
       {/* ============================================================== */}
       {/* 1. BASE SCREEN: ENTRY WORKSPACE WITH CHIPS DOCKED ON KEYPAD     */}
       {/* ============================================================== */}
@@ -876,11 +874,7 @@ export const HomeScreen: React.FC = () => {
         ]}
       >
         {/* 2A. HERO HEADER: TODAY'S BALANCE + EXPENSE|INCOME SWITCHER */}
-        <View
-          {...panResponder.panHandlers}
-          onLayout={(e) => setHeroHeight(e.nativeEvent.layout.height)}
-          style={styles.heroSection}
-        >
+        <View {...panResponder.panHandlers} style={styles.heroSection}>
           {/* Today's Net Balance Row */}
           <View style={styles.todayBalanceRow}>
             <View>
@@ -1059,13 +1053,6 @@ export const HomeScreen: React.FC = () => {
                 scrollOffsetRef.current = contentOffset.y;
                 contentHeightRef.current = contentSize.height;
                 layoutHeightRef.current = layoutMeasurement.height;
-              }}
-              onContentSizeChange={(_, h) => {
-                contentHeightRef.current = h;
-                setMeasuredContentHeight(h);
-              }}
-              onLayout={(e) => {
-                layoutHeightRef.current = e.nativeEvent.layout.height;
               }}
               scrollEventThrottle={16}
             >
@@ -1486,6 +1473,7 @@ export const HomeScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    overflow: 'hidden',
   },
 
   // 1. BASE SCREEN: ENTRY WORKSPACE & DOCKED DIAL PAD
