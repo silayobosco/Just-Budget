@@ -21,10 +21,10 @@ import { CategoryManagerModal } from '../components/CategoryManagerModal';
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 // Top Sheet Heights:
-// In collapsed state: ONLY today's balance + expense|income switcher + drag handle are visible (~152px)
-// In expanded state: pulls down to reveal Recent Activity list (~76% of screen height)
-const COLLAPSED_SHEET_HEIGHT = 152;
-const EXPANDED_SHEET_HEIGHT = Math.min(580, Math.round(SCREEN_HEIGHT * 0.76));
+// In collapsed state: shows today's balance + expense|income switcher + preview of the latest transaction + drag handle (~215px)
+// Maximum allowed expanded height: covers the workspace down to the top of the bottom navigation tabs
+const COLLAPSED_SHEET_HEIGHT = 215;
+const MAX_EXPANDED_SHEET_HEIGHT = Math.round(SCREEN_HEIGHT * 0.94);
 
 export const HomeScreen: React.FC = () => {
   const {
@@ -301,85 +301,6 @@ export const HomeScreen: React.FC = () => {
     setQuickSubModalVisible(false);
   };
 
-  // ==============================================================
-  // TOP SHEET PULL-DOWN GESTURE & ANIMATION
-  // ==============================================================
-  const animatedHeight = useRef(new Animated.Value(COLLAPSED_SHEET_HEIGHT)).current;
-  const [isSheetExpanded, setIsSheetExpanded] = useState(false);
-  const isExpandedRef = useRef(false);
-  const currentHeightRef = useRef(COLLAPSED_SHEET_HEIGHT);
-
-  useEffect(() => {
-    const id = animatedHeight.addListener(({ value }) => {
-      currentHeightRef.current = value;
-    });
-    return () => {
-      animatedHeight.removeListener(id);
-    };
-  }, [animatedHeight]);
-
-  const openSheet = () => {
-    Animated.spring(animatedHeight, {
-      toValue: EXPANDED_SHEET_HEIGHT,
-      useNativeDriver: false,
-      bounciness: 3,
-      speed: 14,
-    }).start();
-    setIsSheetExpanded(true);
-    isExpandedRef.current = true;
-  };
-
-  const closeSheet = () => {
-    Animated.spring(animatedHeight, {
-      toValue: COLLAPSED_SHEET_HEIGHT,
-      useNativeDriver: false,
-      bounciness: 3,
-      speed: 14,
-    }).start();
-    setIsSheetExpanded(false);
-    isExpandedRef.current = false;
-  };
-
-  const toggleSheet = () => {
-    if (isExpandedRef.current) {
-      closeSheet();
-    } else {
-      openSheet();
-    }
-  };
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dy) > 5,
-      onPanResponderGrant: () => {},
-      onPanResponderMove: (_, gestureState) => {
-        const baseH = isExpandedRef.current ? EXPANDED_SHEET_HEIGHT : COLLAPSED_SHEET_HEIGHT;
-        let nextH = baseH + gestureState.dy;
-        if (nextH < COLLAPSED_SHEET_HEIGHT) {
-          nextH = COLLAPSED_SHEET_HEIGHT;
-        } else if (nextH > EXPANDED_SHEET_HEIGHT) {
-          nextH = EXPANDED_SHEET_HEIGHT + (nextH - EXPANDED_SHEET_HEIGHT) * 0.2;
-        }
-        animatedHeight.setValue(nextH);
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        const currentH = currentHeightRef.current;
-        const threshold = (COLLAPSED_SHEET_HEIGHT + EXPANDED_SHEET_HEIGHT) / 2;
-
-        if (
-          gestureState.vy > 0.4 ||
-          (!isExpandedRef.current && gestureState.dy > 35) ||
-          currentH > threshold
-        ) {
-          openSheet();
-        } else {
-          closeSheet();
-        }
-      },
-    })
-  ).current;
-
   // Group transactions by date with total spent/income that day
   // INVERTED: chronological order where newest date is at the bottom,
   // and inside each day, transactions are ordered so newest is at the bottom.
@@ -437,6 +358,247 @@ export const HomeScreen: React.FC = () => {
 
     return groups;
   }, [transactions]);
+
+  // Measured layout heights for pixel-perfect dynamic sizing
+  const [measuredContentHeight, setMeasuredContentHeight] = useState(0);
+  const [heroHeight, setHeroHeight] = useState(110);
+
+  // Fallback calculation in case layout hasn't measured yet
+  const computedFallbackContentHeight = useMemo(() => {
+    if (transactions.length === 0) return 70;
+    const groupsHeight = groupedTransactions.length * 29;
+    const itemsHeight = Math.max(0, transactions.length - 1) * 56 + 50;
+    return groupsHeight + itemsHeight + 4;
+  }, [groupedTransactions, transactions]);
+
+  // Determine whether the items exceed the maximum available expanded viewport.
+  // When there are few items (not scrollable), the sheet expands only to display available items with NO GAP,
+  // scrolling is disabled so the last item never scrolls up away from the handle, and items are bottom-docked.
+  const isScrollable = useMemo(() => {
+    const contentH = measuredContentHeight > 0 ? measuredContentHeight : computedFallbackContentHeight;
+    const maxAvailableViewport = MAX_EXPANDED_SHEET_HEIGHT - (heroHeight + 80);
+    return contentH > maxAvailableViewport;
+  }, [measuredContentHeight, computedFallbackContentHeight, heroHeight]);
+
+  // Dynamic Expanded Height: expands ONLY to display available items if few,
+  // clamped at MAX_EXPANDED_SHEET_HEIGHT (never goes below bottom navigation tabs).
+  const expandedSheetHeight = useMemo(() => {
+    const contentH = measuredContentHeight > 0 ? measuredContentHeight : computedFallbackContentHeight;
+    // Base overhead: hero + history header (40) + drag handle (36) + scroll padding (4)
+    const overhead = heroHeight + 80;
+    const totalTarget = overhead + contentH;
+    return Math.min(MAX_EXPANDED_SHEET_HEIGHT, Math.max(COLLAPSED_SHEET_HEIGHT, totalTarget));
+  }, [measuredContentHeight, computedFallbackContentHeight, heroHeight]);
+
+  // Ref to hold the scrollview to auto-scroll to the end (newest transactions at bottom)
+  const historyScrollRef = useRef<any>(null);
+  const scrollOffsetRef = useRef(0);
+  const contentHeightRef = useRef(0);
+  const layoutHeightRef = useRef(0);
+  const isAtBottomRef = useRef(true);
+
+  // ==============================================================
+  // TOP SHEET PULL-DOWN GESTURE & ANIMATION
+  // ==============================================================
+  const animatedHeight = useRef(new Animated.Value(COLLAPSED_SHEET_HEIGHT)).current;
+  const [isSheetExpanded, setIsSheetExpanded] = useState(false);
+  const isExpandedRef = useRef(false);
+  const currentHeightRef = useRef(COLLAPSED_SHEET_HEIGHT);
+
+  // Auto-adapt sheet height if content changes (e.g. items added or deleted) while expanded
+  useEffect(() => {
+    if (isExpandedRef.current) {
+      Animated.spring(animatedHeight, {
+        toValue: expandedSheetHeight,
+        useNativeDriver: false,
+        bounciness: 2,
+        speed: 16,
+      }).start();
+    }
+  }, [expandedSheetHeight]);
+
+  // Interpolate opacity/height of the sticky History header:
+  // Visible ONLY when expanded; smoothly fades out to 0 when collapsed so the last item is directly seen.
+  const historyHeaderOpacity = animatedHeight.interpolate({
+    inputRange: [COLLAPSED_SHEET_HEIGHT, COLLAPSED_SHEET_HEIGHT + 35],
+    outputRange: [0, 1],
+    extrapolate: 'clamp',
+  });
+
+  const historyHeaderHeight = animatedHeight.interpolate({
+    inputRange: [COLLAPSED_SHEET_HEIGHT, COLLAPSED_SHEET_HEIGHT + 35],
+    outputRange: [0, 40],
+    extrapolate: 'clamp',
+  });
+
+  useEffect(() => {
+    const id = animatedHeight.addListener(({ value }) => {
+      currentHeightRef.current = value;
+      // When sheet is collapsing (height shrinking), scroll items up in lockstep
+      // so the bottom items stay docked to the handle and visible in the collapsed sheet
+      if (isScrollable && contentHeightRef.current > 0 && value < expandedSheetHeight - 5) {
+        const visibleH = Math.max(40, value - (heroHeight + 40));
+        const maxScroll = Math.max(0, contentHeightRef.current - visibleH);
+        historyScrollRef.current?.scrollTo?.({ y: maxScroll, animated: false });
+      }
+    });
+    return () => {
+      animatedHeight.removeListener(id);
+    };
+  }, [animatedHeight, expandedSheetHeight, isScrollable, heroHeight]);
+
+  const openSheet = () => {
+    Animated.spring(animatedHeight, {
+      toValue: expandedSheetHeight,
+      useNativeDriver: false,
+      bounciness: 3,
+      speed: 14,
+    }).start(() => {
+      // Auto-scroll to the bottom so the latest transactions are directly in view if scrollable
+      if (isScrollable) {
+        setTimeout(() => {
+          historyScrollRef.current?.scrollToEnd?.({ animated: true });
+          isAtBottomRef.current = true;
+        }, 50);
+      }
+    });
+    setIsSheetExpanded(true);
+    isExpandedRef.current = true;
+  };
+
+  const closeSheet = () => {
+    Animated.spring(animatedHeight, {
+      toValue: COLLAPSED_SHEET_HEIGHT,
+      useNativeDriver: false,
+      bounciness: 3,
+      speed: 14,
+    }).start(() => {
+      // Ensure bottom transaction remains perfectly aligned when collapsed
+      if (isScrollable) {
+        historyScrollRef.current?.scrollToEnd?.({ animated: false });
+        isAtBottomRef.current = true;
+      }
+    });
+    setIsSheetExpanded(false);
+    isExpandedRef.current = false;
+  };
+
+  const toggleSheet = () => {
+    if (isExpandedRef.current) {
+      closeSheet();
+    } else {
+      openSheet();
+    }
+  };
+
+  // Main Handle & Hero Section PanResponder
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dy) > 5,
+      onPanResponderGrant: () => {},
+      onPanResponderMove: (_, gestureState) => {
+        const baseH = isExpandedRef.current ? expandedSheetHeight : COLLAPSED_SHEET_HEIGHT;
+        let nextH = baseH + gestureState.dy;
+        if (nextH < COLLAPSED_SHEET_HEIGHT) {
+          nextH = COLLAPSED_SHEET_HEIGHT;
+        } else if (nextH > expandedSheetHeight) {
+          nextH = expandedSheetHeight + (nextH - expandedSheetHeight) * 0.2;
+        }
+        animatedHeight.setValue(nextH);
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        const currentH = currentHeightRef.current;
+        const threshold = (COLLAPSED_SHEET_HEIGHT + expandedSheetHeight) / 2;
+
+        if (isExpandedRef.current) {
+          // In expanded mode: collapsing upwards
+          const isFlickUp = gestureState.vy < -0.45;
+          const isDragUp = gestureState.dy < -60;
+          if (isFlickUp || isDragUp || currentH < threshold) {
+            closeSheet();
+          } else {
+            // Less contact -> spring back open
+            openSheet();
+          }
+        } else {
+          // In collapsed mode: expanding downwards
+          const isFlickDown = gestureState.vy > 0.4;
+          const isDragDown = gestureState.dy > 35;
+          if (isFlickDown || isDragDown || currentH > threshold) {
+            openSheet();
+          } else {
+            closeSheet();
+          }
+        }
+      },
+      onPanResponderTerminate: () => {
+        const currentH = currentHeightRef.current;
+        const threshold = (COLLAPSED_SHEET_HEIGHT + expandedSheetHeight) / 2;
+        if (currentH < threshold) {
+          closeSheet();
+        } else {
+          openSheet();
+        }
+      },
+    })
+  ).current;
+
+  // History List PanResponder:
+  // When at the bottom (latest item reached) and user drags/overscrolls upward,
+  // it dynamically drives the sheet height interactively (acting like the drag handle).
+  // If released with high velocity or distance -> collapses.
+  // If finger had less contact/low travel -> springs back open (like universal home gesture).
+  const historyPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        if (!isExpandedRef.current) return false;
+        // If not scrollable (few items), ANY upward pull collapses the sheet
+        // If scrollable, only capture when at the bottom (latest item reached)
+        if (gestureState.dy < -6 && (!isScrollable || isAtBottomRef.current)) {
+          return true;
+        }
+        return false;
+      },
+      onPanResponderGrant: () => {},
+      onPanResponderMove: (_, gestureState) => {
+        // Interactively collapse the top sheet as the finger moves up
+        const baseH = expandedSheetHeight;
+        let nextH = baseH + gestureState.dy;
+        if (nextH < COLLAPSED_SHEET_HEIGHT) {
+          nextH = COLLAPSED_SHEET_HEIGHT;
+        } else if (nextH > expandedSheetHeight) {
+          nextH = expandedSheetHeight + (nextH - expandedSheetHeight) * 0.2;
+        }
+        animatedHeight.setValue(nextH);
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        const dragUpDistance = -gestureState.dy; // positive when dragged up
+        const isFlickUp = gestureState.vy < -0.45;
+        const currentH = currentHeightRef.current;
+        const threshold = (COLLAPSED_SHEET_HEIGHT + expandedSheetHeight) * 0.65;
+
+        // Universal bottom nav / home gesture behavior:
+        // If released with fast upward velocity or dragged past threshold -> collapse
+        // If finger had less contact (small drag / low speed) -> spring back open
+        if (isFlickUp || dragUpDistance > 65 || currentH < threshold) {
+          closeSheet();
+        } else {
+          openSheet();
+        }
+      },
+      onPanResponderTerminate: () => {
+        const currentH = currentHeightRef.current;
+        const threshold = (COLLAPSED_SHEET_HEIGHT + expandedSheetHeight) / 2;
+        if (currentH < threshold) {
+          closeSheet();
+        } else {
+          openSheet();
+        }
+      },
+    })
+  ).current;
 
   // Today's balance calculation
   const todaySpent = dailyAllowanceStats.spentToday;
@@ -782,7 +944,11 @@ export const HomeScreen: React.FC = () => {
         ]}
       >
         {/* 2A. HERO HEADER: TODAY'S BALANCE + EXPENSE|INCOME SWITCHER */}
-        <View {...panResponder.panHandlers} style={styles.heroSection}>
+        <View
+          {...panResponder.panHandlers}
+          onLayout={(e) => setHeroHeight(e.nativeEvent.layout.height)}
+          style={styles.heroSection}
+        >
           {/* Today's Net Balance Row */}
           <View style={styles.todayBalanceRow}>
             <View>
@@ -903,18 +1069,38 @@ export const HomeScreen: React.FC = () => {
         </View>
 
         {/* 2B. HISTORY LIST (REVEALED WHEN SHEET PULLS DOWN) */}
-        <View style={styles.activityContentWrapper}>
-          <View style={[styles.historyHeader, { borderBottomColor: theme.divider }]}>
-            <View>
+        <View {...historyPanResponder.panHandlers} style={styles.activityContentWrapper}>
+          {/* STICKY TOP HISTORY HEADER (Fades in when expanded, hides when collapsed) */}
+          <Animated.View
+            style={[
+              styles.historyHeader,
+              {
+                borderBottomColor: theme.divider,
+                backgroundColor: theme.surface,
+                opacity: historyHeaderOpacity,
+                height: historyHeaderHeight,
+              },
+            ]}
+          >
+            <TouchableOpacity
+              style={styles.historyTitleRow}
+              onPress={toggleSheet}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons name="history" size={17} color={theme.primary} />
               <Text style={[styles.historyTitle, { color: theme.onSurface }]}>History</Text>
-            </View>
-            <TouchableOpacity onPress={closeSheet} style={styles.closeSheetBtn}>
-              <MaterialCommunityIcons name="chevron-up" size={20} color={theme.onSurfaceVariant} />
             </TouchableOpacity>
-          </View>
+            <TouchableOpacity onPress={toggleSheet} style={styles.closeSheetBtn}>
+              <MaterialCommunityIcons
+                name="chevron-up"
+                size={19}
+                color={theme.onSurfaceVariant}
+              />
+            </TouchableOpacity>
+          </Animated.View>
 
           {groupedTransactions.length === 0 ? (
-            <View style={styles.emptyHistoryBox}>
+            <View style={[styles.emptyHistoryBox, { flexGrow: 1, justifyContent: 'flex-end' }]}>
               <MaterialCommunityIcons
                 name="receipt-text-outline"
                 size={42}
@@ -926,137 +1112,158 @@ export const HomeScreen: React.FC = () => {
             </View>
           ) : (
             <ScrollView
+              ref={historyScrollRef}
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.historyScrollContent}
+              contentContainerStyle={[
+                styles.historyScrollContent,
+                !isScrollable && styles.historyScrollContentFewItems,
+              ]}
               nestedScrollEnabled={true}
+              scrollEnabled={isScrollable}
+              bounces={false}
+              overScrollMode="never"
+              onScroll={(e) => {
+                const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+                scrollOffsetRef.current = contentOffset.y;
+                contentHeightRef.current = contentSize.height;
+                layoutHeightRef.current = layoutMeasurement.height;
+                isAtBottomRef.current = contentOffset.y + layoutMeasurement.height >= contentSize.height - 12;
+              }}
+              onContentSizeChange={(_, h) => {
+                contentHeightRef.current = h;
+                setMeasuredContentHeight(h);
+              }}
+              onLayout={(e) => {
+                layoutHeightRef.current = e.nativeEvent.layout.height;
+              }}
+              scrollEventThrottle={16}
             >
-              {groupedTransactions.map((group) => (
-                <View key={group.date} style={styles.dateGroupContainer}>
-                  {/* Date Group Header */}
-                  <View style={[styles.dateGroupHeaderRow, { borderBottomColor: theme.divider }]}>
-                    <Text style={[styles.dateGroupTitle, { color: theme.onSurface }]}>
-                      {group.displayDate}
-                    </Text>
-                  </View>
+              {groupedTransactions.map((group, groupIdx) => {
+                const isLastGroup = groupIdx === groupedTransactions.length - 1;
+                return (
+                  <View
+                    key={group.date}
+                    style={[
+                      styles.dateGroupContainer,
+                      isLastGroup && { marginBottom: 0 },
+                    ]}
+                  >
+                    {/* Date Group Header with Totals (returned to top, without the word "Total") */}
+                    <View style={[styles.dateGroupHeaderRow, { borderBottomColor: theme.divider }]}>
+                      <Text style={[styles.dateGroupTitle, { color: theme.onSurface }]}>
+                        {group.displayDate}
+                      </Text>
+                      <View style={styles.dateGroupTotalsRow}>
+                        {group.totalSpent > 0 && (
+                          <Text style={[styles.daySpentPill, { color: theme.error }]}>
+                            -{formatCurrency(group.totalSpent, curr)}
+                          </Text>
+                        )}
+                        {group.totalIncome > 0 && (
+                          <Text style={[styles.dayIncomePill, { color: theme.success }]}>
+                            +{formatCurrency(group.totalIncome, curr)}
+                          </Text>
+                        )}
+                      </View>
+                    </View>
 
-                  {/* Individual transaction items for this date */}
-                  {group.items.map((tx) => {
-                    const cat = categories.find((c) => c.id === tx.category_id);
-                    const sub = cat?.subcategories?.find((s) => s.id === tx.subcategory_id);
-                    const wallet = wallets.find((w) => w.id === tx.wallet_id);
-                    const isExp = tx.type === 'expense';
-                    const isTransfer = tx.type === 'transfer';
+                    {/* Individual transaction items for this date */}
+                    {group.items.map((tx, txIdx) => {
+                      const isLastItem = isLastGroup && txIdx === group.items.length - 1;
+                      const cat = categories.find((c) => c.id === tx.category_id);
+                      const sub = cat?.subcategories?.find((s) => s.id === tx.subcategory_id);
+                      const wallet = wallets.find((w) => w.id === tx.wallet_id);
+                      const isExp = tx.type === 'expense';
+                      const isTransfer = tx.type === 'transfer';
 
-                    const mainTitle = isTransfer
-                      ? 'Transfer'
-                      : sub?.name || cat?.name || 'Uncategorized';
-                    const subtitle = [
-                      sub ? cat?.name : null,
-                      wallet?.name,
-                      tx.note || null,
-                    ]
-                      .filter(Boolean)
-                      .join(' • ');
+                      const mainTitle = isTransfer
+                        ? 'Transfer'
+                        : sub?.name || cat?.name || 'Uncategorized';
+                      const subtitle = [
+                        sub ? cat?.name : null,
+                        wallet?.name,
+                        tx.note || null,
+                      ]
+                        .filter(Boolean)
+                        .join(' • ');
 
-                    return (
-                      <View
-                        key={tx.id}
-                        style={[
-                          styles.txItemRow,
-                          { backgroundColor: theme.cardBg, borderColor: theme.divider },
-                        ]}
-                      >
+                      return (
                         <View
+                          key={tx.id}
                           style={[
-                            styles.txCatDot,
-                            {
-                              backgroundColor: isTransfer
-                                ? theme.tertiary
-                                : cat?.color || theme.primary,
-                            },
+                            styles.txItemRow,
+                            { backgroundColor: theme.cardBg, borderColor: theme.divider },
+                            isLastItem && { marginBottom: 0 },
                           ]}
                         >
-                          <MaterialCommunityIcons
-                            name={isTransfer ? 'swap-horizontal' : (cat?.icon as any) || 'cash'}
-                            size={16}
-                            color="#FFFFFF"
-                          />
-                        </View>
-
-                        <View style={styles.txTextCol}>
-                          <Text style={[styles.txItemTitle, { color: theme.onSurface }]}>
-                            {mainTitle}
-                          </Text>
-                          <Text
-                            style={[styles.txItemSub, { color: theme.onSurfaceVariant }]}
-                            numberOfLines={1}
-                          >
-                            {subtitle}
-                          </Text>
-                        </View>
-
-                        <View style={styles.txItemRight}>
-                          <Text
+                          <View
                             style={[
-                              styles.txItemAmount,
+                              styles.txCatDot,
                               {
-                                color: isExp
-                                  ? theme.error
-                                  : isTransfer
+                                backgroundColor: isTransfer
                                   ? theme.tertiary
-                                  : theme.success,
+                                  : cat?.color || theme.primary,
                               },
                             ]}
                           >
-                            {isExp ? '-' : isTransfer ? '' : '+'}
-                            {formatCurrency(tx.amount, tx.currency)}
-                          </Text>
-                          <TouchableOpacity
-                            onPress={() => deleteTransaction(tx.id)}
-                            style={styles.txDeleteTouch}
-                          >
                             <MaterialCommunityIcons
-                              name="close-circle-outline"
+                              name={isTransfer ? 'swap-horizontal' : (cat?.icon as any) || 'cash'}
                               size={16}
-                              color={theme.outline}
+                              color="#FFFFFF"
                             />
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    );
-                  })}
+                          </View>
 
-                  {/* Day Summary Total at the END of the date's list */}
-                  <View style={[styles.daySummaryFooter, { backgroundColor: theme.surfaceVariant }]}>
-                    <Text style={[styles.daySummaryLabel, { color: theme.onSurfaceVariant }]}>
-                      Total:
-                    </Text>
-                    <View style={styles.dateGroupTotalsRow}>
-                      {group.totalSpent > 0 && (
-                        <Text style={[styles.daySpentPill, { color: theme.error }]}>
-                          Spent: {formatCurrency(group.totalSpent, curr)}
-                        </Text>
-                      )}
-                      {group.totalIncome > 0 && (
-                        <Text style={[styles.dayIncomePill, { color: theme.success }]}>
-                          Income: +{formatCurrency(group.totalIncome, curr)}
-                        </Text>
-                      )}
-                      {group.totalSpent === 0 && group.totalIncome === 0 && (
-                        <Text style={[styles.daySpentPill, { color: theme.onSurfaceVariant }]}>
-                          0.00
-                        </Text>
-                      )}
-                    </View>
+                          <View style={styles.txTextCol}>
+                            <Text style={[styles.txItemTitle, { color: theme.onSurface }]}>
+                              {mainTitle}
+                            </Text>
+                            <Text
+                              style={[styles.txItemSub, { color: theme.onSurfaceVariant }]}
+                              numberOfLines={1}
+                            >
+                              {subtitle}
+                            </Text>
+                          </View>
+
+                          <View style={styles.txItemRight}>
+                            <Text
+                              style={[
+                                styles.txItemAmount,
+                                {
+                                  color: isExp
+                                    ? theme.error
+                                    : isTransfer
+                                    ? theme.tertiary
+                                    : theme.success,
+                                },
+                              ]}
+                            >
+                              {isExp ? '-' : isTransfer ? '' : '+'}
+                              {formatCurrency(tx.amount, tx.currency)}
+                            </Text>
+                            <TouchableOpacity
+                              onPress={() => deleteTransaction(tx.id)}
+                              style={styles.txDeleteTouch}
+                            >
+                              <MaterialCommunityIcons
+                                name="close-circle-outline"
+                                size={16}
+                                color={theme.outline}
+                              />
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      );
+                    })}
                   </View>
-                </View>
-              ))}
+                );
+              })}
             </ScrollView>
           )}
         </View>
 
         {/* 2C. DRAG HANDLE BAR AT BOTTOM OF TOP SHEET */}
-        <View {...panResponder.panHandlers} style={[styles.dragHandleArea, { borderTopColor: theme.divider }]}>
+        <View {...panResponder.panHandlers} style={[styles.dragHandleArea, { borderTopColor: theme.divider, backgroundColor: theme.surface }]}>
           <TouchableOpacity onPress={toggleSheet} activeOpacity={0.8} style={styles.dragHandleTouch}>
             <View style={[styles.dragHandlePill, { backgroundColor: theme.outlineVariant }]} />
             <View style={styles.dragHandleHintRow}>
@@ -1066,7 +1273,7 @@ export const HomeScreen: React.FC = () => {
                 color={theme.onSurfaceVariant}
               />
               <Text style={[styles.dragHandleHintText, { color: theme.onSurfaceVariant }]}>
-                {isSheetExpanded ? 'Slide up for dial pad' : 'Pull down for recent activity'}
+                {isSheetExpanded ? 'Slide up for dial pad' : 'Pull down to see more history'}
               </Text>
             </View>
           </TouchableOpacity>
@@ -1563,7 +1770,7 @@ const styles = StyleSheet.create({
   heroSection: {
     paddingHorizontal: 16,
     paddingTop: 10,
-    paddingBottom: 4,
+    paddingBottom: 14,
   },
   todayBalanceRow: {
     flexDirection: 'row',
@@ -1633,25 +1840,24 @@ const styles = StyleSheet.create({
   // 2B. RECENT ACTIVITY LIST (Revealed when sheet pulls down)
   activityContentWrapper: {
     flex: 1,
-    marginBottom: 36, // leaves room for absolute drag handle at bottom
+    marginBottom: 36, // flush against 36px drag handle area (zero dead space)
   },
   historyHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 8,
     borderBottomWidth: 1,
+    overflow: 'hidden',
+  },
+  historyTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   historyTitle: {
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: '800',
-  },
-  historySubtitle: {
-    fontSize: 10.5,
-    fontWeight: '500',
-    marginTop: 2,
   },
   closeSheetBtn: {
     padding: 6,
@@ -1660,22 +1866,29 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 32,
+    paddingVertical: 16,
   },
   emptyHistoryText: {
     fontSize: 13,
     fontWeight: '600',
-    marginTop: 8,
+    marginTop: 6,
   },
   historyScrollContent: {
     paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 24,
+    paddingTop: 4,
+    paddingBottom: 0, // flush against bottom
+  },
+  historyScrollContentFewItems: {
+    flexGrow: 1,
+    justifyContent: 'flex-end',
   },
   dateGroupContainer: {
     marginBottom: 14,
   },
   dateGroupHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     paddingBottom: 5,
     borderBottomWidth: 1,
     marginBottom: 6,
