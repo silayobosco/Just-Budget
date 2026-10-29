@@ -429,8 +429,8 @@ export const HomeScreen: React.FC = () => {
     const yesterdayStr = yesterday.toISOString().slice(0, 10);
 
     Array.from(map.entries())
-      // Ascending sort by date (oldest at top, newest at bottom)
-      .sort((a, b) => a[0].localeCompare(b[0]))
+      // Descending sort by date (newest at top, oldest at bottom)
+      .sort((a, b) => b[0].localeCompare(a[0]))
       .forEach(([d, items]) => {
         let displayDate = d;
         if (d === todayStr) displayDate = 'Today';
@@ -443,11 +443,11 @@ export const HomeScreen: React.FC = () => {
           .filter((t) => t.type === 'income')
           .reduce((sum, t) => sum + (t.amount || t.base_amount || 0), 0);
 
-        // Sort items inside this day ascending by created_at/id so newest is at the bottom
+        // Sort items inside this day descending by created_at/id so newest is at the top
         const sortedItems = [...items].sort((a, b) => {
           const timeA = a.created_at || a.id;
           const timeB = b.created_at || b.id;
-          return timeA.localeCompare(timeB);
+          return timeB.localeCompare(timeA);
         });
 
         groups.push({
@@ -547,11 +547,7 @@ export const HomeScreen: React.FC = () => {
       useNativeDriver: false,
       bounciness: 3,
       speed: 14,
-    }).start(() => {
-      setTimeout(() => {
-        historyScrollRef.current?.scrollToEnd?.({ animated: true });
-      }, 50);
-    });
+    }).start();
     setIsSheetExpanded(true);
     isExpandedRef.current = true;
   };
@@ -563,7 +559,7 @@ export const HomeScreen: React.FC = () => {
       bounciness: 3,
       speed: 14,
     }).start(() => {
-      historyScrollRef.current?.scrollToEnd?.({ animated: false });
+      historyScrollRef.current?.scrollTo?.({ y: 0, animated: false });
     });
     setIsSheetExpanded(false);
     isExpandedRef.current = false;
@@ -1183,7 +1179,7 @@ export const HomeScreen: React.FC = () => {
           </Animated.View>
 
           {groupedTransactions.length === 0 ? (
-            <View style={[styles.emptyHistoryBox, { flexGrow: 1, justifyContent: 'flex-end' }]}>
+            <View style={[styles.emptyHistoryBox, { flexGrow: 1, justifyContent: 'center' }]}>
               <MaterialCommunityIcons
                 name="receipt-text-outline"
                 size={42}
