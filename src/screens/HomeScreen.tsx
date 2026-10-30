@@ -12,6 +12,7 @@ import {
   Alert,
   Keyboard,
   Pressable,
+  Modal,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
@@ -21,7 +22,6 @@ import { formatCurrency } from '../utils/format';
 import { CategoryManagerModal } from '../components/CategoryManagerModal';
 import { CategoryPickerSheet } from '../components/CategoryPickerSheet';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
-import { BudgetCycleModal } from '../components/BudgetCycleModal';
 import { DateRangePickerModal } from '../components/DateRangePickerModal';
 
 import { TabType } from '../components/BottomTabs';
@@ -39,7 +39,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
 
   // Responsive collapsed sheet height:
   // Provides clean vertical space for header + dual badges, with drag handle comfortably lowered below without overlap
-  const COLLAPSED_SHEET_HEIGHT = isTinyScreen ? 168 : isCompactScreen ? 176 : 184;
+  const COLLAPSED_SHEET_HEIGHT = isTinyScreen ? 146 : isCompactScreen ? 176 : 200; // 150 : 156
 
   // Responsive dial pad, button and row dimensions
   const dialKeyHeight = isTinyScreen ? 38 : isCompactScreen ? 42 : 46;
@@ -64,12 +64,39 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
     addSubcategory,
     addRecurringBill,
     updateBudgetCycle,
+    updateCurrentCycleTarget,
     deleteTransaction,
+    setAnalyticsFocus,
+    isCycleModalOpen,
+    closeCycleModal,
   } = useBudget();
 
   const theme = settings.theme_mode === 'dark' ? darkTheme : lightTheme;
   const curr = settings.base_currency;
   const isDarkMode = settings.theme_mode === 'dark';
+
+  // Quick Target Dialogue State (Long-press on Income Goal / Budget Cap)
+  const [quickTargetModalVisible, setQuickTargetModalVisible] = useState<boolean>(false);
+  const [quickTargetType, setQuickTargetType] = useState<'budget' | 'income'>('budget');
+  const [quickTargetInput, setQuickTargetInput] = useState<string>('');
+
+  const handleOpenQuickTarget = (type: 'budget' | 'income') => {
+    setQuickTargetType(type);
+    if (type === 'budget') {
+      const val = currentCycle?.target_budget ? currentCycle.target_budget.toString() : '';
+      setQuickTargetInput(val);
+    } else {
+      const val = currentCycle?.target_income ? currentCycle.target_income.toString() : '';
+      setQuickTargetInput(val);
+    }
+    setQuickTargetModalVisible(true);
+  };
+
+  const handleSaveQuickTarget = async () => {
+    const num = parseFloat(quickTargetInput);
+    await updateCurrentCycleTarget(quickTargetType, !isNaN(num) ? num : 0);
+    setQuickTargetModalVisible(false);
+  };
 
   // Amount & Wallet Entry State
   const [amountStr, setAmountStr] = useState<string>('0');
@@ -957,7 +984,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
                 },
                 M3Elevation.level1,
               ]}
-              onPress={() => setCycleModalVisible(true)}
+              onPress={() => {
+                setAnalyticsFocus('income');
+                onNavigateTab?.('analytics');
+              }}
+              onLongPress={() => handleOpenQuickTarget('income')}
+              delayLongPress={350}
               activeOpacity={0.8}
             >
               {/* Background Progress Fill Track */}
@@ -1067,7 +1099,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
                 },
                 M3Elevation.level1,
               ]}
-              onPress={() => setCycleModalVisible(true)}
+              onPress={() => {
+                setAnalyticsFocus('expense');
+                onNavigateTab?.('analytics');
+              }}
+              onLongPress={() => handleOpenQuickTarget('budget')}
+              delayLongPress={350}
               activeOpacity={0.8}
             >
               {/* Background Progress Fill Track */}
@@ -1391,16 +1428,79 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
         onAddSubcategory={addSubcategory}
       />
 
-      {/* BUDGET CYCLE & TARGETS MODAL */}
-      <BudgetCycleModal
-        visible={cycleModalVisible}
-        currentCycle={currentCycle}
-        baseCurrency={curr}
-        theme={theme}
-        onClose={() => setCycleModalVisible(false)}
-        onSave={handleSaveCycle}
-        onOpenDateRangePicker={() => setDateRangePickerVisible(true)}
-      />
+      {/* QUICK TARGET EDIT DIALOGUE (TRIGGERED ON LONG PRESS OF INCOME GOAL OR BUDGET CAP) */}
+      <Modal
+        visible={quickTargetModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setQuickTargetModalVisible(false)}
+      >
+        <View style={styles.quickTargetOverlay}>
+          <View style={[styles.quickTargetBox, { backgroundColor: theme.surface }, M3Elevation.level3]}>
+            <View style={styles.quickTargetHeader}>
+              <View
+                style={[
+                  styles.quickTargetIconCircle,
+                  {
+                    backgroundColor: quickTargetType === 'income' ? theme.successContainer : theme.errorContainer,
+                  },
+                ]}
+              >
+                <MaterialCommunityIcons
+                  name={quickTargetType === 'income' ? 'cash-multiple' : 'bullseye-arrow'}
+                  size={20}
+                  color={quickTargetType === 'income' ? theme.success : theme.error}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.quickTargetTitle, { color: theme.onSurface }]}>
+                  {quickTargetType === 'income' ? 'Edit Income Goal' : 'Edit Budget Cap'}
+                </Text>
+                <Text style={[styles.quickTargetSubtitle, { color: theme.onSurfaceVariant }]}>
+                  {currentCycle?.name || 'Active Cycle'}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setQuickTargetModalVisible(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <MaterialCommunityIcons name="close" size={20} color={theme.onSurfaceVariant} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={[styles.quickTargetInputWrap, { backgroundColor: theme.pillBg }]}>
+              <Text style={[styles.quickTargetCurrency, { color: quickTargetType === 'income' ? theme.success : theme.error }]}>
+                {curr}
+              </Text>
+              <TextInput
+                style={[styles.quickTargetInput, { color: theme.onSurface }]}
+                placeholder="0"
+                placeholderTextColor={theme.onSurfaceVariant}
+                keyboardType="decimal-pad"
+                autoFocus
+                value={quickTargetInput}
+                onChangeText={setQuickTargetInput}
+                selectTextOnFocus
+              />
+            </View>
+
+            <View style={styles.quickTargetBtnRow}>
+              <TouchableOpacity
+                style={[styles.quickTargetCancelBtn, { backgroundColor: theme.pillBg }]}
+                onPress={() => setQuickTargetModalVisible(false)}
+              >
+                <Text style={[styles.quickTargetBtnText, { color: theme.onSurface }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.quickTargetSaveBtn,
+                  { backgroundColor: quickTargetType === 'income' ? theme.success : theme.primary },
+                ]}
+                onPress={handleSaveQuickTarget}
+              >
+                <Text style={[styles.quickTargetBtnText, { color: theme.onPrimary }]}>Save Target</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* VISUAL DATE RANGE PICKER MODAL */}
       <DateRangePickerModal
@@ -1924,5 +2024,77 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: M3Shape.full,
+  },
+  quickTargetOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  quickTargetBox: {
+    width: '100%',
+    maxWidth: 350,
+    borderRadius: M3Shape.extraLarge,
+    padding: 20,
+    gap: 14,
+  },
+  quickTargetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  quickTargetIconCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickTargetTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  quickTargetSubtitle: {
+    fontSize: 11.5,
+    marginTop: 1,
+  },
+  quickTargetInputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: M3Shape.large,
+    gap: 8,
+  },
+  quickTargetCurrency: {
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  quickTargetInput: {
+    flex: 1,
+    fontSize: 22,
+    fontWeight: '800',
+    paddingVertical: 4,
+  },
+  quickTargetBtnRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginTop: 4,
+  },
+  quickTargetCancelBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: M3Shape.full,
+  },
+  quickTargetSaveBtn: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: M3Shape.full,
+  },
+  quickTargetBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
   },
 });

@@ -5,6 +5,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { BudgetProvider, useBudget } from './src/context/BudgetContext';
 import { Header } from './src/components/Header';
 import { BottomTabs, TabType } from './src/components/BottomTabs';
+import { BudgetCycleModal } from './src/components/BudgetCycleModal';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { CalendarScreen } from './src/screens/CalendarScreen';
 import { WalletsScreen } from './src/screens/WalletsScreen';
@@ -13,7 +14,7 @@ import { SettingsScreen } from './src/screens/SettingsScreen';
 import { lightTheme, darkTheme } from './src/theme';
 
 const MainApp: React.FC = () => {
-  const { settings, isLoading } = useBudget();
+  const { settings, isLoading, isCycleModalOpen, closeCycleModal } = useBudget();
   const theme = settings.theme_mode === 'dark' ? darkTheme : lightTheme;
 
   const [currentTab, setCurrentTab] = useState<TabType>('home');
@@ -44,6 +45,13 @@ const MainApp: React.FC = () => {
 
       {/* Bottom Navigation */}
       <BottomTabs currentTab={currentTab} onSelectTab={setCurrentTab} />
+
+      {/* Global Cycle & Budget Manager Modal */}
+      <BudgetCycleModal
+        visible={isCycleModalOpen}
+        theme={theme}
+        onClose={closeCycleModal}
+      />
     </SafeAreaView>
   );
 };

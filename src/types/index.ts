@@ -104,10 +104,20 @@ export interface RecurringBill {
   created_at?: string;
 }
 
+export type CycleMode = 'regular' | 'custom';
+export type CycleBalanceMode = 'monthly' | 'accumulated';
+export type CycleTargetMode = 'inherit' | 'monthly';
+
 export interface AppSettings {
   base_currency: string;
   theme_mode: 'light' | 'dark' | 'system';
   app_name: string;
+  cycle_mode?: CycleMode;
+  cycle_balance_mode?: CycleBalanceMode;
+  cycle_target_mode?: CycleTargetMode;
+  cycle_month_start_day?: number;
+  cycle_default_budget?: number;
+  cycle_default_income?: number;
 }
 
 export interface DailyAllowanceStats {

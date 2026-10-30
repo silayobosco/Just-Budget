@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { getDB, initDatabase } from '../services/db';
 import { exportBackupData, importBackupData } from '../services/backup';
+import { formatCycleDateRange, getRegularCycleDates } from '../utils/format';
 import {
   Wallet,
   Category,
@@ -25,8 +26,17 @@ interface BudgetContextType {
   recurringBills: RecurringBill[];
   budgets: BudgetLimit[];
   currentCycle: BudgetCycle | null;
+  allCycles: BudgetCycle[];
   settings: AppSettings;
   isLoading: boolean;
+
+  // Cycle Modal & Analytics Navigation State
+  isCycleModalOpen: boolean;
+  setIsCycleModalOpen: (open: boolean) => void;
+  openCycleModal: () => void;
+  closeCycleModal: () => void;
+  analyticsFocus: 'overview' | 'expense' | 'income';
+  setAnalyticsFocus: (focus: 'overview' | 'expense' | 'income') => void;
 
   // Computed
   totalConvertedBalance: number;
@@ -109,6 +119,9 @@ interface BudgetContextType {
   payRecurringBill: (bill: RecurringBill) => Promise<void>;
 
   updateBudgetCycle: (params: { id?: string; name: string; start_date: string; end_date: string; target_budget?: number; target_income?: number }) => Promise<void>;
+  updateCurrentCycleTarget: (type: 'budget' | 'income', amount: number) => Promise<void>;
+  deleteBudgetCycle: (id: string) => Promise<void>;
+  setActiveBudgetCycle: (id: string) => Promise<void>;
   setBudgetLimit: (params: {
     scope: BudgetScope;
     category_id?: string;
@@ -135,10 +148,21 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [recurringBills, setRecurringBills] = useState<RecurringBill[]>([]);
   const [budgets, setBudgets] = useState<BudgetLimit[]>([]);
   const [currentCycle, setCurrentCycle] = useState<BudgetCycle | null>(null);
+  const [allCycles, setAllCycles] = useState<BudgetCycle[]>([]);
+  const [isCycleModalOpen, setIsCycleModalOpen] = useState<boolean>(false);
+  const [analyticsFocus, setAnalyticsFocus] = useState<'overview' | 'expense' | 'income'>('overview');
+
+  const openCycleModal = useCallback(() => setIsCycleModalOpen(true), []);
+  const closeCycleModal = useCallback(() => setIsCycleModalOpen(false), []);
+
   const [settings, setSettings] = useState<AppSettings>({
     base_currency: 'USD',
     theme_mode: 'light',
     app_name: 'just budget',
+    cycle_mode: 'regular',
+    cycle_balance_mode: 'monthly',
+    cycle_target_mode: 'monthly',
+    cycle_month_start_day: 1,
   });
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
@@ -156,6 +180,12 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         base_currency: sMap['base_currency'] || 'USD',
         theme_mode: (sMap['theme_mode'] as any) || 'light',
         app_name: sMap['app_name'] || 'just budget',
+        cycle_mode: (sMap['cycle_mode'] as any) || 'regular',
+        cycle_balance_mode: (sMap['cycle_balance_mode'] as any) || 'monthly',
+        cycle_target_mode: (sMap['cycle_target_mode'] as any) || 'monthly',
+        cycle_month_start_day: sMap['cycle_month_start_day'] ? parseInt(sMap['cycle_month_start_day'], 10) : 1,
+        cycle_default_budget: sMap['cycle_default_budget'] ? parseFloat(sMap['cycle_default_budget']) : undefined,
+        cycle_default_income: sMap['cycle_default_income'] ? parseFloat(sMap['cycle_default_income']) : undefined,
       };
       setSettings(newSettings);
 
@@ -177,23 +207,75 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }));
       setCategories(categoriesWithSubs);
 
+      // All Cycles
+      const allCycleRows = db.getAllSync<BudgetCycle>(`SELECT * FROM budget_cycles ORDER BY start_date DESC`);
+      setAllCycles(allCycleRows.map((c) => ({ ...c, is_active: Boolean(c.is_active) })));
+
       // Active Budget Cycle
       let cycle = db.getFirstSync<BudgetCycle>(`SELECT * FROM budget_cycles WHERE is_active = 1 LIMIT 1`);
       if (!cycle) {
         cycle = db.getFirstSync<BudgetCycle>(`SELECT * FROM budget_cycles ORDER BY start_date DESC LIMIT 1`);
       }
-      // Ensure the cycle's end date covers the full month (e.g., Oct 31, not Oct 30 truncated by UTC)
-      if (cycle && cycle.start_date) {
-        const [cy, cm] = cycle.start_date.split('-').map(Number);
-        if (cy && cm) {
-          const lastDay = new Date(cy, cm, 0).getDate();
-          const expectedEnd = `${cy}-${String(cm).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-          if (cycle.end_date !== expectedEnd && cycle.end_date.startsWith(`${cy}-${String(cm).padStart(2, '0')}`)) {
-            db.runSync(`UPDATE budget_cycles SET end_date = ? WHERE id = ?`, [expectedEnd, cycle.id]);
-            cycle = { ...cycle, end_date: expectedEnd };
+
+      // If in regular calendar mode, align active cycle with the regular cycle dates
+      if (newSettings.cycle_mode === 'regular') {
+        const reg = getRegularCycleDates(newSettings.cycle_month_start_day || 1);
+        if (cycle) {
+          if (cycle.start_date !== reg.startDate || cycle.end_date !== reg.endDate) {
+            db.runSync(
+              `UPDATE budget_cycles SET name = ?, start_date = ?, end_date = ? WHERE id = ?`,
+              [reg.name, reg.startDate, reg.endDate, cycle.id]
+            );
+            cycle = { ...cycle, name: reg.name, start_date: reg.startDate, end_date: reg.endDate };
           }
+        } else {
+          const regId = `cycle-reg-${reg.startDate}`;
+          const bVal = newSettings.cycle_default_budget || 2000;
+          const iVal = newSettings.cycle_default_income || 2500;
+          db.runSync(
+            `INSERT INTO budget_cycles (id, name, start_date, end_date, target_budget, target_income, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+            [regId, reg.name, reg.startDate, reg.endDate, bVal, iVal]
+          );
+          cycle = {
+            id: regId,
+            name: reg.name,
+            start_date: reg.startDate,
+            end_date: reg.endDate,
+            target_budget: bVal,
+            target_income: iVal,
+            is_active: true,
+          };
         }
       }
+
+      // If Inherit mode is active and default targets exist, ensure cycle reflects defaults
+      if (cycle && newSettings.cycle_target_mode === 'inherit') {
+        let changed = false;
+        let b = cycle.target_budget;
+        let i = cycle.target_income;
+        if (newSettings.cycle_default_budget !== undefined && cycle.target_budget !== newSettings.cycle_default_budget) {
+          b = newSettings.cycle_default_budget;
+          changed = true;
+        }
+        if (newSettings.cycle_default_income !== undefined && cycle.target_income !== newSettings.cycle_default_income) {
+          i = newSettings.cycle_default_income;
+          changed = true;
+        }
+        if (changed) {
+          db.runSync(`UPDATE budget_cycles SET target_budget = ?, target_income = ? WHERE id = ?`, [b ?? null, i ?? null, cycle.id]);
+          cycle = { ...cycle, target_budget: b, target_income: i };
+        }
+      }
+
+      // Ensure cycle name is nicely formatted like "27 Oct – 28 Nov '26"
+      if (cycle && cycle.start_date && cycle.end_date) {
+        const prettyRange = formatCycleDateRange(cycle.start_date, cycle.end_date);
+        if (cycle.name !== prettyRange && !cycle.name.includes('–') && !cycle.name.includes('-')) {
+          db.runSync(`UPDATE budget_cycles SET name = ? WHERE id = ?`, [prettyRange, cycle.id]);
+          cycle = { ...cycle, name: prettyRange };
+        }
+      }
+
       setCurrentCycle(cycle || null);
 
       // Transactions
@@ -265,13 +347,27 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       .reduce((sum, t) => sum + (t.amount || t.base_amount || 0), 0);
   }, [cycleTransactions]);
 
+  // Accumulated rollover surplus/deficit if balance mode is 'accumulated'
+  const accumulatedRollover = useMemo(() => {
+    if (settings.cycle_balance_mode !== 'accumulated' || !currentCycle) return 0;
+    const priorTx = transactions.filter((t) => t.date < currentCycle.start_date);
+    const priorIncome = priorTx
+      .filter((t) => t.type === 'income')
+      .reduce((sum, t) => sum + (t.amount || t.base_amount || 0), 0);
+    const priorExpense = priorTx
+      .filter((t) => t.type === 'expense')
+      .reduce((sum, t) => sum + (t.amount || t.base_amount || 0), 0);
+    return priorIncome - priorExpense;
+  }, [settings.cycle_balance_mode, currentCycle, transactions]);
+
   // Remaining budget in cycle
   const remainingCycleBalance = useMemo(() => {
     if (currentCycle?.target_budget && currentCycle.target_budget > 0) {
-      return currentCycle.target_budget - spentInCycle;
+      const base = currentCycle.target_budget - spentInCycle;
+      return settings.cycle_balance_mode === 'accumulated' ? base + accumulatedRollover : base;
     }
     return totalConvertedBalance;
-  }, [currentCycle, spentInCycle, totalConvertedBalance]);
+  }, [currentCycle, spentInCycle, totalConvertedBalance, settings.cycle_balance_mode, accumulatedRollover]);
 
   // Daily Allowance Calculation ("Available for Day")
   const dailyAllowanceStats = useMemo<DailyAllowanceStats>(() => {
@@ -900,6 +996,30 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     await loadData();
   };
 
+  const updateCurrentCycleTarget = async (type: 'budget' | 'income', amount: number) => {
+    if (!currentCycle) return;
+    const db = getDB();
+    if (type === 'budget') {
+      db.runSync(`UPDATE budget_cycles SET target_budget = ? WHERE id = ?`, [amount, currentCycle.id]);
+    } else {
+      db.runSync(`UPDATE budget_cycles SET target_income = ? WHERE id = ?`, [amount, currentCycle.id]);
+    }
+    await loadData();
+  };
+
+  const deleteBudgetCycle = async (id: string) => {
+    const db = getDB();
+    db.runSync(`DELETE FROM budget_cycles WHERE id = ?`, [id]);
+    await loadData();
+  };
+
+  const setActiveBudgetCycle = async (id: string) => {
+    const db = getDB();
+    db.runSync(`UPDATE budget_cycles SET is_active = 0`);
+    db.runSync(`UPDATE budget_cycles SET is_active = 1 WHERE id = ?`, [id]);
+    await loadData();
+  };
+
   const updateSettings = async (newSettings: Partial<AppSettings>) => {
     const db = getDB();
     if (newSettings.base_currency) {
@@ -911,6 +1031,24 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
     if (newSettings.theme_mode) {
       db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('theme_mode', ?)`, [newSettings.theme_mode]);
+    }
+    if (newSettings.cycle_mode) {
+      db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('cycle_mode', ?)`, [newSettings.cycle_mode]);
+    }
+    if (newSettings.cycle_balance_mode) {
+      db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('cycle_balance_mode', ?)`, [newSettings.cycle_balance_mode]);
+    }
+    if (newSettings.cycle_target_mode) {
+      db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('cycle_target_mode', ?)`, [newSettings.cycle_target_mode]);
+    }
+    if (newSettings.cycle_month_start_day !== undefined) {
+      db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('cycle_month_start_day', ?)`, [newSettings.cycle_month_start_day.toString()]);
+    }
+    if (newSettings.cycle_default_budget !== undefined) {
+      db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('cycle_default_budget', ?)`, [newSettings.cycle_default_budget.toString()]);
+    }
+    if (newSettings.cycle_default_income !== undefined) {
+      db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('cycle_default_income', ?)`, [newSettings.cycle_default_income.toString()]);
     }
     await loadData();
   };
@@ -944,8 +1082,15 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         recurringBills,
         budgets,
         currentCycle,
+        allCycles,
         settings,
         isLoading,
+        isCycleModalOpen,
+        setIsCycleModalOpen,
+        openCycleModal,
+        closeCycleModal,
+        analyticsFocus,
+        setAnalyticsFocus,
         totalConvertedBalance,
         spentInCycle,
         incomeInCycle,
@@ -980,6 +1125,9 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         deleteRecurringBill,
         payRecurringBill,
         updateBudgetCycle,
+        updateCurrentCycleTarget,
+        deleteBudgetCycle,
+        setActiveBudgetCycle,
         setBudgetLimit,
         deleteBudgetLimit,
         updateSettings,
