@@ -24,15 +24,22 @@ import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
 import { BudgetCycleModal } from '../components/BudgetCycleModal';
 import { DateRangePickerModal } from '../components/DateRangePickerModal';
 
-export const HomeScreen: React.FC = () => {
+import { TabType } from '../components/BottomTabs';
+
+interface HomeScreenProps {
+  onNavigateTab?: (tab: TabType) => void;
+}
+
+export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
 
   // Responsive device tiers
   const isTinyScreen = windowHeight < 660; // e.g. iPhone SE, compact budget Androids
   const isCompactScreen = windowHeight < 740; // e.g. iPhone 13 mini, compact displays
 
-  // Responsive collapsed sheet height
-  const COLLAPSED_SHEET_HEIGHT = isTinyScreen ? 146 : isCompactScreen ? 150 : 156;
+  // Responsive collapsed sheet height:
+  // Provides clean vertical space for header + dual badges, with drag handle comfortably lowered below without overlap
+  const COLLAPSED_SHEET_HEIGHT = isTinyScreen ? 168 : isCompactScreen ? 176 : 184;
 
   // Responsive dial pad, button and row dimensions
   const dialKeyHeight = isTinyScreen ? 38 : isCompactScreen ? 42 : 46;
@@ -62,6 +69,7 @@ export const HomeScreen: React.FC = () => {
 
   const theme = settings.theme_mode === 'dark' ? darkTheme : lightTheme;
   const curr = settings.base_currency;
+  const isDarkMode = settings.theme_mode === 'dark';
 
   // Amount & Wallet Entry State
   const [amountStr, setAmountStr] = useState<string>('0');
@@ -806,8 +814,23 @@ export const HomeScreen: React.FC = () => {
                       Record Income
                     </Text>
                   </View>
-                  <View style={[styles.dualRecordBadge, { backgroundColor: 'rgba(255, 255, 255, 0.7)' }]}>
-                    <Text style={[styles.dualRecordBadgeText, { color: theme.success }]} numberOfLines={1}>
+                  <View
+                    style={[
+                      styles.dualRecordBadge,
+                      {
+                        backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.85)',
+                        borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
+                        borderWidth: StyleSheet.hairlineWidth,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.dualRecordBadgeText,
+                        { color: isDarkMode ? '#6EE7B7' : '#047857' },
+                      ]}
+                      numberOfLines={1}
+                    >
                       Total: {formatCurrency(incomeInCycle, curr)}
                     </Text>
                   </View>
@@ -838,8 +861,23 @@ export const HomeScreen: React.FC = () => {
                       Record Expense
                     </Text>
                   </View>
-                  <View style={[styles.dualRecordBadge, { backgroundColor: 'rgba(255, 255, 255, 0.7)' }]}>
-                    <Text style={[styles.dualRecordBadgeText, { color: theme.error }]} numberOfLines={1}>
+                  <View
+                    style={[
+                      styles.dualRecordBadge,
+                      {
+                        backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.85)',
+                        borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
+                        borderWidth: StyleSheet.hairlineWidth,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.dualRecordBadgeText,
+                        { color: isDarkMode ? '#FCA5A5' : '#B91C1C' },
+                      ]}
+                      numberOfLines={1}
+                    >
                       Total: {formatCurrency(spentInCycle, curr)}
                     </Text>
                   </View>
@@ -892,27 +930,49 @@ export const HomeScreen: React.FC = () => {
               </Text>
             </View>
 
-            {/* Wallet summary pill */}
-            <View style={[styles.walletSumPill, { backgroundColor: theme.pillBg }]}>
+            {/* Wallet summary pill - Tap to open Wallets screen */}
+            <TouchableOpacity
+              style={[styles.walletSumPill, { backgroundColor: theme.pillBg }]}
+              onPress={() => onNavigateTab?.('wallets')}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Open Wallets Screen"
+            >
               <MaterialCommunityIcons name="wallet-outline" size={14} color={theme.primary} />
               <Text style={[styles.walletSumText, { color: theme.onSurface }]}>
                 {formatCurrency(totalConvertedBalance, curr)}
               </Text>
-            </View>
+            </TouchableOpacity>
           </View>
 
           {/* DUAL DISPLAY CARDS: INCOME GOAL (LEFT) & BUDGET CAP (RIGHT) */}
-          <View style={[styles.switcherContainer, { backgroundColor: theme.surfaceVariant }]}>
+          <View style={styles.dualCardsRow}>
             {/* Income Goal Card (Left) */}
             <TouchableOpacity
               style={[
                 styles.heroDisplayCard,
-                { backgroundColor: theme.cardBg, borderColor: theme.divider },
+                {
+                  backgroundColor: theme.cardBg,
+                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.12)' : theme.divider,
+                },
                 M3Elevation.level1,
               ]}
               onPress={() => setCycleModalVisible(true)}
               activeOpacity={0.8}
             >
+              {/* Background Progress Fill Track */}
+              {incomeSwitcherProgress.hasGoal && (
+                <View
+                  style={[
+                    styles.cardProgressFillTrack,
+                    {
+                      width: `${Math.min(100, Math.max(0, incomeSwitcherProgress.percent))}%`,
+                      backgroundColor: isDarkMode ? 'rgba(16, 185, 129, 0.20)' : 'rgba(16, 185, 129, 0.12)',
+                    },
+                  ]}
+                />
+              )}
+
               {/* Header: Dot + Title + Badge */}
               <View style={styles.switcherHeaderRow}>
                 <View style={styles.switcherIconTextRow}>
@@ -928,8 +988,8 @@ export const HomeScreen: React.FC = () => {
                       styles.switcherBadgePill,
                       {
                         backgroundColor: incomeSwitcherProgress.isReached
-                          ? '#D1FAE5'
-                          : theme.pillBg,
+                          ? (isDarkMode ? 'rgba(5, 150, 105, 0.35)' : '#D1FAE5')
+                          : (isDarkMode ? 'rgba(255, 255, 255, 0.12)' : theme.pillBg),
                       },
                     ]}
                   >
@@ -938,8 +998,8 @@ export const HomeScreen: React.FC = () => {
                         styles.switcherBadgeText,
                         {
                           color: incomeSwitcherProgress.isReached
-                            ? '#059669'
-                            : theme.success,
+                            ? (isDarkMode ? '#6EE7B7' : '#059669')
+                            : (isDarkMode ? '#A7F3D0' : theme.success),
                         },
                       ]}
                     >
@@ -952,7 +1012,7 @@ export const HomeScreen: React.FC = () => {
               {/* Main Headline: Amount To Go */}
               <View style={styles.heroAmountRow}>
                 <Text
-                  style={[styles.switcherTabAmount, { color: theme.success }]}
+                  style={[styles.switcherTabAmount, { color: isDarkMode ? '#34D399' : theme.success }]}
                   numberOfLines={1}
                 >
                   {incomeSwitcherProgress.hasGoal
@@ -968,7 +1028,7 @@ export const HomeScreen: React.FC = () => {
                   styles.switcherProgressSubtext,
                   {
                     color: incomeSwitcherProgress.isReached
-                      ? '#059669'
+                      ? (isDarkMode ? '#6EE7B7' : '#059669')
                       : theme.onSurfaceVariant,
                   },
                 ]}
@@ -1001,12 +1061,30 @@ export const HomeScreen: React.FC = () => {
             <TouchableOpacity
               style={[
                 styles.heroDisplayCard,
-                { backgroundColor: theme.cardBg, borderColor: theme.divider },
+                {
+                  backgroundColor: theme.cardBg,
+                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.12)' : theme.divider,
+                },
                 M3Elevation.level1,
               ]}
               onPress={() => setCycleModalVisible(true)}
               activeOpacity={0.8}
             >
+              {/* Background Progress Fill Track */}
+              {expenseSwitcherProgress.hasTarget && (
+                <View
+                  style={[
+                    styles.cardProgressFillTrack,
+                    {
+                      width: `${Math.min(100, Math.max(0, expenseSwitcherProgress.percent))}%`,
+                      backgroundColor: expenseSwitcherProgress.isOver
+                        ? (isDarkMode ? 'rgba(239, 68, 68, 0.25)' : 'rgba(239, 68, 68, 0.15)')
+                        : (isDarkMode ? 'rgba(239, 68, 68, 0.18)' : 'rgba(239, 68, 68, 0.10)'),
+                    },
+                  ]}
+                />
+              )}
+
               {/* Header: Dot + Title + Badge */}
               <View style={styles.switcherHeaderRow}>
                 <View style={styles.switcherIconTextRow}>
@@ -1022,8 +1100,8 @@ export const HomeScreen: React.FC = () => {
                       styles.switcherBadgePill,
                       {
                         backgroundColor: expenseSwitcherProgress.isOver
-                          ? '#FEE2E2'
-                          : theme.pillBg,
+                          ? (isDarkMode ? 'rgba(220, 38, 38, 0.35)' : '#FEE2E2')
+                          : (isDarkMode ? 'rgba(255, 255, 255, 0.12)' : theme.pillBg),
                       },
                     ]}
                   >
@@ -1032,8 +1110,8 @@ export const HomeScreen: React.FC = () => {
                         styles.switcherBadgeText,
                         {
                           color: expenseSwitcherProgress.isOver
-                            ? '#DC2626'
-                            : theme.error,
+                            ? (isDarkMode ? '#FCA5A5' : '#DC2626')
+                            : (isDarkMode ? '#F87171' : theme.error),
                         },
                       ]}
                     >
@@ -1048,7 +1126,7 @@ export const HomeScreen: React.FC = () => {
                 <Text
                   style={[
                     styles.switcherTabAmount,
-                    { color: expenseSwitcherProgress.isOver ? '#DC2626' : theme.error },
+                    { color: expenseSwitcherProgress.isOver ? (isDarkMode ? '#F87171' : '#DC2626') : (isDarkMode ? '#F87171' : theme.error) },
                   ]}
                   numberOfLines={1}
                 >
@@ -1067,7 +1145,7 @@ export const HomeScreen: React.FC = () => {
                   styles.switcherProgressSubtext,
                   {
                     color: expenseSwitcherProgress.isOver
-                      ? '#DC2626'
+                      ? (isDarkMode ? '#FCA5A5' : '#DC2626')
                       : theme.onSurfaceVariant,
                   },
                 ]}
@@ -1260,7 +1338,7 @@ export const HomeScreen: React.FC = () => {
         {/* 2C. DRAG HANDLE BAR AT BOTTOM OF TOP SHEET */}
         <View
           {...panResponder.panHandlers}
-          style={[styles.dragHandleArea, { borderTopColor: theme.divider, backgroundColor: theme.surface }]}
+          style={[styles.dragHandleArea, { backgroundColor: theme.surface }]}
         >
           <TouchableOpacity onPress={toggleSheet} activeOpacity={0.8} style={styles.dragHandleTouch}>
             <View style={[styles.dragHandlePill, { backgroundColor: theme.outlineVariant }]} />
@@ -1549,8 +1627,8 @@ const styles = StyleSheet.create({
   },
   heroSection: {
     paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 8,
+    paddingTop: 8,
+    paddingBottom: 4,
   },
   todayBalanceRow: {
     flexDirection: 'row',
@@ -1581,21 +1659,28 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
-  switcherContainer: {
+  dualCardsRow: {
     flexDirection: 'row',
-    borderRadius: M3Shape.large,
-    padding: 3,
-    gap: 6,
+    gap: 10,
+    marginTop: 2,
+    marginBottom: 6,
   },
   heroDisplayCard: {
     flex: 1,
-    paddingVertical: 7,
-    paddingHorizontal: 10,
-    borderRadius: M3Shape.medium,
+    paddingVertical: 8,
+    paddingHorizontal: 11,
+    borderRadius: M3Shape.large,
     position: 'relative',
     overflow: 'hidden',
     justifyContent: 'center',
-    borderWidth: 1,
+    borderWidth: 1.5,
+  },
+  cardProgressFillTrack: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 0,
   },
   switcherHeaderRow: {
     flexDirection: 'row',
@@ -1774,8 +1859,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: 36,
-    borderTopWidth: 1,
+    height: 32,
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 10,
