@@ -12,6 +12,7 @@ import {
   TransactionType,
   RecurringBill,
   BillFrequency,
+  RecurrenceEndType,
   BudgetLimit,
   BudgetProgress,
   BudgetScope,
@@ -55,6 +56,9 @@ interface BudgetContextType {
     amount: number;
     currency?: string;
     date: string;
+    time?: string;
+    is_paid?: boolean;
+    media_uri?: string;
     note?: string;
     to_wallet_id?: string;
   }) => Promise<void>;
@@ -93,6 +97,9 @@ interface BudgetContextType {
     category_id?: string;
     wallet_id: string;
     reminder_enabled?: boolean;
+    end_type?: RecurrenceEndType;
+    end_occurrences?: number;
+    end_date?: string;
   }) => Promise<void>;
   updateRecurringBill: (bill: RecurringBill) => Promise<void>;
   deleteRecurringBill: (id: string) => Promise<void>;
@@ -187,7 +194,12 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       // Transactions
       const txRows = db.getAllSync<Transaction>(`SELECT * FROM transactions ORDER BY date DESC, created_at DESC`);
-      setTransactions(txRows);
+      setTransactions(
+        txRows.map((t) => ({
+          ...t,
+          is_paid: t.is_paid !== undefined ? Boolean(t.is_paid) : true,
+        }))
+      );
 
       // Recurring Bills
       const billsRows = db.getAllSync<RecurringBill>(`SELECT * FROM recurring_bills ORDER BY next_due_date ASC`);
@@ -438,17 +450,21 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     amount: number;
     currency?: string;
     date: string;
+    time?: string;
+    is_paid?: boolean;
+    media_uri?: string;
     note?: string;
     to_wallet_id?: string;
   }) => {
     const db = getDB();
     const id = `tx-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     const txCurrency = params.currency || settings.base_currency;
+    const isPaid = params.is_paid !== false;
 
     db.withTransactionSync(() => {
       db.runSync(
-        `INSERT INTO transactions (id, wallet_id, category_id, subcategory_id, type, amount, currency, base_amount, date, note, to_wallet_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO transactions (id, wallet_id, category_id, subcategory_id, type, amount, currency, base_amount, date, time, is_paid, media_uri, note, to_wallet_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           params.wallet_id,
@@ -459,34 +475,39 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           txCurrency,
           params.amount,
           params.date,
+          params.time || null,
+          isPaid ? 1 : 0,
+          params.media_uri || null,
           params.note || null,
           params.to_wallet_id || null,
           new Date().toISOString(),
         ]
       );
 
-      // Adjust wallet balances
-      if (params.type === 'expense') {
-        db.runSync(`UPDATE wallets SET current_balance = current_balance - ? WHERE id = ?`, [
-          params.amount,
-          params.wallet_id,
-        ]);
-      } else if (params.type === 'income') {
-        db.runSync(`UPDATE wallets SET current_balance = current_balance + ? WHERE id = ?`, [
-          params.amount,
-          params.wallet_id,
-        ]);
-      } else if (params.type === 'transfer' && params.to_wallet_id) {
-        // deduct from source wallet
-        db.runSync(`UPDATE wallets SET current_balance = current_balance - ? WHERE id = ?`, [
-          params.amount,
-          params.wallet_id,
-        ]);
-        // credit to destination wallet
-        db.runSync(`UPDATE wallets SET current_balance = current_balance + ? WHERE id = ?`, [
-          params.amount,
-          params.to_wallet_id,
-        ]);
+      // Adjust wallet balances (if paid)
+      if (isPaid) {
+        if (params.type === 'expense') {
+          db.runSync(`UPDATE wallets SET current_balance = current_balance - ? WHERE id = ?`, [
+            params.amount,
+            params.wallet_id,
+          ]);
+        } else if (params.type === 'income') {
+          db.runSync(`UPDATE wallets SET current_balance = current_balance + ? WHERE id = ?`, [
+            params.amount,
+            params.wallet_id,
+          ]);
+        } else if (params.type === 'transfer' && params.to_wallet_id) {
+          // deduct from source wallet
+          db.runSync(`UPDATE wallets SET current_balance = current_balance - ? WHERE id = ?`, [
+            params.amount,
+            params.wallet_id,
+          ]);
+          // credit to destination wallet
+          db.runSync(`UPDATE wallets SET current_balance = current_balance + ? WHERE id = ?`, [
+            params.amount,
+            params.to_wallet_id,
+          ]);
+        }
       }
     });
 
@@ -499,26 +520,29 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (!tx) return;
 
     db.withTransactionSync(() => {
-      // Reverse wallet balance changes
-      if (tx.type === 'expense') {
-        db.runSync(`UPDATE wallets SET current_balance = current_balance + ? WHERE id = ?`, [
-          tx.amount,
-          tx.wallet_id,
-        ]);
-      } else if (tx.type === 'income') {
-        db.runSync(`UPDATE wallets SET current_balance = current_balance - ? WHERE id = ?`, [
-          tx.amount,
-          tx.wallet_id,
-        ]);
-      } else if (tx.type === 'transfer' && tx.to_wallet_id) {
-        db.runSync(`UPDATE wallets SET current_balance = current_balance + ? WHERE id = ?`, [
-          tx.amount,
-          tx.wallet_id,
-        ]);
-        db.runSync(`UPDATE wallets SET current_balance = current_balance - ? WHERE id = ?`, [
-          tx.amount,
-          tx.to_wallet_id,
-        ]);
+      const isPaid = tx.is_paid !== false;
+      // Reverse wallet balance changes (if was paid)
+      if (isPaid) {
+        if (tx.type === 'expense') {
+          db.runSync(`UPDATE wallets SET current_balance = current_balance + ? WHERE id = ?`, [
+            tx.amount,
+            tx.wallet_id,
+          ]);
+        } else if (tx.type === 'income') {
+          db.runSync(`UPDATE wallets SET current_balance = current_balance - ? WHERE id = ?`, [
+            tx.amount,
+            tx.wallet_id,
+          ]);
+        } else if (tx.type === 'transfer' && tx.to_wallet_id) {
+          db.runSync(`UPDATE wallets SET current_balance = current_balance + ? WHERE id = ?`, [
+            tx.amount,
+            tx.wallet_id,
+          ]);
+          db.runSync(`UPDATE wallets SET current_balance = current_balance - ? WHERE id = ?`, [
+            tx.amount,
+            tx.to_wallet_id,
+          ]);
+        }
       }
 
       db.runSync(`DELETE FROM transactions WHERE id = ?`, [id]);
@@ -658,13 +682,16 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     category_id?: string;
     wallet_id: string;
     reminder_enabled?: boolean;
+    end_type?: RecurrenceEndType;
+    end_occurrences?: number;
+    end_date?: string;
   }) => {
     const db = getDB();
     const id = `bill-${Date.now()}`;
     const billCurrency = params.currency || settings.base_currency;
     db.runSync(
-      `INSERT INTO recurring_bills (id, name, amount, currency, frequency, due_day, next_due_date, category_id, wallet_id, reminder_enabled, is_active, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+      `INSERT INTO recurring_bills (id, name, amount, currency, frequency, due_day, next_due_date, category_id, wallet_id, reminder_enabled, is_active, end_type, end_occurrences, end_date, occurrences_count, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 0, ?)`,
       [
         id,
         params.name,
@@ -676,6 +703,9 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         params.category_id || null,
         params.wallet_id,
         params.reminder_enabled !== false ? 1 : 0,
+        params.end_type || 'never',
+        params.end_occurrences || null,
+        params.end_date || null,
         new Date().toISOString(),
       ]
     );
@@ -685,7 +715,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const updateRecurringBill = async (bill: RecurringBill) => {
     const db = getDB();
     db.runSync(
-      `UPDATE recurring_bills SET name = ?, amount = ?, currency = ?, frequency = ?, due_day = ?, next_due_date = ?, category_id = ?, wallet_id = ?, reminder_enabled = ?, is_active = ? WHERE id = ?`,
+      `UPDATE recurring_bills SET name = ?, amount = ?, currency = ?, frequency = ?, due_day = ?, next_due_date = ?, category_id = ?, wallet_id = ?, reminder_enabled = ?, is_active = ?, end_type = ?, end_occurrences = ?, end_date = ?, occurrences_count = ? WHERE id = ?`,
       [
         bill.name,
         bill.amount,
@@ -697,6 +727,10 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         bill.wallet_id,
         bill.reminder_enabled ? 1 : 0,
         bill.is_active ? 1 : 0,
+        bill.end_type || 'never',
+        bill.end_occurrences || null,
+        bill.end_date || null,
+        bill.occurrences_count || 0,
         bill.id,
       ]
     );
@@ -721,7 +755,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       note: `Bill Paid: ${bill.name}`,
     });
 
-    // 2. Advance next due date
+    // 2. Advance next due date and evaluate end condition
     const currentDue = new Date(bill.next_due_date + 'T00:00:00');
     if (bill.frequency === 'weekly') {
       currentDue.setDate(currentDue.getDate() + 7);
@@ -731,9 +765,20 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       currentDue.setMonth(currentDue.getMonth() + 1);
     }
     const nextDateStr = currentDue.toISOString().slice(0, 10);
+    const newCount = (bill.occurrences_count || 0) + 1;
+
+    let stillActive = bill.is_active ? 1 : 0;
+    if (bill.end_type === 'after_occurrences' && bill.end_occurrences && newCount >= bill.end_occurrences) {
+      stillActive = 0;
+    } else if (bill.end_type === 'on_date' && bill.end_date && nextDateStr > bill.end_date) {
+      stillActive = 0;
+    }
 
     const db = getDB();
-    db.runSync(`UPDATE recurring_bills SET next_due_date = ? WHERE id = ?`, [nextDateStr, bill.id]);
+    db.runSync(
+      `UPDATE recurring_bills SET next_due_date = ?, occurrences_count = ?, is_active = ? WHERE id = ?`,
+      [nextDateStr, newCount, stillActive, bill.id]
+    );
     await loadData();
   };
 

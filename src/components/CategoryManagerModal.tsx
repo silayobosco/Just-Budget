@@ -105,6 +105,25 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
     setIsAddingNew(false);
   };
 
+  const handleDeleteCategory = (catId: string, catName: string) => {
+    Alert.alert(
+      'Delete Category',
+      `Are you sure you want to delete "${catName}"? Associated transactions will keep their records.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            await deleteCategory(catId);
+            setEditingCategory(null);
+            setIsAddingNew(false);
+          },
+        },
+      ]
+    );
+  };
+
   const handleSaveCategory = async () => {
     if (!newCatName.trim()) return;
 
@@ -460,6 +479,19 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
               </ScrollView>
 
               <View style={styles.editorActionRow}>
+                {editingCategory && (
+                  <TouchableOpacity
+                    style={[styles.deleteCatBtn, { backgroundColor: theme.errorContainer }]}
+                    onPress={() => handleDeleteCategory(editingCategory.id, editingCategory.name)}
+                    activeOpacity={0.8}
+                  >
+                    <MaterialCommunityIcons name="trash-can-outline" size={16} color={theme.onErrorContainer} />
+                    <Text style={[styles.deleteCatBtnText, { color: theme.onErrorContainer }]}>Delete Category</Text>
+                  </TouchableOpacity>
+                )}
+
+                <View style={{ flex: 1 }} />
+
                 <TouchableOpacity
                   style={[styles.cancelBtn, { backgroundColor: theme.pillBg }]}
                   onPress={() => {
@@ -530,15 +562,6 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
                             Spent: {formatCurrency(catProgress?.spent || 0, curr)}
                             {hasLimit ? ` / ${formatCurrency(catProgress.limit, curr)}` : ''}
                           </Text>
-                          <TouchableOpacity
-                            style={[styles.setLimitChip, { backgroundColor: theme.pillBg }]}
-                            onPress={() => openEditCategoryLimit(cat)}
-                          >
-                            <MaterialCommunityIcons name="pencil-outline" size={12} color={theme.primary} />
-                            <Text style={[styles.setLimitChipText, { color: theme.primary }]}>
-                              {hasLimit ? 'Edit Limit' : 'Set Limit'}
-                            </Text>
-                          </TouchableOpacity>
                         </View>
                       ) : (
                         <Text style={[styles.catSubCount, { color: theme.onSurfaceVariant }]}>
@@ -571,14 +594,9 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
                       <TouchableOpacity
                         onPress={() => handleStartEdit(cat)}
                         style={[styles.smallIconBtn, { backgroundColor: theme.pillBg }]}
+                        accessibilityLabel="Edit Category"
                       >
                         <MaterialCommunityIcons name="pencil" size={16} color={theme.onSurface} />
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() => deleteCategory(cat.id)}
-                        style={[styles.smallIconBtn, { backgroundColor: theme.errorContainer }]}
-                      >
-                        <MaterialCommunityIcons name="trash-can-outline" size={16} color={theme.onErrorContainer} />
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -985,9 +1003,21 @@ const styles = StyleSheet.create({
   },
   editorActionRow: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    alignItems: 'center',
     gap: 10,
     marginTop: 6,
+  },
+  deleteCatBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: M3Shape.full,
+    gap: 4,
+  },
+  deleteCatBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   cancelBtn: {
     paddingHorizontal: 14,

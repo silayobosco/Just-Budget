@@ -14,7 +14,18 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
 import { formatCurrency } from '../utils/format';
-import { RecurringBill, BillFrequency } from '../types';
+import { RecurringBill, BillFrequency, RecurrenceEndType } from '../types';
+import { CalendarPickerModal } from './CalendarPickerModal';
+
+const WEEKDAYS = [
+  { label: 'M', value: 1, full: 'Monday' },
+  { label: 'T', value: 2, full: 'Tuesday' },
+  { label: 'W', value: 3, full: 'Wednesday' },
+  { label: 'T', value: 4, full: 'Thursday' },
+  { label: 'F', value: 5, full: 'Friday' },
+  { label: 'S', value: 6, full: 'Saturday' },
+  { label: 'S', value: 0, full: 'Sunday' },
+];
 
 interface RecurringBillsModalProps {
   visible: boolean;
@@ -41,7 +52,11 @@ export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({ visibl
   const [billName, setBillName] = useState('');
   const [billAmount, setBillAmount] = useState('');
   const [billFrequency, setBillFrequency] = useState<BillFrequency>('monthly');
-  const [billDueDay, setBillDueDay] = useState('1');
+  const [billDueDay, setBillDueDay] = useState(1);
+  const [billEndType, setBillEndType] = useState<RecurrenceEndType>('never');
+  const [billEndOccurrences, setBillEndOccurrences] = useState('12');
+  const [billEndDate, setBillEndDate] = useState(new Date().toISOString().slice(0, 10));
+  const [endCalendarVisible, setEndCalendarVisible] = useState(false);
   const [billCategoryId, setBillCategoryId] = useState('');
   const [billWalletId, setBillWalletId] = useState('');
   const [reminderEnabled, setReminderEnabled] = useState(true);
@@ -52,7 +67,10 @@ export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({ visibl
     setBillName('');
     setBillAmount('');
     setBillFrequency('monthly');
-    setBillDueDay('1');
+    setBillDueDay(1);
+    setBillEndType('never');
+    setBillEndOccurrences('12');
+    setBillEndDate(new Date().toISOString().slice(0, 10));
     setReminderEnabled(true);
     if (wallets.length > 0) {
       setBillWalletId(wallets[0].id);
@@ -69,7 +87,10 @@ export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({ visibl
     setBillName(bill.name);
     setBillAmount(bill.amount.toString());
     setBillFrequency(bill.frequency);
-    setBillDueDay(bill.due_day.toString());
+    setBillDueDay(bill.due_day);
+    setBillEndType(bill.end_type || 'never');
+    setBillEndOccurrences(bill.end_occurrences ? bill.end_occurrences.toString() : '12');
+    setBillEndDate(bill.end_date || new Date().toISOString().slice(0, 10));
     setBillCategoryId(bill.category_id || '');
     setBillWalletId(bill.wallet_id);
     setReminderEnabled(bill.reminder_enabled);
@@ -82,18 +103,31 @@ export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({ visibl
       Alert.alert('Invalid details', 'Please enter a valid bill name and amount.');
       return;
     }
-    const dueDayNum = parseInt(billDueDay, 10) || 1;
-    const clampedDay = Math.min(31, Math.max(1, dueDayNum));
+    const clampedDay = billFrequency === 'weekly'
+      ? Math.min(6, Math.max(0, billDueDay))
+      : Math.min(31, Math.max(1, billDueDay));
 
     // Calculate next due date
     const today = new Date();
-    const year = today.getFullYear();
-    const month = today.getMonth();
-    const dayPadded = String(clampedDay).padStart(2, '0');
-    const monthPadded = String(month + 1).padStart(2, '0');
-    const nextDue = `${year}-${monthPadded}-${dayPadded}`;
+    let nextDue = '';
+    if (billFrequency === 'weekly') {
+      const currentDayOfWeek = today.getDay();
+      let diff = clampedDay - currentDayOfWeek;
+      if (diff < 0) diff += 7;
+      const targetDate = new Date(today);
+      targetDate.setDate(today.getDate() + diff);
+      nextDue = targetDate.toISOString().slice(0, 10);
+    } else {
+      const year = today.getFullYear();
+      const month = today.getMonth();
+      const dayPadded = String(clampedDay).padStart(2, '0');
+      const monthPadded = String(month + 1).padStart(2, '0');
+      nextDue = `${year}-${monthPadded}-${dayPadded}`;
+    }
 
     const chosenWallet = wallets.find((w) => w.id === billWalletId) || wallets[0];
+    const endOccurrencesNum = billEndType === 'after_occurrences' ? (parseInt(billEndOccurrences, 10) || 1) : undefined;
+    const finalEndDate = billEndType === 'on_date' ? billEndDate : undefined;
 
     if (editingBill) {
       await updateRecurringBill({
@@ -107,6 +141,9 @@ export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({ visibl
         category_id: billCategoryId || null,
         wallet_id: chosenWallet?.id || 'w-cash',
         reminder_enabled: reminderEnabled,
+        end_type: billEndType,
+        end_occurrences: endOccurrencesNum,
+        end_date: finalEndDate,
       });
     } else {
       await addRecurringBill({
@@ -119,6 +156,9 @@ export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({ visibl
         category_id: billCategoryId || undefined,
         wallet_id: chosenWallet?.id || 'w-cash',
         reminder_enabled: reminderEnabled,
+        end_type: billEndType,
+        end_occurrences: endOccurrencesNum,
+        end_date: finalEndDate,
       });
     }
 
@@ -256,18 +296,196 @@ export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({ visibl
                 ))}
               </View>
 
-              {/* Due Day */}
+              {/* Due Day Selection */}
               <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>
-                Due Day of Month (1 - 31)
+                {billFrequency === 'weekly' ? 'Repeat Day of Week' : 'Repeat Day of Month'}
               </Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
-                keyboardType="number-pad"
-                placeholder="15"
-                placeholderTextColor={theme.onSurfaceVariant}
-                value={billDueDay}
-                onChangeText={setBillDueDay}
-              />
+              {billFrequency === 'weekly' ? (
+                <View style={styles.weekdaysRow}>
+                  {WEEKDAYS.map((item) => {
+                    const isDaySelected = billDueDay === item.value;
+                    return (
+                      <TouchableOpacity
+                        key={item.full}
+                        style={[
+                          styles.weekdayBtn,
+                          {
+                            backgroundColor: isDaySelected ? theme.primary : theme.pillBg,
+                            borderColor: isDaySelected ? theme.primary : theme.divider,
+                          },
+                        ]}
+                        onPress={() => setBillDueDay(item.value)}
+                      >
+                        <Text
+                          style={[
+                            styles.weekdayBtnText,
+                            {
+                              color: isDaySelected ? theme.onPrimary : theme.onSurface,
+                              fontWeight: isDaySelected ? '700' : '500',
+                            },
+                          ]}
+                        >
+                          {item.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ) : (
+                <View style={styles.dayMonthRow}>
+                  <TouchableOpacity
+                    style={[styles.stepperBtn, { backgroundColor: theme.pillBg }]}
+                    onPress={() => setBillDueDay((prev) => Math.max(1, prev - 1))}
+                  >
+                    <MaterialCommunityIcons name="minus" size={18} color={theme.onSurface} />
+                  </TouchableOpacity>
+                  <View style={[styles.dayDisplayBox, { backgroundColor: theme.pillBg, borderColor: theme.divider }]}>
+                    <Text style={[styles.dayDisplayText, { color: theme.primary }]}>
+                      Day {billDueDay}
+                    </Text>
+                    <Text style={[styles.dayDisplaySub, { color: theme.onSurfaceVariant }]}>of month</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.stepperBtn, { backgroundColor: theme.pillBg }]}
+                    onPress={() => setBillDueDay((prev) => Math.min(31, prev + 1))}
+                  >
+                    <MaterialCommunityIcons name="plus" size={18} color={theme.onSurface} />
+                  </TouchableOpacity>
+                  <View style={styles.quickDaysRow}>
+                    {[1, 15, 28].map((d) => (
+                      <TouchableOpacity
+                        key={d}
+                        style={[
+                          styles.quickDayChip,
+                          {
+                            backgroundColor: billDueDay === d ? theme.primaryContainer : theme.pillBg,
+                            borderColor: billDueDay === d ? theme.primary : theme.divider,
+                          },
+                        ]}
+                        onPress={() => setBillDueDay(d)}
+                      >
+                        <Text
+                          style={[
+                            styles.quickDayChipText,
+                            {
+                              color: billDueDay === d ? theme.onPrimaryContainer : theme.onSurface,
+                              fontWeight: billDueDay === d ? '700' : '500',
+                            },
+                          ]}
+                        >
+                          {d === 1 ? '1st' : d === 15 ? '15th' : 'End'}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              )}
+
+              {/* Ends On */}
+              <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>Ends On</Text>
+              <View style={styles.endsOnTabsRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.endsOnTab,
+                    {
+                      backgroundColor: billEndType === 'never' ? theme.primary : theme.pillBg,
+                      borderColor: billEndType === 'never' ? theme.primary : theme.divider,
+                    },
+                  ]}
+                  onPress={() => setBillEndType('never')}
+                >
+                  <Text
+                    style={[
+                      styles.endsOnTabText,
+                      {
+                        color: billEndType === 'never' ? theme.onPrimary : theme.onSurface,
+                        fontWeight: billEndType === 'never' ? '700' : '500',
+                      },
+                    ]}
+                  >
+                    Never
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.endsOnTab,
+                    {
+                      backgroundColor: billEndType === 'after_occurrences' ? theme.primary : theme.pillBg,
+                      borderColor: billEndType === 'after_occurrences' ? theme.primary : theme.divider,
+                    },
+                  ]}
+                  onPress={() => setBillEndType('after_occurrences')}
+                >
+                  <Text
+                    style={[
+                      styles.endsOnTabText,
+                      {
+                        color: billEndType === 'after_occurrences' ? theme.onPrimary : theme.onSurface,
+                        fontWeight: billEndType === 'after_occurrences' ? '700' : '500',
+                      },
+                    ]}
+                  >
+                    After Occurrences
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.endsOnTab,
+                    {
+                      backgroundColor: billEndType === 'on_date' ? theme.primary : theme.pillBg,
+                      borderColor: billEndType === 'on_date' ? theme.primary : theme.divider,
+                    },
+                  ]}
+                  onPress={() => setBillEndType('on_date')}
+                >
+                  <Text
+                    style={[
+                      styles.endsOnTabText,
+                      {
+                        color: billEndType === 'on_date' ? theme.onPrimary : theme.onSurface,
+                        fontWeight: billEndType === 'on_date' ? '700' : '500',
+                      },
+                    ]}
+                  >
+                    On Date
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* After occurrences sub-row */}
+              {billEndType === 'after_occurrences' && (
+                <View style={styles.endConfigRow}>
+                  <Text style={[styles.endConfigLabel, { color: theme.onSurface }]}>Stop after</Text>
+                  <TextInput
+                    style={[
+                      styles.occurrencesInput,
+                      { backgroundColor: theme.pillBg, color: theme.onSurface, borderColor: theme.divider },
+                    ]}
+                    keyboardType="number-pad"
+                    value={billEndOccurrences}
+                    onChangeText={setBillEndOccurrences}
+                    maxLength={4}
+                  />
+                  <Text style={[styles.endConfigLabel, { color: theme.onSurface }]}>occurrences</Text>
+                </View>
+              )}
+
+              {/* On date sub-row */}
+              {billEndType === 'on_date' && (
+                <View style={styles.endConfigRow}>
+                  <Text style={[styles.endConfigLabel, { color: theme.onSurface }]}>Stop on</Text>
+                  <TouchableOpacity
+                    style={[styles.endDateChip, { backgroundColor: theme.pillBg, borderColor: theme.divider }]}
+                    onPress={() => setEndCalendarVisible(true)}
+                  >
+                    <MaterialCommunityIcons name="calendar-month-outline" size={16} color={theme.primary} />
+                    <Text style={[styles.endDateChipText, { color: theme.onSurface }]}>{billEndDate}</Text>
+                    <MaterialCommunityIcons name="pencil-outline" size={13} color={theme.onSurfaceVariant} />
+                  </TouchableOpacity>
+                </View>
+              )}
 
               {/* Payment Wallet */}
               <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>Payment Wallet</Text>
@@ -390,7 +608,12 @@ export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({ visibl
                         <View style={styles.billInfo}>
                           <Text style={[styles.billName, { color: theme.onSurface }]}>{bill.name}</Text>
                           <Text style={[styles.billMeta, { color: theme.onSurfaceVariant }]}>
-                            {wallet?.name || 'Wallet'} • Due: Day {bill.due_day} ({bill.frequency})
+                            {wallet?.name || 'Wallet'} • {bill.frequency === 'weekly' ? `${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][bill.due_day % 7]}s` : `Day ${bill.due_day}`} ({bill.frequency})
+                            {bill.end_type === 'after_occurrences'
+                              ? ` • ${bill.occurrences_count || 0}/${bill.end_occurrences} paid`
+                              : bill.end_type === 'on_date'
+                              ? ` • Until ${bill.end_date}`
+                              : ''}
                           </Text>
                         </View>
 
@@ -476,6 +699,14 @@ export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({ visibl
               <Text style={[styles.addNewBtnText, { color: theme.onPrimary }]}>Add Recurring Bill / Subscription</Text>
             </TouchableOpacity>
           )}
+          {/* Calendar Picker Modal for End Date */}
+          <CalendarPickerModal
+            visible={endCalendarVisible}
+            selectedDate={billEndDate}
+            theme={theme}
+            onClose={() => setEndCalendarVisible(false)}
+            onSelectDate={(d) => setBillEndDate(d)}
+          />
         </View>
       </View>
     </Modal>
@@ -749,5 +980,112 @@ const styles = StyleSheet.create({
   btnText: {
     fontSize: 13,
     fontWeight: '700',
+  },
+  weekdaysRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  weekdayBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+  weekdayBtnText: {
+    fontSize: 13,
+  },
+  dayMonthRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    gap: 8,
+  },
+  stepperBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dayDisplayBox: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: M3Shape.medium,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  dayDisplayText: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  dayDisplaySub: {
+    fontSize: 9,
+    fontWeight: '600',
+  },
+  quickDaysRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginLeft: 'auto',
+  },
+  quickDayChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: M3Shape.full,
+    borderWidth: 1,
+  },
+  quickDayChipText: {
+    fontSize: 11,
+  },
+  endsOnTabsRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginBottom: 8,
+  },
+  endsOnTab: {
+    flex: 1,
+    paddingVertical: 7,
+    borderRadius: M3Shape.full,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  endsOnTabText: {
+    fontSize: 11,
+  },
+  endConfigRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+    paddingVertical: 4,
+  },
+  endConfigLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  occurrencesInput: {
+    width: 60,
+    height: 36,
+    borderRadius: M3Shape.medium,
+    borderWidth: 1,
+    textAlign: 'center',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  endDateChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: M3Shape.full,
+    borderWidth: 1,
+    gap: 6,
+  },
+  endDateChipText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

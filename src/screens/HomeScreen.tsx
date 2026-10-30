@@ -16,46 +16,30 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
-import { TransactionType } from '../types';
+import { TransactionType, BillFrequency, RecurrenceEndType } from '../types';
 import { formatCurrency } from '../utils/format';
 import { CategoryManagerModal } from '../components/CategoryManagerModal';
-
-// Analog Clock Time Picker Constants
-const CLOCK_HOURS = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
-const CLOCK_MINUTES = [
-  { label: '00', val: 0 },
-  { label: '05', val: 5 },
-  { label: '10', val: 10 },
-  { label: '15', val: 15 },
-  { label: '20', val: 20 },
-  { label: '25', val: 25 },
-  { label: '30', val: 30 },
-  { label: '35', val: 35 },
-  { label: '40', val: 40 },
-  { label: '45', val: 45 },
-  { label: '50', val: 50 },
-  { label: '55', val: 55 },
-];
+import { CategoryPickerSheet } from '../components/CategoryPickerSheet';
+import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
+import { BudgetCycleModal } from '../components/BudgetCycleModal';
+import { DateRangePickerModal } from '../components/DateRangePickerModal';
 
 export const HomeScreen: React.FC = () => {
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
 
   // Responsive device tiers
-  const isTinyScreen = windowHeight < 660; // e.g. iPhone SE, budget Androids
+  const isTinyScreen = windowHeight < 660; // e.g. iPhone SE, compact budget Androids
   const isCompactScreen = windowHeight < 740; // e.g. iPhone 13 mini, compact displays
 
-  // Responsive collapsed sheet height:
-  // Cleanly bounds the hero section (Today Balance + Dual Switcher) and drag handle,
-  // preventing awkward dead space and keeping dial pad accessible on every device.
+  // Responsive collapsed sheet height
   const COLLAPSED_SHEET_HEIGHT = isTinyScreen ? 146 : isCompactScreen ? 150 : 156;
 
   // Responsive dial pad, button and row dimensions
-  const dialKeyHeight = isTinyScreen ? 36 : isCompactScreen ? 40 : 44;
+  const dialKeyHeight = isTinyScreen ? 38 : isCompactScreen ? 42 : 46;
   const dialRowMargin = isTinyScreen ? 4 : isCompactScreen ? 5 : 6;
-  const dialKeyFontSize = isTinyScreen ? 19 : isCompactScreen ? 21 : 22;
-  const recordButtonHeight = isTinyScreen ? 42 : isCompactScreen ? 45 : 48;
-  const noteRowMinHeight = isTinyScreen ? 36 : isCompactScreen ? 40 : 44;
-  const amountFontSize = isTinyScreen ? 32 : isCompactScreen ? 36 : 42;
+  const dialKeyFontSize = isTinyScreen ? 20 : isCompactScreen ? 22 : 23;
+  const recordButtonHeight = isTinyScreen ? 46 : isCompactScreen ? 48 : 52;
+  const amountFontSize = isTinyScreen ? 32 : isCompactScreen ? 38 : 44;
 
   const {
     settings,
@@ -65,186 +49,44 @@ export const HomeScreen: React.FC = () => {
     incomeInCycle,
     currentCycle,
     overallBudgetLimit,
-    categoryBudgetProgressList,
     transactions,
     categories,
     wallets,
     addTransaction,
     addWallet,
     addSubcategory,
+    addRecurringBill,
+    updateBudgetCycle,
     deleteTransaction,
   } = useBudget();
 
   const theme = settings.theme_mode === 'dark' ? darkTheme : lightTheme;
   const curr = settings.base_currency;
 
-  // Active Transaction Form State
-  const [txType, setTxType] = useState<TransactionType>('expense');
+  // Amount & Wallet Entry State
   const [amountStr, setAmountStr] = useState<string>('0');
   const [selectedWalletId, setSelectedWalletId] = useState<string>('');
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
-  const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<string>('');
-  const [note, setNote] = useState<string>('');
-  
-  // Date & Time states (default to current local date and time)
-  const [dateStr, setDateStr] = useState<string>(() => new Date().toISOString().slice(0, 10));
-  const [timeStr, setTimeStr] = useState<string>(() => {
-    const d = new Date();
-    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-  });
 
-  // Calendar & Time picker modal visibility
-  const [calendarModalVisible, setCalendarModalVisible] = useState(false);
-  const [timeModalVisible, setTimeModalVisible] = useState(false);
-  const [calendarViewMonth, setCalendarViewMonth] = useState(() => new Date());
-  // Analog Clock Time Picker States
-  const [selectedHour, setSelectedHour] = useState(() => {
-    let h = new Date().getHours();
-    if (h > 12) h -= 12;
-    if (h === 0) h = 12;
-    return h;
-  });
-  const [selectedMinute, setSelectedMinute] = useState(() => new Date().getMinutes());
-  const [selectedPeriod, setSelectedPeriod] = useState<'AM' | 'PM'>(() =>
-    new Date().getHours() >= 12 ? 'PM' : 'AM'
-  );
-  const [clockMode, setClockMode] = useState<'hours' | 'minutes'>('hours');
+  // 2-Step Recording Modals State
+  const [activeTxType, setActiveTxType] = useState<TransactionType>('expense');
+  const [categoryPickerVisible, setCategoryPickerVisible] = useState(false);
+  const [detailsModalVisible, setDetailsModalVisible] = useState(false);
+  const [prefilledCategoryId, setPrefilledCategoryId] = useState<string | undefined>(undefined);
+  const [prefilledSubcategoryId, setPrefilledSubcategoryId] = useState<string | undefined>(undefined);
 
-  // Paid / Not Paid Toggle State (default to not paid if date/time is in the future)
-  const isFuture = useMemo(() => {
-    const now = new Date();
-    const [y, m, d] = dateStr.split('-').map(Number);
-    const [hh, mm] = timeStr.split(':').map(Number);
-    const selectedDt = new Date(y, m - 1, d, hh || 0, mm || 0, 0);
-    return selectedDt.getTime() > now.getTime();
-  }, [dateStr, timeStr]);
-
-  const [isPaidUserOverride, setIsPaidUserOverride] = useState<boolean | null>(null);
-  const isPaid = isPaidUserOverride !== null ? isPaidUserOverride : !isFuture;
-
-  // Whenever date or time changes, update default isPaid if user hasn't explicitly locked it
-  useEffect(() => {
-    setIsPaidUserOverride(null);
-  }, [dateStr, timeStr]);
-
-  // Date helper formatting
-  const formattedDateLabel = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().slice(0, 10);
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = tomorrow.toISOString().slice(0, 10);
-
-    if (dateStr === today) return 'Today';
-    if (dateStr === yesterdayStr) return 'Yesterday';
-    if (dateStr === tomorrowStr) return 'Tomorrow';
-    return dateStr;
-  }, [dateStr]);
-
-  // Calendar modal grid generator
-  const calendarModalGrid = useMemo(() => {
-    const year = calendarViewMonth.getFullYear();
-    const month = calendarViewMonth.getMonth();
-    const firstDay = new Date(year, month, 1).getDay();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const cells: { dayNum: number; dateString: string }[] = [];
-
-    for (let i = 0; i < firstDay; i++) {
-      cells.push({ dayNum: 0, dateString: '' });
-    }
-    for (let d = 1; d <= daysInMonth; d++) {
-      const dateString = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      cells.push({ dayNum: d, dateString });
-    }
-    return cells;
-  }, [calendarViewMonth]);
-
-  const monthNames = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December',
-  ];
-
-  const handleOpenTimeModal = () => {
-    const [hh, mm] = timeStr.split(':');
-    let h = parseInt(hh) || 0;
-    const m = parseInt(mm) || 0;
-    const isPm = h >= 12;
-    if (h > 12) h -= 12;
-    if (h === 0) h = 12;
-    setSelectedHour(h);
-    setSelectedMinute(m);
-    setSelectedPeriod(isPm ? 'PM' : 'AM');
-    setClockMode('hours');
-    setTimeModalVisible(true);
-  };
-
-  const handleSaveTime = () => {
-    let h = selectedHour;
-    if (selectedPeriod === 'PM' && h < 12) {
-      h += 12;
-    } else if (selectedPeriod === 'AM' && h === 12) {
-      h = 0;
-    }
-    const finalTime = `${String(h).padStart(2, '0')}:${String(selectedMinute).padStart(2, '0')}`;
-    setTimeStr(finalTime);
-    setTimeModalVisible(false);
-  };
-
-  const dialRadius = 115;
-  const handleDialTouch = (x: number, y: number, isRelease = false) => {
-    const dx = x - dialRadius;
-    const dy = y - dialRadius;
-    let rad = Math.atan2(dy, dx) + Math.PI / 2;
-    if (rad < 0) rad += 2 * Math.PI;
-    const deg = (rad * 180) / Math.PI;
-
-    if (clockMode === 'hours') {
-      let h = Math.round(deg / 30) % 12;
-      if (h === 0) h = 12;
-      setSelectedHour(h);
-      if (isRelease) {
-        setTimeout(() => setClockMode('minutes'), 160);
-      }
-    } else {
-      let m = Math.round(deg / 6) % 60;
-      setSelectedMinute(m);
-    }
-  };
-
-  const clockDialPanResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
-        onPanResponderGrant: (e) => {
-          const { locationX, locationY } = e.nativeEvent;
-          handleDialTouch(locationX, locationY, false);
-        },
-        onPanResponderMove: (e) => {
-          const { locationX, locationY } = e.nativeEvent;
-          handleDialTouch(locationX, locationY, false);
-        },
-        onPanResponderRelease: (e) => {
-          const { locationX, locationY } = e.nativeEvent;
-          handleDialTouch(locationX, locationY, true);
-        },
-      }),
-    [clockMode]
-  );
-
-  const handAngle = clockMode === 'hours' ? (selectedHour % 12) * 30 : selectedMinute * 6;
-
-  // Quick Action / Manager modals
-  const [categoryModalVisible, setCategoryModalVisible] = useState(false);
+  // Quick Wallet modal
   const [quickWalletModalVisible, setQuickWalletModalVisible] = useState(false);
-  const [quickSubModalVisible, setQuickSubModalVisible] = useState(false);
   const [newWalletName, setNewWalletName] = useState('');
   const [newWalletBal, setNewWalletBal] = useState('0');
-  const [newSubName, setNewSubName] = useState('');
 
-  // Auto-select initial wallet & categories
+  // Category Manager modal
+  const [categoryModalVisible, setCategoryModalVisible] = useState(false);
+
+  // Budget Cycle & Date Range Modal State
+  const [cycleModalVisible, setCycleModalVisible] = useState(false);
+  const [dateRangePickerVisible, setDateRangePickerVisible] = useState(false);
+
+  // Auto-select initial wallet
   useEffect(() => {
     if (wallets.length > 0 && !selectedWalletId) {
       const preferred = wallets.find((w) => w.is_default) || wallets[0];
@@ -252,71 +94,22 @@ export const HomeScreen: React.FC = () => {
     }
   }, [wallets, selectedWalletId]);
 
-  // When transaction type or categories list change, clear category if current one is no longer applicable.
-  // Category is NOT auto-initialized; it only becomes active when explicitly selected by the user.
-  useEffect(() => {
-    if (selectedCategoryId) {
-      const activeCats = categories.filter((c) => c.type === (txType === 'income' ? 'income' : 'expense'));
-      const found = activeCats.find((c) => c.id === selectedCategoryId);
-      if (!found) {
-        setSelectedCategoryId('');
-        setSelectedSubcategoryId('');
-      }
-    }
-  }, [txType, categories, selectedCategoryId]);
-
-  // Handle category switch (tap selected category to deselect)
-  const handleSelectCategory = (catId: string) => {
-    if (noteInputRef.current?.isFocused?.()) {
-      noteInputRef.current.blur();
-    }
-    Keyboard.dismiss();
-    if (selectedCategoryId === catId) {
-      setSelectedCategoryId('');
-      setSelectedSubcategoryId('');
-      return;
-    }
-    setSelectedCategoryId(catId);
-    const cat = categories.find((c) => c.id === catId);
-    if (cat?.subcategories && cat.subcategories.length > 0) {
-      setSelectedSubcategoryId(cat.subcategories[0].id);
-    } else {
-      setSelectedSubcategoryId('');
-    }
-  };
-
-  // Selection state for cursor tracking inside amount input
+  // Cursor tracking inside amount input
   const [amountSelection, setAmountSelection] = useState<{ start: number; end: number }>({
     start: 1,
     end: 1,
   });
   const amountInputRef = useRef<any>(null);
-  const noteInputRef = useRef<any>(null);
 
-  // Tracks whether user is currently editing the note (with system keyboard visible)
-  const [isNoteEditing, setIsNoteEditing] = useState(false);
-
+  // Keep amount input focused so cursor is ALWAYS visible and blinking
   useEffect(() => {
-    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
-      setIsNoteEditing(false);
-    });
-    return () => {
-      hideSub.remove();
-    };
+    const timer = setTimeout(() => {
+      amountInputRef.current?.focus();
+    }, 150);
+    return () => clearTimeout(timer);
   }, []);
 
-  // Keep amount input focused so cursor is ALWAYS visible and blinking on the amount,
-  // both on screen load and whenever returning from note editing.
-  useEffect(() => {
-    if (!isNoteEditing) {
-      const timer = setTimeout(() => {
-        amountInputRef.current?.focus();
-      }, 150);
-      return () => clearTimeout(timer);
-    }
-  }, [isNoteEditing]);
-
-  // Handle direct text changes (typing from soft keyboard or pasting from native context menu / Gboard)
+  // Handle direct text changes
   const handleAmountChange = (text: string) => {
     if (!text || text === '') {
       setAmountStr('0');
@@ -337,13 +130,8 @@ export const HomeScreen: React.FC = () => {
     setAmountStr(finalVal);
   };
 
-  // Dial Pad Keypress (inserts or deletes at the current cursor selection position)
+  // Dial Pad Keypress
   const handleKeyPress = (val: string) => {
-    if (isNoteEditing || noteInputRef.current?.isFocused?.()) {
-      noteInputRef.current?.blur();
-      Keyboard.dismiss();
-      setIsNoteEditing(false);
-    }
     amountInputRef.current?.focus();
     const rawStart = amountSelection.start ?? amountStr.length;
     const rawEnd = amountSelection.end ?? amountStr.length;
@@ -359,18 +147,16 @@ export const HomeScreen: React.FC = () => {
 
     if (val === 'backspace') {
       if (curStart !== curEnd) {
-        // Selection range active: delete selected range
         const before = amountStr.slice(0, curStart);
         const after = amountStr.slice(curEnd);
-        const next = (before + after) || '0';
+        const next = before + after || '0';
         setAmountStr(next);
         setAmountSelection({ start: curStart, end: curStart });
         setTimeout(() => amountInputRef.current?.setSelection?.(curStart, curStart), 10);
       } else if (curStart > 0) {
-        // Delete single char before cursor
         const before = amountStr.slice(0, curStart - 1);
         const after = amountStr.slice(curStart);
-        const next = (before + after) || '0';
+        const next = before + after || '0';
         setAmountStr(next);
         const newPos = Math.max(0, curStart - 1);
         setAmountSelection({ start: newPos, end: newPos });
@@ -415,38 +201,22 @@ export const HomeScreen: React.FC = () => {
     setTimeout(() => amountInputRef.current?.setSelection?.(nextPos, nextPos), 10);
   };
 
-  // Record Transaction
   const parsedAmount = parseFloat(amountStr) || 0;
-  const activeCategories = categories.filter((c) => c.type === (txType === 'income' ? 'income' : 'expense'));
-  const currentCategory = categories.find((c) => c.id === selectedCategoryId);
 
   // Duplicate warning detection
   const isDuplicate = useMemo(() => {
     if (parsedAmount <= 0 || !selectedWalletId) return false;
+    const today = new Date().toISOString().slice(0, 10);
     return transactions.some((t) => {
       return (
-        t.date === dateStr &&
+        t.date === today &&
         t.wallet_id === selectedWalletId &&
-        t.type === txType &&
-        Math.abs(t.amount - parsedAmount) < 0.001 &&
-        (t.category_id || '') === (selectedCategoryId || '') &&
-        (t.subcategory_id || '') === (selectedSubcategoryId || '')
+        Math.abs(t.amount - parsedAmount) < 0.001
       );
     });
-  }, [transactions, dateStr, selectedWalletId, txType, parsedAmount, selectedCategoryId, selectedSubcategoryId]);
+  }, [transactions, selectedWalletId, parsedAmount]);
 
-  // Total income / expense in cycle (live projected with dialpad entry) for the Record Button
-  const recordButtonTotalText = useMemo(() => {
-    if (txType === 'expense') {
-      const total = spentInCycle + parsedAmount;
-      return `Total: ${formatCurrency(total, curr)}`;
-    } else {
-      const total = incomeInCycle + parsedAmount;
-      return `Total: ${formatCurrency(total, curr)}`;
-    }
-  }, [txType, spentInCycle, incomeInCycle, parsedAmount, curr]);
-
-  // Switcher Progress: Expense side towards Target Budget
+  // Budget Cap Progress
   const expenseSwitcherProgress = useMemo(() => {
     const hasTarget = overallBudgetLimit > 0;
     const percent = hasTarget ? Math.round((spentInCycle / overallBudgetLimit) * 100) : 0;
@@ -465,11 +235,11 @@ export const HomeScreen: React.FC = () => {
         ? isOver
           ? `⚠️ ${formatCurrency(overBy, curr)} over`
           : `${formatCurrency(remaining, curr)} left`
-        : 'No budget set',
+        : 'Set budget cap',
     };
   }, [overallBudgetLimit, spentInCycle, curr]);
 
-  // Switcher Progress: Income side towards Income Goal
+  // Income Goal Progress
   const incomeSwitcherProgress = useMemo(() => {
     const goal =
       currentCycle?.target_income && currentCycle.target_income > 0
@@ -494,51 +264,124 @@ export const HomeScreen: React.FC = () => {
         ? isReached
           ? '🎉 Goal reached'
           : `${formatCurrency(remaining, curr)} to go`
-        : 'No goal set',
+        : 'Set income goal',
     };
   }, [currentCycle, overallBudgetLimit, incomeInCycle, curr]);
 
-  const handleSaveTransaction = async () => {
+  // Flow Triggers: Tapping Record Income or Record Expense
+  const handleOpenRecordFlow = (type: TransactionType) => {
     if (parsedAmount <= 0) {
-      Alert.alert('Invalid Amount', 'Please enter an amount greater than 0');
+      Alert.alert('Enter Amount', `Please enter an amount greater than 0 before recording ${type}.`);
       return;
     }
     if (!selectedWalletId && wallets.length === 0) {
-      Alert.alert('No Wallet', 'Please create a wallet first');
+      Alert.alert('No Wallet', 'Please create a wallet first.');
       return;
     }
+    setActiveTxType(type);
+    setCategoryPickerVisible(true);
+  };
 
-    const doSave = async () => {
-      await addTransaction({
-        wallet_id: selectedWalletId || wallets[0].id,
-        category_id: selectedCategoryId || undefined,
-        subcategory_id: selectedSubcategoryId || undefined,
-        type: txType,
-        amount: parsedAmount,
-        currency: curr,
-        date: dateStr,
-        note: note.trim() || undefined,
+  // Step 1: Fast Save from Category Picker Sheet
+  const handleQuickSaveCategory = async ({
+    categoryId,
+    subcategoryId,
+  }: {
+    categoryId?: string;
+    subcategoryId?: string;
+  }) => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const d = new Date();
+    const timeNow = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+
+    await addTransaction({
+      wallet_id: selectedWalletId || wallets[0].id,
+      category_id: categoryId,
+      subcategory_id: subcategoryId,
+      type: activeTxType,
+      amount: parsedAmount,
+      currency: curr,
+      date: todayStr,
+      time: timeNow,
+      is_paid: true,
+    });
+
+    setAmountStr('0');
+    setCategoryPickerVisible(false);
+  };
+
+  // Step 1: Open Step 2 Full Details
+  const handleOpenMoreOptions = ({
+    categoryId,
+    subcategoryId,
+  }: {
+    categoryId?: string;
+    subcategoryId?: string;
+  }) => {
+    setPrefilledCategoryId(categoryId);
+    setPrefilledSubcategoryId(subcategoryId);
+    setCategoryPickerVisible(false);
+    setDetailsModalVisible(true);
+  };
+
+  // Step 2: Save Full Details
+  const handleSaveTransactionDetails = async (txData: {
+    amount: number;
+    wallet_id: string;
+    category_id?: string;
+    subcategory_id?: string;
+    type: TransactionType;
+    currency: string;
+    date: string;
+    time?: string;
+    is_paid: boolean;
+    note?: string;
+    media_uri?: string;
+    repeat_frequency?: BillFrequency;
+    repeat_due_day?: number;
+    repeat_end_type?: RecurrenceEndType;
+    repeat_end_occurrences?: number;
+    repeat_end_date?: string;
+    reminder_enabled?: boolean;
+  }) => {
+    await addTransaction({
+      wallet_id: txData.wallet_id,
+      category_id: txData.category_id,
+      subcategory_id: txData.subcategory_id,
+      type: txData.type,
+      amount: txData.amount,
+      currency: txData.currency,
+      date: txData.date,
+      time: txData.time,
+      is_paid: txData.is_paid,
+      note: txData.note,
+      media_uri: txData.media_uri,
+    });
+
+    if (txData.repeat_frequency) {
+      const selectedCat = categories.find((c) => c.id === txData.category_id);
+      const billName =
+        txData.note || selectedCat?.name || (txData.type === 'income' ? 'Recurring Income' : 'Recurring Bill');
+      const dueDay = txData.repeat_due_day !== undefined ? txData.repeat_due_day : (parseInt(txData.date.slice(8, 10)) || 1);
+
+      await addRecurringBill({
+        name: billName,
+        amount: txData.amount,
+        currency: txData.currency,
+        frequency: txData.repeat_frequency,
+        due_day: dueDay,
+        next_due_date: txData.date,
+        category_id: txData.category_id,
+        wallet_id: txData.wallet_id,
+        reminder_enabled: txData.reminder_enabled !== false,
+        end_type: txData.repeat_end_type,
+        end_occurrences: txData.repeat_end_occurrences,
+        end_date: txData.repeat_end_date,
       });
-
-      // Reset entry state
-      setAmountStr('0');
-      setNote('');
-      setSelectedCategoryId('');
-      setSelectedSubcategoryId('');
-    };
-
-    if (isDuplicate) {
-      Alert.alert(
-        'Duplicate Entry Detected',
-        `An identical ${txType} entry of ${formatCurrency(parsedAmount, curr)} already exists today for this wallet and category. Do you want to record it again?`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Add Anyway', style: 'destructive', onPress: doSave },
-        ]
-      );
-    } else {
-      await doSave();
     }
+
+    setAmountStr('0');
+    setDetailsModalVisible(false);
   };
 
   // Quick Add Wallet
@@ -557,33 +400,47 @@ export const HomeScreen: React.FC = () => {
     setQuickWalletModalVisible(false);
   };
 
-  // Quick Add Subcategory
-  const handleSaveQuickSub = async () => {
-    if (!newSubName.trim() || !selectedCategoryId) return;
-    const newId = await addSubcategory(selectedCategoryId, newSubName.trim());
-    setSelectedSubcategoryId(newId);
-    setNewSubName('');
-    setQuickSubModalVisible(false);
+  // Budget Cycle & Visual Date Range handlers
+  const handleSaveCycle = async (params: {
+    id?: string;
+    name: string;
+    start_date: string;
+    end_date: string;
+    target_budget?: number;
+    target_income?: number;
+  }) => {
+    await updateBudgetCycle(params);
   };
 
-  // Group transactions by date with total spent/income that day
-  // INVERTED: chronological order where newest date is at the bottom,
-  // and inside each day, transactions are ordered so newest is at the bottom.
+  const handleSaveDateRange = async (newStart: string, newEnd: string) => {
+    await updateBudgetCycle({
+      id: currentCycle?.id,
+      name: currentCycle?.name || 'Budget Cycle',
+      start_date: newStart,
+      end_date: newEnd,
+      target_budget: currentCycle?.target_budget,
+      target_income: currentCycle?.target_income,
+    });
+  };
+
+  // Group transactions descending by date for History Sheet
   const groupedTransactions = useMemo(() => {
+    const map = new Map<string, any[]>();
+    transactions.forEach((tx) => {
+      const d = tx.date;
+      if (!map.has(d)) {
+        map.set(d, []);
+      }
+      map.get(d)!.push(tx);
+    });
+
     const groups: {
       date: string;
       displayDate: string;
       totalSpent: number;
       totalIncome: number;
-      items: typeof transactions;
+      items: any[];
     }[] = [];
-
-    const map = new Map<string, typeof transactions>();
-    transactions.forEach((tx) => {
-      const arr = map.get(tx.date) || [];
-      arr.push(tx);
-      map.set(tx.date, arr);
-    });
 
     const todayStr = new Date().toISOString().slice(0, 10);
     const yesterday = new Date();
@@ -591,7 +448,6 @@ export const HomeScreen: React.FC = () => {
     const yesterdayStr = yesterday.toISOString().slice(0, 10);
 
     Array.from(map.entries())
-      // Descending sort by date (newest at top, oldest at bottom)
       .sort((a, b) => b[0].localeCompare(a[0]))
       .forEach(([d, items]) => {
         let displayDate = d;
@@ -605,7 +461,6 @@ export const HomeScreen: React.FC = () => {
           .filter((t) => t.type === 'income')
           .reduce((sum, t) => sum + (t.amount || t.base_amount || 0), 0);
 
-        // Sort items inside this day descending by created_at/id so newest is at the top
         const sortedItems = [...items].sort((a, b) => {
           const timeA = a.created_at || a.id;
           const timeB = b.created_at || b.id;
@@ -624,52 +479,34 @@ export const HomeScreen: React.FC = () => {
     return groups;
   }, [transactions]);
 
-  // Measured layout heights for pixel-perfect dynamic sizing
+  // Measured layout heights for top sheet pull-down
   const [screenContainerHeight, setScreenContainerHeight] = useState(0);
 
-  // Maximum allowed expanded height: rigorously bounded by the actual container height,
-  // leaving 6px clearance so it NEVER passes, touches, or overlaps the bottom navigation tabs.
   const maxExpandedSheetHeight = useMemo(() => {
     if (screenContainerHeight > 0) {
       return Math.max(COLLAPSED_SHEET_HEIGHT, screenContainerHeight - 6);
     }
-    // Safe initial fallback before onLayout: window height minus status bar, header, and bottom tabs (~210px)
     return Math.max(COLLAPSED_SHEET_HEIGHT, windowHeight - 210);
   }, [screenContainerHeight, COLLAPSED_SHEET_HEIGHT, windowHeight]);
 
-  // Content height computed accurately from items and groups
   const historyContentHeight = useMemo(() => {
     if (transactions.length === 0) return 75;
-    // Each date group header is ~30px, plus 14px spacing between different dates
     const groupsHeight = groupedTransactions.length * 30 + Math.max(0, groupedTransactions.length - 1) * 14;
-    // Each transaction card is ~54px + 6px marginBottom = 60px
     const itemsHeight = transactions.length * 60;
     return groupsHeight + itemsHeight;
   }, [groupedTransactions, transactions]);
 
-  // Dynamic Expanded Height: accurately fits all available items with full visibility,
-  // clamped at maxExpandedSheetHeight (strictly bounded above the bottom bar tab).
   const expandedSheetHeight = useMemo(() => {
-    // Base overhead: hero (~114) + history header (41) + drag handle (36) + buffer = 191px
-    const totalTarget = 191 + historyContentHeight;
+    const totalTarget = 192 + historyContentHeight;
     return Math.min(maxExpandedSheetHeight, Math.max(COLLAPSED_SHEET_HEIGHT, totalTarget));
   }, [historyContentHeight, maxExpandedSheetHeight, COLLAPSED_SHEET_HEIGHT]);
 
-  // Ref to hold the scrollview to auto-scroll to the end (newest transactions at bottom)
   const historyScrollRef = useRef<any>(null);
-  const scrollOffsetRef = useRef(0);
-  const contentHeightRef = useRef(0);
-  const layoutHeightRef = useRef(0);
-
-  // ==============================================================
-  // TOP SHEET PULL-DOWN GESTURE & ANIMATION
-  // ==============================================================
   const animatedHeight = useRef(new Animated.Value(COLLAPSED_SHEET_HEIGHT)).current;
   const [isSheetExpanded, setIsSheetExpanded] = useState(false);
   const isExpandedRef = useRef(false);
   const currentHeightRef = useRef(COLLAPSED_SHEET_HEIGHT);
 
-  // Sync collapsed height if screen dimensions change
   useEffect(() => {
     if (!isExpandedRef.current) {
       animatedHeight.setValue(COLLAPSED_SHEET_HEIGHT);
@@ -677,7 +514,6 @@ export const HomeScreen: React.FC = () => {
     }
   }, [COLLAPSED_SHEET_HEIGHT]);
 
-  // Smoothly glide sheet height if content count changes (e.g. items added or deleted) while expanded
   useEffect(() => {
     if (isExpandedRef.current) {
       Animated.timing(animatedHeight, {
@@ -688,16 +524,14 @@ export const HomeScreen: React.FC = () => {
     }
   }, [expandedSheetHeight]);
 
-  // Interpolate opacity/height of the sticky History header:
-  // Visible ONLY when expanded; smoothly fades out to 0 when collapsed so the last item is directly seen.
   const historyHeaderOpacity = animatedHeight.interpolate({
-    inputRange: [COLLAPSED_SHEET_HEIGHT, COLLAPSED_SHEET_HEIGHT + 30],
+    inputRange: [COLLAPSED_SHEET_HEIGHT, COLLAPSED_SHEET_HEIGHT + 35],
     outputRange: [0, 1],
     extrapolate: 'clamp',
   });
 
   const historyHeaderHeight = animatedHeight.interpolate({
-    inputRange: [COLLAPSED_SHEET_HEIGHT, COLLAPSED_SHEET_HEIGHT + 30],
+    inputRange: [COLLAPSED_SHEET_HEIGHT, COLLAPSED_SHEET_HEIGHT + 35],
     outputRange: [0, 40],
     extrapolate: 'clamp',
   });
@@ -743,12 +577,10 @@ export const HomeScreen: React.FC = () => {
     }
   };
 
-  // Top Sheet Pull-Down PanResponder (for expanding when collapsed; no gesture for collapsing)
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (_, gestureState) => {
-        // Only pull down to expand when collapsed; no gesture for collapsing
         if (!isExpandedRef.current && gestureState.dy > 5) {
           return true;
         }
@@ -769,16 +601,8 @@ export const HomeScreen: React.FC = () => {
         const threshold = (COLLAPSED_SHEET_HEIGHT + expandedSheetHeight) / 2;
         const isFlickDown = gestureState.vy > 0.4;
         const isDragDown = gestureState.dy > 35;
-        if (isFlickDown || isDragDown || currentH > threshold) {
-          openSheet();
-        } else {
-          closeSheet();
-        }
-      },
-      onPanResponderTerminate: () => {
-        const currentH = currentHeightRef.current;
-        const threshold = (COLLAPSED_SHEET_HEIGHT + expandedSheetHeight) / 2;
-        if (currentH > threshold) {
+
+        if (currentH > threshold || isFlickDown || isDragDown) {
           openSheet();
         } else {
           closeSheet();
@@ -787,178 +611,77 @@ export const HomeScreen: React.FC = () => {
     })
   ).current;
 
-
   return (
     <View
-      onLayout={(e) => setScreenContainerHeight(e.nativeEvent.layout.height)}
       style={[styles.container, { backgroundColor: theme.background }]}
+      onLayout={(e) => setScreenContainerHeight(e.nativeEvent.layout.height)}
     >
-      {/* ============================================================== */}
-      {/* 1. BASE SCREEN: ENTRY WORKSPACE WITH CHIPS DOCKED ON KEYPAD     */}
-      {/* ============================================================== */}
-      <View style={[styles.baseEntryContainer, { paddingTop: COLLAPSED_SHEET_HEIGHT }]}>
-        {/* Dismiss overlay when keyboard is open for note editing:
-            Tapping anywhere outside note card cleanly closes the keyboard BEFORE number entry is touched */}
-        {isNoteEditing && (
+      {/* 1. BASE SCREEN: ENTRY DISPLAY & DOCKED DIAL PAD */}
+      <View
+        style={[
+          styles.baseEntryContainer,
+          {
+            paddingTop: COLLAPSED_SHEET_HEIGHT,
+          },
+        ]}
+      >
+        {/* INPUT SPACE (AMOUNT DISPLAY) */}
+        <View style={styles.inputSpace}>
           <Pressable
-            style={[StyleSheet.absoluteFill, { zIndex: 90 }]}
+            style={styles.amountPressable}
             onPress={() => {
-              noteInputRef.current?.blur();
-              Keyboard.dismiss();
-              setIsNoteEditing(false);
-              setTimeout(() => {
-                amountInputRef.current?.focus();
-              }, 120);
+              amountInputRef.current?.focus();
             }}
-          />
-        )}
-
-        {/* UPPER WORKSPACE: Amount Display with currency on left, native cursor, and paste ability */}
-        <View style={[styles.inputSpace, isCompactScreen && { paddingVertical: 4 }]}>
-          <View style={styles.amountDisplayRow}>
-            <TouchableOpacity
-              activeOpacity={0.7}
-              onPress={() => amountInputRef.current?.focus()}
-            >
-              <Text style={[styles.currencyPrefixLeft, { color: theme.onSurfaceVariant }, isCompactScreen && { fontSize: 18 }]}>{curr}</Text>
-            </TouchableOpacity>
-            <TextInput
-              ref={amountInputRef}
-              style={[
-                styles.displayAmountInput,
-                {
-                  color: txType === 'expense' ? theme.error : theme.success,
-                  fontSize: amountFontSize,
-                  paddingVertical: isCompactScreen ? 2 : 4,
-                },
-              ]}
-              value={amountStr}
-              onChangeText={handleAmountChange}
-              onSelectionChange={(e) => setAmountSelection(e.nativeEvent.selection)}
-              showSoftInputOnFocus={false}
-              caretHidden={false}
-              cursorColor={txType === 'expense' ? theme.error : theme.success}
-              selectionColor={txType === 'expense' ? 'rgba(239, 68, 68, 0.25)' : 'rgba(16, 185, 129, 0.25)'}
-              selectTextOnFocus={false}
-              autoCapitalize="none"
-              autoCorrect={false}
-              contextMenuHidden={false}
-              scrollEnabled={false}
-              numberOfLines={1}
-              maxFontSizeMultiplier={1.2}
-            />
-          </View>
+          >
+            <View style={styles.amountDisplayRow}>
+              <Text
+                style={[
+                  styles.currencySymbol,
+                  {
+                    color: theme.primary,
+                    fontSize: isTinyScreen ? 20 : isCompactScreen ? 23 : 26,
+                  },
+                ]}
+              >
+                {curr}{' '}
+              </Text>
+              <TextInput
+                ref={amountInputRef}
+                style={[
+                  styles.amountInputText,
+                  {
+                    color: theme.onSurface,
+                    fontSize: amountFontSize,
+                  },
+                ]}
+                value={amountStr}
+                onChangeText={handleAmountChange}
+                selection={amountSelection}
+                onSelectionChange={(e) => setAmountSelection(e.nativeEvent.selection)}
+                keyboardType="decimal-pad"
+                showSoftInputOnFocus={false}
+                caretHidden={false}
+                cursorColor={theme.primary}
+                selectionColor={theme.primary + '55'}
+                autoFocus={true}
+                contextMenuHidden={false}
+                scrollEnabled={false}
+              />
+            </View>
+          </Pressable>
 
           {isDuplicate && (
             <View style={[styles.duplicateBanner, { backgroundColor: '#FEF3C7' }]}>
               <MaterialCommunityIcons name="alert-outline" size={14} color="#D97706" />
-              <Text style={styles.duplicateBannerText}>Possible duplicate</Text>
+              <Text style={styles.duplicateBannerText}>Possible duplicate recorded today</Text>
             </View>
           )}
         </View>
 
-        {/* LOWER SECTION: CHIPS DIRECTLY DOCKED ON TOP OF KEYPAD */}
+        {/* LOWER SECTION: WALLETS ROW + DIAL PAD + DUAL RECORD BUTTONS */}
         <View style={styles.dockedLowerSection}>
-          {/* TOP ENTRY BAR: DATE CHIP, TIME CHIP, PAID/NOT PAID TOGGLE */}
-          <View style={[styles.dateTimeToggleBar, { backgroundColor: theme.surface, borderBottomColor: theme.divider }, isCompactScreen && { paddingVertical: 5 }]}>
-            {/* Calendar Date Chip */}
-            <TouchableOpacity
-              style={[styles.dateTimeChip, { backgroundColor: theme.pillBg }]}
-              onPress={() => {
-                const [y, m] = dateStr.split('-').map(Number);
-                setCalendarViewMonth(new Date(y, m - 1, 1));
-                setCalendarModalVisible(true);
-              }}
-              activeOpacity={0.7}
-            >
-              <MaterialCommunityIcons name="calendar-month-outline" size={15} color={theme.primary} />
-              <Text style={[styles.dateTimeChipText, { color: theme.onSurface }]} maxFontSizeMultiplier={1.2}>
-                {formattedDateLabel}
-              </Text>
-              <MaterialCommunityIcons name="menu-down" size={14} color={theme.onSurfaceVariant} />
-            </TouchableOpacity>
-
-            {/* Time Chip */}
-            <TouchableOpacity
-              style={[styles.dateTimeChip, { backgroundColor: theme.pillBg }]}
-              onPress={handleOpenTimeModal}
-              activeOpacity={0.7}
-            >
-              <MaterialCommunityIcons name="clock-time-four-outline" size={15} color={theme.primary} />
-              <Text style={[styles.dateTimeChipText, { color: theme.onSurface }]} maxFontSizeMultiplier={1.2}>
-                {timeStr}
-              </Text>
-              <MaterialCommunityIcons name="menu-down" size={14} color={theme.onSurfaceVariant} />
-            </TouchableOpacity>
-
-            {/* Paid / Not Paid Switcher Chip */}
-            <TouchableOpacity
-              style={[
-                styles.paidStatusChip,
-                {
-                  backgroundColor: isPaid ? theme.successContainer : theme.errorContainer,
-                },
-              ]}
-              onPress={() => setIsPaidUserOverride(!isPaid)}
-              activeOpacity={0.8}
-            >
-              <MaterialCommunityIcons
-                name={isPaid ? 'check-circle' : 'clock-alert-outline'}
-                size={15}
-                color={isPaid ? theme.success : theme.error}
-              />
-              <Text
-                style={[
-                  styles.paidStatusText,
-                  { color: isPaid ? theme.onSuccessContainer : theme.onErrorContainer },
-                ]}
-                maxFontSizeMultiplier={1.2}
-              >
-                {isPaid ? 'Paid' : 'Not Paid'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* CHIP SELECTION STRIPS: Note, Wallet, Category, Subcategory */}
-          <View style={[styles.chipsWorkspace, { backgroundColor: theme.surface }, isCompactScreen && { paddingVertical: 1, gap: 2 }]}>
-            {/* NOTE INPUT CARD (Positioned above Wallets with enhanced card size) */}
-            <View style={[styles.noteRow, { backgroundColor: theme.pillBg, borderColor: theme.divider, minHeight: noteRowMinHeight, zIndex: 100 }, isCompactScreen && { marginVertical: 2, paddingVertical: 4 }]}>
-              <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.primary} />
-              <TextInput
-                ref={noteInputRef}
-                style={[styles.noteInput, { color: theme.onSurface }]}
-                placeholder="Add optional note or tag..."
-                placeholderTextColor={theme.onSurfaceVariant}
-                value={note}
-                onChangeText={setNote}
-                maxLength={80}
-                onFocus={() => setIsNoteEditing(true)}
-                onBlur={() => {
-                  setIsNoteEditing(false);
-                  Keyboard.dismiss();
-                  setTimeout(() => {
-                    amountInputRef.current?.focus();
-                  }, 120);
-                }}
-                returnKeyType="done"
-                blurOnSubmit={true}
-                onSubmitEditing={() => {
-                  noteInputRef.current?.blur();
-                  Keyboard.dismiss();
-                  setIsNoteEditing(false);
-                  setTimeout(() => {
-                    amountInputRef.current?.focus();
-                  }, 120);
-                }}
-              />
-              {note.length > 0 && (
-                <TouchableOpacity onPress={() => setNote('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                  <MaterialCommunityIcons name="close-circle" size={18} color={theme.outline} />
-                </TouchableOpacity>
-              )}
-            </View>
-
-            {/* WALLETS ROW */}
+          {/* WALLETS ROW ONLY (ABOVE DIAL PAD) */}
+          <View style={[styles.chipsWorkspace, { backgroundColor: theme.surface }]}>
             <View style={styles.chipRowWrap}>
               <Text style={[styles.chipSectionLabel, { color: theme.onSurfaceVariant }]}>WALLET</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll}>
@@ -974,13 +697,7 @@ export const HomeScreen: React.FC = () => {
                           borderColor: isSelected ? theme.primary : 'transparent',
                         },
                       ]}
-                      onPress={() => {
-                        if (noteInputRef.current?.isFocused?.()) {
-                          noteInputRef.current.blur();
-                        }
-                        Keyboard.dismiss();
-                        setSelectedWalletId(w.id);
-                      }}
+                      onPress={() => setSelectedWalletId(w.id)}
                       activeOpacity={0.7}
                     >
                       <MaterialCommunityIcons
@@ -1014,109 +731,16 @@ export const HomeScreen: React.FC = () => {
                 </TouchableOpacity>
               </ScrollView>
             </View>
-
-            {/* CATEGORIES ROW */}
-            <View style={styles.chipRowWrap}>
-              <Text style={[styles.chipSectionLabel, { color: theme.onSurfaceVariant }]}>CATEGORY</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll}>
-                {activeCategories.map((c) => {
-                  const isSelected = c.id === selectedCategoryId;
-                  return (
-                    <TouchableOpacity
-                      key={c.id}
-                      style={[
-                        styles.chipItem,
-                        {
-                          backgroundColor: isSelected ? c.color : theme.pillBg,
-                          borderColor: isSelected ? c.color : 'transparent',
-                        },
-                      ]}
-                      onPress={() => handleSelectCategory(c.id)}
-                      activeOpacity={0.7}
-                    >
-                      <MaterialCommunityIcons
-                        name={(c.icon as any) || 'tag-outline'}
-                        size={14}
-                        color={isSelected ? '#FFFFFF' : theme.onSurface}
-                      />
-                      <Text
-                        style={[
-                          styles.chipText,
-                          {
-                            color: isSelected ? '#FFFFFF' : theme.onSurface,
-                            fontWeight: isSelected ? '700' : '500',
-                          },
-                        ]}
-                      >
-                        {c.name}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-                <TouchableOpacity
-                  style={[styles.addChipBtn, { backgroundColor: theme.secondaryContainer }]}
-                  onPress={() => setCategoryModalVisible(true)}
-                >
-                  <MaterialCommunityIcons name="plus" size={15} color={theme.onSecondaryContainer} />
-                </TouchableOpacity>
-              </ScrollView>
-            </View>
-
-            {/* SUBCATEGORIES ROW (if any) */}
-            {currentCategory?.subcategories && currentCategory.subcategories.length > 0 && (
-              <View style={styles.chipRowWrap}>
-                <Text style={[styles.chipSectionLabel, { color: theme.onSurfaceVariant }]}>SUB</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll}>
-                  {currentCategory.subcategories.map((s) => {
-                    const isSelected = s.id === selectedSubcategoryId;
-                    return (
-                      <TouchableOpacity
-                        key={s.id}
-                        style={[
-                          styles.chipItemSmall,
-                          {
-                            backgroundColor: isSelected ? theme.secondaryContainer : theme.pillBg,
-                          },
-                        ]}
-                        onPress={() => {
-                          if (noteInputRef.current?.isFocused?.()) {
-                            noteInputRef.current.blur();
-                          }
-                          Keyboard.dismiss();
-                          setSelectedSubcategoryId(isSelected ? '' : s.id);
-                        }}
-                        activeOpacity={0.7}
-                      >
-                        <Text
-                          style={[
-                            styles.chipTextSmall,
-                            {
-                              color: isSelected ? theme.onSecondaryContainer : theme.onSurfaceVariant,
-                              fontWeight: isSelected ? '700' : '500',
-                            },
-                          ]}
-                        >
-                          {s.name}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                  <TouchableOpacity
-                    style={[styles.addChipBtn, { backgroundColor: theme.pillBg }]}
-                    onPress={() => {
-                      setNewSubName('');
-                      setQuickSubModalVisible(true);
-                    }}
-                  >
-                    <MaterialCommunityIcons name="plus" size={14} color={theme.onSurface} />
-                  </TouchableOpacity>
-                </ScrollView>
-              </View>
-            )}
           </View>
 
-          {/* 1B. DOCKED DIAL PAD (PINNED TO BOTTOM) */}
-          <View style={[styles.dockedDialPadArea, { borderTopColor: theme.divider, backgroundColor: theme.surface }, isCompactScreen && { paddingTop: 6, paddingBottom: 8 }]}>
+          {/* DOCKED DIAL PAD (PINNED TO BOTTOM) */}
+          <View
+            style={[
+              styles.dockedDialPadArea,
+              { borderTopColor: theme.divider, backgroundColor: theme.surface },
+              isCompactScreen && { paddingTop: 6, paddingBottom: 8 },
+            ]}
+          >
             {[
               ['1', '2', '3'],
               ['4', '5', '6'],
@@ -1138,7 +762,11 @@ export const HomeScreen: React.FC = () => {
                     activeOpacity={0.65}
                   >
                     {k === 'backspace' ? (
-                      <MaterialCommunityIcons name="backspace-outline" size={isTinyScreen ? 20 : 24} color={theme.onSurface} />
+                      <MaterialCommunityIcons
+                        name="backspace-outline"
+                        size={isTinyScreen ? 20 : 24}
+                        color={theme.onSurface}
+                      />
                     ) : (
                       <Text
                         style={[styles.dialKeyText, { color: theme.onSurface, fontSize: dialKeyFontSize }]}
@@ -1152,73 +780,67 @@ export const HomeScreen: React.FC = () => {
               </View>
             ))}
 
-            {/* Record Action Bar with Total Income / Expense */}
-            <View style={[styles.actionBar, isCompactScreen && { marginTop: 4 }]}>
+            {/* DUAL RECORD ACTION BUTTONS: INCOME ON LEFT, EXPENSE ON RIGHT */}
+            <View style={styles.dualActionBar}>
+              {/* Record Income Button (Left) */}
               <TouchableOpacity
                 style={[
-                  styles.recordButton,
+                  styles.dualRecordBtn,
                   {
                     height: recordButtonHeight,
-                    backgroundColor:
-                      parsedAmount > 0
-                        ? txType === 'expense'
-                          ? theme.primary
-                          : theme.success
-                        : theme.pillBg,
-                    borderColor: parsedAmount > 0 ? 'transparent' : theme.divider,
-                    borderWidth: parsedAmount > 0 ? 0 : 1,
+                    backgroundColor: theme.successContainer,
+                    borderColor: theme.success,
                   },
                   M3Elevation.level2,
                 ]}
-                onPress={handleSaveTransaction}
-                disabled={parsedAmount <= 0}
+                onPress={() => handleOpenRecordFlow('income')}
                 activeOpacity={0.85}
               >
-                <View style={styles.recordButtonInner}>
-                  <View style={styles.recordButtonLeft}>
-                    <MaterialCommunityIcons
-                      name="check"
-                      size={20}
-                      color={parsedAmount > 0 ? theme.onPrimary : theme.onSurface}
-                    />
+                <View style={styles.dualRecordBtnContent}>
+                  <View style={styles.dualRecordHeaderRow}>
+                    <MaterialCommunityIcons name="plus-circle" size={16} color={theme.success} />
                     <Text
-                      style={[
-                        styles.recordButtonText,
-                        { color: parsedAmount > 0 ? theme.onPrimary : theme.onSurface },
-                      ]}
-                    >
-                      Record {txType === 'expense' ? 'Expense' : 'Income'}
-                    </Text>
-                  </View>
-
-                  {/* Total Income / Expense Badge */}
-                  <View
-                    style={[
-                      styles.recordBadge,
-                      {
-                        backgroundColor:
-                          parsedAmount > 0
-                            ? 'rgba(255, 255, 255, 0.24)'
-                            : theme.cardBg,
-                        borderColor: parsedAmount > 0 ? 'transparent' : theme.divider,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.recordBadgeText,
-                        {
-                          color:
-                            parsedAmount > 0
-                              ? theme.onPrimary
-                              : txType === 'expense'
-                              ? theme.error
-                              : theme.success,
-                        },
-                      ]}
+                      style={[styles.dualRecordBtnTitle, { color: theme.onSuccessContainer }]}
                       numberOfLines={1}
                     >
-                      {recordButtonTotalText}
+                      Record Income
+                    </Text>
+                  </View>
+                  <View style={[styles.dualRecordBadge, { backgroundColor: 'rgba(255, 255, 255, 0.7)' }]}>
+                    <Text style={[styles.dualRecordBadgeText, { color: theme.success }]} numberOfLines={1}>
+                      Total: {formatCurrency(incomeInCycle, curr)}
+                    </Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+
+              {/* Record Expense Button (Right) */}
+              <TouchableOpacity
+                style={[
+                  styles.dualRecordBtn,
+                  {
+                    height: recordButtonHeight,
+                    backgroundColor: theme.errorContainer,
+                    borderColor: theme.error,
+                  },
+                  M3Elevation.level2,
+                ]}
+                onPress={() => handleOpenRecordFlow('expense')}
+                activeOpacity={0.85}
+              >
+                <View style={styles.dualRecordBtnContent}>
+                  <View style={styles.dualRecordHeaderRow}>
+                    <MaterialCommunityIcons name="minus-circle" size={16} color={theme.error} />
+                    <Text
+                      style={[styles.dualRecordBtnTitle, { color: theme.onErrorContainer }]}
+                      numberOfLines={1}
+                    >
+                      Record Expense
+                    </Text>
+                  </View>
+                  <View style={[styles.dualRecordBadge, { backgroundColor: 'rgba(255, 255, 255, 0.7)' }]}>
+                    <Text style={[styles.dualRecordBadgeText, { color: theme.error }]} numberOfLines={1}>
+                      Total: {formatCurrency(spentInCycle, curr)}
                     </Text>
                   </View>
                 </View>
@@ -1228,20 +850,12 @@ export const HomeScreen: React.FC = () => {
         </View>
       </View>
 
-      {/* ============================================================== */}
-      {/* BACKDROP DIMMER WHEN SHEET IS EXPANDED                        */}
-      {/* ============================================================== */}
+      {/* BACKDROP DIMMER WHEN SHEET IS EXPANDED */}
       {isSheetExpanded && (
-        <TouchableOpacity
-          style={styles.backdrop}
-          activeOpacity={1}
-          onPress={closeSheet}
-        />
+        <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={closeSheet} />
       )}
 
-      {/* ============================================================== */}
-      {/* 2. TOP SHEET: EXPENSE|INCOME & TODAY BALANCE (PULLS DOWN)     */}
-      {/* ============================================================== */}
+      {/* 2. TOP SHEET: TODAY'S BALANCE & INCOME GOAL | BUDGET CAP DISPLAY */}
       <Animated.View
         style={[
           styles.topSheetContainer,
@@ -1252,12 +866,15 @@ export const HomeScreen: React.FC = () => {
           M3Elevation.level3,
         ]}
       >
-        {/* 2A. HERO HEADER: TODAY'S BALANCE + EXPENSE|INCOME SWITCHER */}
+        {/* 2A. HERO SECTION: TODAY'S BALANCE & PROGRESS CARDS */}
         <View {...panResponder.panHandlers} style={[styles.heroSection, isCompactScreen && { paddingTop: 6, paddingBottom: 6 }]}>
           {/* Available for Today Row */}
           <View style={styles.todayBalanceRow}>
             <View>
-              <Text style={[styles.todayBalanceLabel, { color: theme.onSurfaceVariant }, isCompactScreen && { fontSize: 9.5 }]} maxFontSizeMultiplier={1.2}>
+              <Text
+                style={[styles.todayBalanceLabel, { color: theme.onSurfaceVariant }, isCompactScreen && { fontSize: 9.5 }]}
+                maxFontSizeMultiplier={1.2}
+              >
                 AVAILABLE FOR TODAY
               </Text>
               <Text
@@ -1284,56 +901,118 @@ export const HomeScreen: React.FC = () => {
             </View>
           </View>
 
-          {/* Dual Switcher & Totals: EXPENSES & INCOME with Target & Goal Progress */}
+          {/* DUAL DISPLAY CARDS: INCOME GOAL (LEFT) & BUDGET CAP (RIGHT) */}
           <View style={[styles.switcherContainer, { backgroundColor: theme.surfaceVariant }]}>
-            {/* Expense Tab / Switcher */}
+            {/* Income Goal Card (Left) */}
             <TouchableOpacity
               style={[
-                styles.switcherTab,
-                txType === 'expense' && [
-                  styles.switcherTabActive,
-                  { backgroundColor: theme.errorContainer },
-                  M3Elevation.level1,
-                ],
+                styles.heroDisplayCard,
+                { backgroundColor: theme.cardBg, borderColor: theme.divider },
+                M3Elevation.level1,
               ]}
-              onPress={() => setTxType('expense')}
+              onPress={() => setCycleModalVisible(true)}
               activeOpacity={0.8}
             >
-              {/* Background Progress Fill Track */}
-              {expenseSwitcherProgress.hasTarget && (
-                <View
-                  style={[
-                    styles.switcherProgressTrack,
-                    {
-                      width: `${Math.min(100, Math.max(0, expenseSwitcherProgress.percent))}%`,
-                      backgroundColor:
-                        txType === 'expense'
-                          ? 'rgba(43, 3, 3, 0.53)'
-                          : 'rgba(239, 68, 68, 0.08)',
-                    },
-                  ]}
-                />
-              )}
-
-              {/* Tab Header: Dot + EXPENSES title + Progress % Badge */}
+              {/* Header: Dot + Title + Badge */}
               <View style={styles.switcherHeaderRow}>
                 <View style={styles.switcherIconTextRow}>
+                  <View style={[styles.tabDot, { backgroundColor: theme.success }]} />
+                  <Text style={[styles.switcherTabTitle, { color: theme.onSurfaceVariant }]}>
+                    INCOME GOAL
+                  </Text>
+                </View>
+
+                {incomeSwitcherProgress.badgeText && (
                   <View
                     style={[
-                      styles.tabDot,
-                      { backgroundColor: txType === 'expense' ? theme.error : theme.outline },
-                    ]}
-                  />
-                  <Text
-                    style={[
-                      styles.switcherTabTitle,
+                      styles.switcherBadgePill,
                       {
-                        color:
-                          txType === 'expense' ? theme.onErrorContainer : theme.onSurfaceVariant,
+                        backgroundColor: incomeSwitcherProgress.isReached
+                          ? '#D1FAE5'
+                          : theme.pillBg,
                       },
                     ]}
                   >
-                    EXPENSES
+                    <Text
+                      style={[
+                        styles.switcherBadgeText,
+                        {
+                          color: incomeSwitcherProgress.isReached
+                            ? '#059669'
+                            : theme.success,
+                        },
+                      ]}
+                    >
+                      {incomeSwitcherProgress.badgeText}
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              {/* Main Headline: Amount To Go */}
+              <View style={styles.heroAmountRow}>
+                <Text
+                  style={[styles.switcherTabAmount, { color: theme.success }]}
+                  numberOfLines={1}
+                >
+                  {incomeSwitcherProgress.hasGoal
+                    ? formatCurrency(incomeSwitcherProgress.remaining, curr)
+                    : formatCurrency(0, curr)}
+                </Text>
+                <Text style={[styles.heroAmountCaption, { color: theme.onSurfaceVariant }]}>TO GO</Text>
+              </View>
+
+              {/* Subtext: Target or Reached */}
+              <Text
+                style={[
+                  styles.switcherProgressSubtext,
+                  {
+                    color: incomeSwitcherProgress.isReached
+                      ? '#059669'
+                      : theme.onSurfaceVariant,
+                  },
+                ]}
+                numberOfLines={1}
+              >
+                {incomeSwitcherProgress.hasGoal
+                  ? incomeSwitcherProgress.isReached
+                    ? '🎉 Goal reached'
+                    : `Goal: ${formatCurrency(incomeSwitcherProgress.goal, curr)}`
+                  : 'Tap to set goal'}
+              </Text>
+
+              {/* Bottom Progress Line */}
+              {incomeSwitcherProgress.hasGoal && (
+                <View style={styles.switcherBottomLineTrack}>
+                  <View
+                    style={[
+                      styles.switcherBottomLineFill,
+                      {
+                        width: `${Math.min(100, Math.max(0, incomeSwitcherProgress.percent))}%`,
+                        backgroundColor: theme.success,
+                      },
+                    ]}
+                  />
+                </View>
+              )}
+            </TouchableOpacity>
+
+            {/* Budget Cap Card (Right) */}
+            <TouchableOpacity
+              style={[
+                styles.heroDisplayCard,
+                { backgroundColor: theme.cardBg, borderColor: theme.divider },
+                M3Elevation.level1,
+              ]}
+              onPress={() => setCycleModalVisible(true)}
+              activeOpacity={0.8}
+            >
+              {/* Header: Dot + Title + Badge */}
+              <View style={styles.switcherHeaderRow}>
+                <View style={styles.switcherIconTextRow}>
+                  <View style={[styles.tabDot, { backgroundColor: theme.error }]} />
+                  <Text style={[styles.switcherTabTitle, { color: theme.onSurfaceVariant }]}>
+                    BUDGET CAP
                   </Text>
                 </View>
 
@@ -1342,12 +1021,9 @@ export const HomeScreen: React.FC = () => {
                     style={[
                       styles.switcherBadgePill,
                       {
-                        backgroundColor:
-                          txType === 'expense'
-                            ? expenseSwitcherProgress.isOver
-                              ? '#FEE2E2'
-                              : 'rgba(255, 255, 255, 0.65)'
-                            : theme.cardBg,
+                        backgroundColor: expenseSwitcherProgress.isOver
+                          ? '#FEE2E2'
+                          : theme.pillBg,
                       },
                     ]}
                   >
@@ -1357,9 +1033,7 @@ export const HomeScreen: React.FC = () => {
                         {
                           color: expenseSwitcherProgress.isOver
                             ? '#DC2626'
-                            : txType === 'expense'
-                            ? theme.error
-                            : theme.onSurfaceVariant,
+                            : theme.error,
                         },
                       ]}
                     >
@@ -1369,36 +1043,44 @@ export const HomeScreen: React.FC = () => {
                 )}
               </View>
 
-              {/* Amount Display */}
-              <Text
-                style={[
-                  styles.switcherTabAmount,
-                  { color: txType === 'expense' ? theme.error : theme.onSurface },
-                ]}
-                numberOfLines={1}
-              >
-                {formatCurrency(spentInCycle, curr)}
-              </Text>
+              {/* Main Headline: Amount Left */}
+              <View style={styles.heroAmountRow}>
+                <Text
+                  style={[
+                    styles.switcherTabAmount,
+                    { color: expenseSwitcherProgress.isOver ? '#DC2626' : theme.error },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {expenseSwitcherProgress.hasTarget
+                    ? expenseSwitcherProgress.isOver
+                      ? `-${formatCurrency(expenseSwitcherProgress.overBy, curr)}`
+                      : formatCurrency(expenseSwitcherProgress.remaining, curr)
+                    : formatCurrency(0, curr)}
+                </Text>
+                <Text style={[styles.heroAmountCaption, { color: theme.onSurfaceVariant }]}>LEFT</Text>
+              </View>
 
-              {/* Progress Toward Target Budget Subtext */}
+              {/* Subtext: Cap or Over status */}
               <Text
                 style={[
                   styles.switcherProgressSubtext,
                   {
-                    color:
-                      expenseSwitcherProgress.isOver
-                        ? '#DC2626'
-                        : txType === 'expense'
-                        ? theme.onErrorContainer
-                        : theme.onSurfaceVariant,
+                    color: expenseSwitcherProgress.isOver
+                      ? '#DC2626'
+                      : theme.onSurfaceVariant,
                   },
                 ]}
                 numberOfLines={1}
               >
-                {expenseSwitcherProgress.subText}
+                {expenseSwitcherProgress.hasTarget
+                  ? expenseSwitcherProgress.isOver
+                    ? `⚠️ ${formatCurrency(expenseSwitcherProgress.overBy, curr)} over`
+                    : `Cap: ${formatCurrency(overallBudgetLimit, curr)}`
+                  : 'Tap to set cap'}
               </Text>
 
-              {/* Bottom Line Progress Indicator */}
+              {/* Bottom Progress Line */}
               {expenseSwitcherProgress.hasTarget && (
                 <View style={styles.switcherBottomLineTrack}>
                   <View
@@ -1415,165 +1097,29 @@ export const HomeScreen: React.FC = () => {
                 </View>
               )}
             </TouchableOpacity>
-
-            {/* Income Tab / Switcher */}
-            <TouchableOpacity
-              style={[
-                styles.switcherTab,
-                txType === 'income' && [
-                  styles.switcherTabActive,
-                  { backgroundColor: theme.successContainer },
-                  M3Elevation.level1,
-                ],
-              ]}
-              onPress={() => setTxType('income')}
-              activeOpacity={0.8}
-            >
-              {/* Background Progress Fill Track */}
-              {incomeSwitcherProgress.hasGoal && (
-                <View
-                  style={[
-                    styles.switcherProgressTrack,
-                    {
-                      width: `${Math.min(100, Math.max(0, incomeSwitcherProgress.percent))}%`,
-                      backgroundColor:
-                        txType === 'income'
-                          ? 'rgba(0, 2, 1, 0.38)'
-                          : 'rgba(16, 185, 129, 0.08)',
-                    },
-                  ]}
-                />
-              )}
-
-              {/* Tab Header: Dot + INCOME title + Progress % Badge */}
-              <View style={styles.switcherHeaderRow}>
-                <View style={styles.switcherIconTextRow}>
-                  <View
-                    style={[
-                      styles.tabDot,
-                      { backgroundColor: txType === 'income' ? theme.success : theme.outline },
-                    ]}
-                  />
-                  <Text
-                    style={[
-                      styles.switcherTabTitle,
-                      {
-                        color:
-                          txType === 'income' ? theme.onSuccessContainer : theme.onSurfaceVariant,
-                      },
-                    ]}
-                  >
-                    INCOME
-                  </Text>
-                </View>
-
-                {incomeSwitcherProgress.badgeText && (
-                  <View
-                    style={[
-                      styles.switcherBadgePill,
-                      {
-                        backgroundColor:
-                          txType === 'income'
-                            ? incomeSwitcherProgress.isReached
-                              ? '#D1FAE5'
-                              : 'rgba(255, 255, 255, 0.65)'
-                            : theme.cardBg,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.switcherBadgeText,
-                        {
-                          color: incomeSwitcherProgress.isReached
-                            ? '#059669'
-                            : txType === 'income'
-                            ? theme.success
-                            : theme.onSurfaceVariant,
-                        },
-                      ]}
-                    >
-                      {incomeSwitcherProgress.badgeText}
-                    </Text>
-                  </View>
-                )}
-              </View>
-
-              {/* Amount Display */}
-              <Text
-                style={[
-                  styles.switcherTabAmount,
-                  { color: txType === 'income' ? theme.success : theme.onSurface },
-                ]}
-                numberOfLines={1}
-              >
-                {formatCurrency(incomeInCycle, curr)}
-              </Text>
-
-              {/* Progress Toward Income Goal Subtext */}
-              <Text
-                style={[
-                  styles.switcherProgressSubtext,
-                  {
-                    color:
-                      incomeSwitcherProgress.isReached
-                        ? '#059669'
-                        : txType === 'income'
-                        ? theme.onSuccessContainer
-                        : theme.onSurfaceVariant,
-                  },
-                ]}
-                numberOfLines={1}
-              >
-                {incomeSwitcherProgress.subText}
-              </Text>
-
-              {/* Bottom Line Progress Indicator */}
-              {incomeSwitcherProgress.hasGoal && (
-                <View style={styles.switcherBottomLineTrack}>
-                  <View
-                    style={[
-                      styles.switcherBottomLineFill,
-                      {
-                        width: `${Math.min(100, Math.max(0, incomeSwitcherProgress.percent))}%`,
-                        backgroundColor: theme.success,
-                      },
-                    ]}
-                  />
-                </View>
-              )}
-            </TouchableOpacity>
           </View>
         </View>
 
         {/* 2B. HISTORY LIST (REVEALED WHEN SHEET PULLS DOWN) */}
         <View style={styles.activityContentWrapper}>
-          {/* STICKY TOP HISTORY HEADER (Fades in when expanded, hides when collapsed) */}
+          {/* STICKY TOP HISTORY HEADER */}
           <Animated.View
             style={[
               styles.historyHeader,
               {
-                borderBottomColor: theme.divider,
-                backgroundColor: theme.surface,
                 opacity: historyHeaderOpacity,
                 height: historyHeaderHeight,
+                borderBottomColor: theme.divider,
+                backgroundColor: theme.surface,
               },
             ]}
           >
-            <TouchableOpacity
-              style={styles.historyTitleRow}
-              onPress={toggleSheet}
-              activeOpacity={0.7}
-            >
-              <MaterialCommunityIcons name="history" size={17} color={theme.primary} />
-              <Text style={[styles.historyTitle, { color: theme.onSurface }]}>History</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={toggleSheet} style={styles.closeSheetBtn}>
-              <MaterialCommunityIcons
-                name="chevron-up"
-                size={19}
-                color={theme.onSurfaceVariant}
-              />
+            <View style={styles.historyTitleRow}>
+              <MaterialCommunityIcons name="history" size={18} color={theme.primary} />
+              <Text style={[styles.historyTitle, { color: theme.onSurface }]}>Transaction History</Text>
+            </View>
+            <TouchableOpacity onPress={closeSheet} style={styles.closeSheetBtn}>
+              <MaterialCommunityIcons name="close" size={18} color={theme.onSurfaceVariant} />
             </TouchableOpacity>
           </Animated.View>
 
@@ -1585,40 +1131,23 @@ export const HomeScreen: React.FC = () => {
                 color={theme.outlineVariant}
               />
               <Text style={[styles.emptyHistoryText, { color: theme.onSurfaceVariant }]}>
-                No history recorded yet
+                No transactions recorded yet
               </Text>
             </View>
           ) : (
             <ScrollView
               ref={historyScrollRef}
-              showsVerticalScrollIndicator={false}
+              style={{ flex: 1 }}
               contentContainerStyle={styles.historyScrollContent}
+              showsVerticalScrollIndicator={true}
               nestedScrollEnabled={true}
-              scrollEnabled={true}
-              bounces={false}
-              overScrollMode="never"
-              onScroll={(e) => {
-                const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-                scrollOffsetRef.current = contentOffset.y;
-                contentHeightRef.current = contentSize.height;
-                layoutHeightRef.current = layoutMeasurement.height;
-              }}
-              scrollEventThrottle={16}
             >
-              {groupedTransactions.map((group, groupIdx) => {
-                const isLastGroup = groupIdx === groupedTransactions.length - 1;
+              {groupedTransactions.map((group) => {
                 return (
-                  <View
-                    key={group.date}
-                    style={[
-                      styles.dateGroupContainer,
-                      isLastGroup && { marginBottom: 0 },
-                    ]}
-                  >
-                    {/* Date Group Header with Totals (returned to top, without the word "Total") */}
+                  <View key={group.date} style={styles.dateGroupContainer}>
                     <View style={[styles.dateGroupHeaderRow, { borderBottomColor: theme.divider }]}>
-                      <Text style={[styles.dateGroupTitle, { color: theme.onSurface }]}>
-                        {group.displayDate}
+                      <Text style={[styles.dateGroupTitle, { color: theme.onSurfaceVariant }]}>
+                        {group.displayDate.toUpperCase()}
                       </Text>
                       <View style={styles.dateGroupTotalsRow}>
                         {group.totalSpent > 0 && (
@@ -1634,8 +1163,7 @@ export const HomeScreen: React.FC = () => {
                       </View>
                     </View>
 
-                    {/* Individual transaction items for this date */}
-                    {group.items.map((tx, txIdx) => {
+                    {group.items.map((tx) => {
                       const cat = categories.find((c) => c.id === tx.category_id);
                       const sub = cat?.subcategories?.find((s) => s.id === tx.subcategory_id);
                       const wallet = wallets.find((w) => w.id === tx.wallet_id);
@@ -1644,10 +1172,12 @@ export const HomeScreen: React.FC = () => {
 
                       const mainTitle = isTransfer
                         ? 'Transfer'
-                        : sub?.name || cat?.name || 'Uncategorized';
+                        : sub?.name || cat?.name || 'Activity';
+
                       const subtitle = [
                         sub ? cat?.name : null,
                         wallet?.name,
+                        tx.time || null,
                         tx.note || null,
                       ]
                         .filter(Boolean)
@@ -1728,7 +1258,10 @@ export const HomeScreen: React.FC = () => {
         </View>
 
         {/* 2C. DRAG HANDLE BAR AT BOTTOM OF TOP SHEET */}
-        <View {...panResponder.panHandlers} style={[styles.dragHandleArea, { borderTopColor: theme.divider, backgroundColor: theme.surface }]}>
+        <View
+          {...panResponder.panHandlers}
+          style={[styles.dragHandleArea, { borderTopColor: theme.divider, backgroundColor: theme.surface }]}
+        >
           <TouchableOpacity onPress={toggleSheet} activeOpacity={0.8} style={styles.dragHandleTouch}>
             <View style={[styles.dragHandlePill, { backgroundColor: theme.outlineVariant }]} />
             <View style={styles.dragHandleHintRow}>
@@ -1738,12 +1271,67 @@ export const HomeScreen: React.FC = () => {
                 color={theme.onSurfaceVariant}
               />
               <Text style={[styles.dragHandleHintText, { color: theme.onSurfaceVariant }]}>
-                {isSheetExpanded ? 'Tap to close history' : 'Pull down to see more history'}
+                {isSheetExpanded ? 'Tap to close history' : 'Pull down to see history'}
               </Text>
             </View>
           </TouchableOpacity>
         </View>
       </Animated.View>
+
+      {/* STEP 1: CATEGORY PICKER BOTTOM SHEET */}
+      <CategoryPickerSheet
+        visible={categoryPickerVisible}
+        txType={activeTxType}
+        amount={parsedAmount}
+        walletId={selectedWalletId}
+        wallets={wallets}
+        categories={categories}
+        theme={theme}
+        baseCurrency={curr}
+        onClose={() => setCategoryPickerVisible(false)}
+        onSave={handleQuickSaveCategory}
+        onOpenMoreOptions={handleOpenMoreOptions}
+        onManageCategories={() => setCategoryModalVisible(true)}
+        onAddSubcategory={addSubcategory}
+      />
+
+      {/* STEP 2: FULL TRANSACTION DETAILS MODAL */}
+      <TransactionDetailsModal
+        visible={detailsModalVisible}
+        txType={activeTxType}
+        initialAmount={parsedAmount}
+        initialWalletId={selectedWalletId}
+        initialCategoryId={prefilledCategoryId}
+        initialSubcategoryId={prefilledSubcategoryId}
+        wallets={wallets}
+        categories={categories}
+        theme={theme}
+        baseCurrency={curr}
+        onClose={() => setDetailsModalVisible(false)}
+        onSave={handleSaveTransactionDetails}
+        onManageCategories={() => setCategoryModalVisible(true)}
+        onAddSubcategory={addSubcategory}
+      />
+
+      {/* BUDGET CYCLE & TARGETS MODAL */}
+      <BudgetCycleModal
+        visible={cycleModalVisible}
+        currentCycle={currentCycle}
+        baseCurrency={curr}
+        theme={theme}
+        onClose={() => setCycleModalVisible(false)}
+        onSave={handleSaveCycle}
+        onOpenDateRangePicker={() => setDateRangePickerVisible(true)}
+      />
+
+      {/* VISUAL DATE RANGE PICKER MODAL */}
+      <DateRangePickerModal
+        visible={dateRangePickerVisible}
+        initialStartDate={currentCycle?.start_date}
+        initialEndDate={currentCycle?.end_date}
+        onClose={() => setDateRangePickerVisible(false)}
+        onSave={handleSaveDateRange}
+      />
 
       {/* QUICK WALLET MODAL */}
       {quickWalletModalVisible && (
@@ -1783,397 +1371,6 @@ export const HomeScreen: React.FC = () => {
         </View>
       )}
 
-      {/* QUICK SUBCATEGORY MODAL */}
-      {quickSubModalVisible && (
-        <View style={styles.quickModalBackdrop}>
-          <View style={[styles.quickModalBox, { backgroundColor: theme.surface }]}>
-            <Text style={[styles.quickModalTitle, { color: theme.onSurface }]}>New Subcategory</Text>
-            <Text style={[styles.quickModalSubtitle, { color: theme.onSurfaceVariant }]}>
-              For {currentCategory?.name}
-            </Text>
-            <TextInput
-              style={[styles.quickModalInput, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
-              placeholder="Subcategory Name (e.g. Eating out)"
-              placeholderTextColor={theme.onSurfaceVariant}
-              value={newSubName}
-              onChangeText={setNewSubName}
-            />
-            <View style={styles.quickModalBtnRow}>
-              <TouchableOpacity
-                style={[styles.quickModalBtn, { backgroundColor: theme.pillBg }]}
-                onPress={() => setQuickSubModalVisible(false)}
-              >
-                <Text style={{ color: theme.onSurface }}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.quickModalBtn, { backgroundColor: theme.primary }]}
-                onPress={handleSaveQuickSub}
-              >
-                <Text style={{ color: theme.onPrimary, fontWeight: '700' }}>Save</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      )}
-
-      {/* CALENDAR PICKER MODAL */}
-      {calendarModalVisible && (
-        <View style={styles.quickModalBackdrop}>
-          <View style={[styles.quickModalBox, { backgroundColor: theme.surface }]}>
-            <View style={styles.calendarModalHeader}>
-              <Text style={[styles.quickModalTitle, { color: theme.onSurface }]}>
-                {monthNames[calendarViewMonth.getMonth()]} {calendarViewMonth.getFullYear()}
-              </Text>
-              <View style={styles.calNavRow}>
-                <TouchableOpacity
-                  onPress={() => {
-                    const prev = new Date(calendarViewMonth);
-                    prev.setMonth(prev.getMonth() - 1);
-                    setCalendarViewMonth(prev);
-                  }}
-                  style={[styles.calNavBtn, { backgroundColor: theme.pillBg }]}
-                >
-                  <MaterialCommunityIcons name="chevron-left" size={20} color={theme.onSurface} />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => {
-                    const next = new Date(calendarViewMonth);
-                    next.setMonth(next.getMonth() + 1);
-                    setCalendarViewMonth(next);
-                  }}
-                  style={[styles.calNavBtn, { backgroundColor: theme.pillBg }]}
-                >
-                  <MaterialCommunityIcons name="chevron-right" size={20} color={theme.onSurface} />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Weekday indicators */}
-            <View style={styles.calWeekdayRow}>
-              {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((w, idx) => (
-                <Text key={idx} style={[styles.calWeekdayText, { color: theme.onSurfaceVariant }]}>
-                  {w}
-                </Text>
-              ))}
-            </View>
-
-            {/* Month Days Grid */}
-            <View style={styles.calDaysGrid}>
-              {calendarModalGrid.map((cell, idx) => {
-                if (cell.dayNum === 0) {
-                  return <View key={idx} style={styles.calEmptyCell} />;
-                }
-                const isSelected = cell.dateString === dateStr;
-                const isToday = cell.dateString === new Date().toISOString().slice(0, 10);
-
-                return (
-                  <TouchableOpacity
-                    key={idx}
-                    style={[
-                      styles.calDayCell,
-                      {
-                        backgroundColor: isSelected ? theme.primaryContainer : 'transparent',
-                        borderColor: isSelected ? theme.primary : isToday ? theme.secondary : 'transparent',
-                      },
-                    ]}
-                    onPress={() => {
-                      setDateStr(cell.dateString);
-                      setCalendarModalVisible(false);
-                    }}
-                  >
-                    <Text
-                      style={[
-                        styles.calDayNum,
-                        {
-                          color: isSelected
-                            ? theme.onPrimaryContainer
-                            : isToday
-                            ? theme.primary
-                            : theme.onSurface,
-                          fontWeight: isSelected || isToday ? '700' : '500',
-                        },
-                      ]}
-                    >
-                      {cell.dayNum}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
-            {/* Actions: Today shortcut & Cancel */}
-            <View style={styles.quickModalBtnRow}>
-              <TouchableOpacity
-                style={[styles.quickModalBtn, { backgroundColor: theme.pillBg }]}
-                onPress={() => {
-                  setDateStr(new Date().toISOString().slice(0, 10));
-                  setCalendarModalVisible(false);
-                }}
-              >
-                <Text style={{ color: theme.primary, fontWeight: '700' }}>Today</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.quickModalBtn, { backgroundColor: theme.pillBg }]}
-                onPress={() => setCalendarModalVisible(false)}
-              >
-                <Text style={{ color: theme.onSurface }}>Close</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      )}
-
-      {/* ANALOG CLOCK TIME PICKER MODAL (Like Alarm Clock) */}
-      {timeModalVisible && (
-        <View style={styles.quickModalBackdrop}>
-          <View style={[styles.quickModalBox, { backgroundColor: theme.surface }]}>
-            {/* Modal Title Row */}
-            <View style={styles.clockModalTitleRow}>
-              <MaterialCommunityIcons name="alarm" size={20} color={theme.primary} />
-              <Text style={[styles.quickModalTitle, { color: theme.onSurface }]}>Set Time</Text>
-            </View>
-
-            {/* Big Interactive Time Header + AM/PM Selector */}
-            <View style={styles.clockHeader}>
-              <View style={styles.clockTimeDisplay}>
-                {/* Hour Segment */}
-                <TouchableOpacity
-                  style={[
-                    styles.clockTimeSegment,
-                    clockMode === 'hours'
-                      ? { backgroundColor: theme.primaryContainer, borderColor: theme.primary }
-                      : { backgroundColor: theme.pillBg, borderColor: 'transparent' },
-                  ]}
-                  onPress={() => setClockMode('hours')}
-                  activeOpacity={0.7}
-                >
-                  <Text
-                    style={[
-                      styles.clockTimeText,
-                      { color: clockMode === 'hours' ? theme.primary : theme.onSurface },
-                    ]}
-                  >
-                    {String(selectedHour).padStart(2, '0')}
-                  </Text>
-                </TouchableOpacity>
-
-                <Text style={[styles.clockColon, { color: theme.onSurface }]}>:</Text>
-
-                {/* Minute Segment */}
-                <TouchableOpacity
-                  style={[
-                    styles.clockTimeSegment,
-                    clockMode === 'minutes'
-                      ? { backgroundColor: theme.primaryContainer, borderColor: theme.primary }
-                      : { backgroundColor: theme.pillBg, borderColor: 'transparent' },
-                  ]}
-                  onPress={() => setClockMode('minutes')}
-                  activeOpacity={0.7}
-                >
-                  <Text
-                    style={[
-                      styles.clockTimeText,
-                      { color: clockMode === 'minutes' ? theme.primary : theme.onSurface },
-                    ]}
-                  >
-                    {String(selectedMinute).padStart(2, '0')}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* AM / PM Toggle Box */}
-              <View style={[styles.periodToggleBox, { backgroundColor: theme.pillBg, borderColor: theme.divider }]}>
-                <TouchableOpacity
-                  style={[
-                    styles.periodBtn,
-                    selectedPeriod === 'AM' && { backgroundColor: theme.primary },
-                  ]}
-                  onPress={() => setSelectedPeriod('AM')}
-                  activeOpacity={0.7}
-                >
-                  <Text
-                    style={[
-                      styles.periodText,
-                      { color: selectedPeriod === 'AM' ? '#FFFFFF' : theme.onSurfaceVariant },
-                    ]}
-                  >
-                    AM
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.periodBtn,
-                    selectedPeriod === 'PM' && { backgroundColor: theme.primary },
-                  ]}
-                  onPress={() => setSelectedPeriod('PM')}
-                  activeOpacity={0.7}
-                >
-                  <Text
-                    style={[
-                      styles.periodText,
-                      { color: selectedPeriod === 'PM' ? '#FFFFFF' : theme.onSurfaceVariant },
-                    ]}
-                  >
-                    PM
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Mode Guide Pill */}
-            <View style={styles.clockModeBadgeRow}>
-              <View style={[styles.clockModeBadge, { backgroundColor: theme.pillBg }]}>
-                <Text style={[styles.clockModeBadgeText, { color: theme.primary }]}>
-                  {clockMode === 'hours' ? 'TOUCH OR DRAG TO PICK HOUR' : 'TOUCH OR DRAG TO PICK MINUTE'}
-                </Text>
-              </View>
-            </View>
-
-            {/* Analog Clock Dial Face */}
-            <View
-              style={[styles.clockDial, { backgroundColor: theme.pillBg }]}
-              {...clockDialPanResponder.panHandlers}
-            >
-              {/* Rotating Clock Hand */}
-              <View
-                style={[
-                  styles.clockHandContainer,
-                  { transform: [{ rotate: `${handAngle}deg` }] },
-                ]}
-                pointerEvents="none"
-              >
-                <View style={[styles.clockHandLine, { backgroundColor: theme.primary }]} />
-                <View style={[styles.clockHandCircle, { backgroundColor: theme.primary }]} />
-              </View>
-
-              {/* Center Pivot Pin */}
-              <View style={[styles.clockCenterPin, { backgroundColor: theme.primary }]} pointerEvents="none" />
-
-              {/* Dial Face Numbers */}
-              {clockMode === 'hours'
-                ? CLOCK_HOURS.map((h) => {
-                    const isSelected = selectedHour === h;
-                    const rad = ((h * 30 - 90) * Math.PI) / 180;
-                    const x = 115 + 84 * Math.cos(rad);
-                    const y = 115 + 84 * Math.sin(rad);
-                    return (
-                      <View
-                        key={h}
-                        style={[styles.clockNumberItem, { left: x - 17, top: y - 17 }]}
-                        pointerEvents="none"
-                      >
-                        <Text
-                          style={[
-                            styles.clockNumberText,
-                            {
-                              color: isSelected ? '#FFFFFF' : theme.onSurface,
-                              fontWeight: isSelected ? '800' : '600',
-                            },
-                          ]}
-                        >
-                          {h}
-                        </Text>
-                      </View>
-                    );
-                  })
-                : CLOCK_MINUTES.map(({ label, val }) => {
-                    const isSelected = selectedMinute === val;
-                    const rad = ((val * 6 - 90) * Math.PI) / 180;
-                    const x = 115 + 84 * Math.cos(rad);
-                    const y = 115 + 84 * Math.sin(rad);
-                    return (
-                      <View
-                        key={label}
-                        style={[styles.clockNumberItem, { left: x - 17, top: y - 17 }]}
-                        pointerEvents="none"
-                      >
-                        <Text
-                          style={[
-                            styles.clockNumberText,
-                            {
-                              color: isSelected ? '#FFFFFF' : theme.onSurface,
-                              fontWeight: isSelected ? '800' : '600',
-                              fontSize: 12.5,
-                            },
-                          ]}
-                        >
-                          {label}
-                        </Text>
-                      </View>
-                    );
-                  })}
-            </View>
-
-            {/* Quick Presets */}
-            <View style={styles.timePresetsRow}>
-              <TouchableOpacity
-                style={[styles.timePresetChip, { backgroundColor: theme.pillBg }]}
-                onPress={() => {
-                  const now = new Date();
-                  let h = now.getHours();
-                  const m = now.getMinutes();
-                  const isPm = h >= 12;
-                  if (h > 12) h -= 12;
-                  if (h === 0) h = 12;
-                  setSelectedHour(h);
-                  setSelectedMinute(m);
-                  setSelectedPeriod(isPm ? 'PM' : 'AM');
-                }}
-              >
-                <MaterialCommunityIcons name="clock-outline" size={13} color={theme.primary} />
-                <Text style={[styles.timePresetText, { color: theme.primary }]}>Now</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.timePresetChip, { backgroundColor: theme.pillBg }]}
-                onPress={() => {
-                  setSelectedHour(9);
-                  setSelectedMinute(0);
-                  setSelectedPeriod('AM');
-                }}
-              >
-                <Text style={[styles.timePresetText, { color: theme.onSurface }]}>09:00 AM</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.timePresetChip, { backgroundColor: theme.pillBg }]}
-                onPress={() => {
-                  setSelectedHour(1);
-                  setSelectedMinute(0);
-                  setSelectedPeriod('PM');
-                }}
-              >
-                <Text style={[styles.timePresetText, { color: theme.onSurface }]}>01:00 PM</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.timePresetChip, { backgroundColor: theme.pillBg }]}
-                onPress={() => {
-                  setSelectedHour(8);
-                  setSelectedMinute(0);
-                  setSelectedPeriod('PM');
-                }}
-              >
-                <Text style={[styles.timePresetText, { color: theme.onSurface }]}>08:00 PM</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Actions */}
-            <View style={styles.quickModalBtnRow}>
-              <TouchableOpacity
-                style={[styles.quickModalBtn, { backgroundColor: theme.pillBg }]}
-                onPress={() => setTimeModalVisible(false)}
-              >
-                <Text style={{ color: theme.onSurface, fontWeight: '600' }}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.quickModalBtn, { backgroundColor: theme.primary }]}
-                onPress={handleSaveTime}
-              >
-                <Text style={{ color: theme.onPrimary, fontWeight: '700' }}>Set Time</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      )}
-
       {/* CATEGORY & BUDGET MANAGER MODAL */}
       <CategoryManagerModal visible={categoryModalVisible} onClose={() => setCategoryModalVisible(false)} />
     </View>
@@ -2185,8 +1382,6 @@ const styles = StyleSheet.create({
     flex: 1,
     overflow: 'hidden',
   },
-
-  // 1. BASE SCREEN: ENTRY WORKSPACE & DOCKED DIAL PAD
   baseEntryContainer: {
     flex: 1,
     justifyContent: 'space-between',
@@ -2194,44 +1389,6 @@ const styles = StyleSheet.create({
   dockedLowerSection: {
     width: '100%',
   },
-
-  // TOP ENTRY BAR (DATE CHIP, TIME CHIP, PAID TOGGLE)
-  dateTimeToggleBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderBottomWidth: 0.5,
-    gap: 8,
-  },
-  dateTimeChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: M3Shape.full,
-    gap: 5,
-  },
-  dateTimeChipText: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  paidStatusChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: M3Shape.full,
-    gap: 5,
-  },
-  paidStatusText: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.3,
-  },
-
-  // INPUT SPACE
   inputSpace: {
     flex: 1,
     alignItems: 'center',
@@ -2240,46 +1397,46 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     gap: 6,
   },
+  amountPressable: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+  },
   amountDisplayRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    maxWidth: '100%',
   },
-  currencyPrefixLeft: {
-    fontSize: 20,
+  currencySymbol: {
     fontWeight: '800',
-    letterSpacing: 0.5,
   },
-  displayAmountInput: {
-    fontSize: 42,
+  amountInputText: {
     fontWeight: '800',
     letterSpacing: -1,
-    paddingVertical: 4,
-    paddingHorizontal: 6,
-    minWidth: 50,
-    textAlign: 'left',
+    paddingVertical: 0,
+    minWidth: 40,
+    textAlign: 'center',
   },
   duplicateBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
     borderRadius: M3Shape.full,
     gap: 4,
   },
   duplicateBannerText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#D97706',
+    fontSize: 11,
+    color: '#92400E',
+    fontWeight: '600',
   },
-
-  // CHIPS WORKSPACE
   chipsWorkspace: {
+    width: '100%',
     paddingHorizontal: 14,
-    paddingVertical: 2,
-    gap: 4,
+    paddingVertical: 6,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#E2E8F0',
   },
   chipRowWrap: {
     flexDirection: 'row',
@@ -2287,10 +1444,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   chipSectionLabel: {
-    width: 48,
-    fontSize: 9,
+    fontSize: 9.5,
     fontWeight: '800',
-    letterSpacing: 0.6,
+    letterSpacing: 0.8,
   },
   chipsScroll: {
     flexGrow: 0,
@@ -2299,51 +1455,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingVertical: 6,
     borderRadius: M3Shape.full,
-    borderWidth: 1,
     marginRight: 6,
+    borderWidth: 1,
     gap: 5,
   },
   chipText: {
-    fontSize: 11,
-  },
-  chipItemSmall: {
-    paddingHorizontal: 8,
-    paddingVertical: 3.5,
-    borderRadius: M3Shape.full,
-    marginRight: 6,
-  },
-  chipTextSmall: {
-    fontSize: 10,
+    fontSize: 11.5,
   },
   addChipBtn: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 6,
   },
-  noteRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    minHeight: 44,
-    borderRadius: M3Shape.medium,
-    borderWidth: 1,
-    gap: 10,
-    marginVertical: 4,
-  },
-  noteInput: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '500',
-    paddingVertical: 0,
-  },
-
-  // 1B. DOCKED DIAL PAD
   dockedDialPadArea: {
     borderTopWidth: 1,
     paddingHorizontal: 14,
@@ -2358,78 +1485,49 @@ const styles = StyleSheet.create({
   },
   dialKey: {
     flex: 1,
-    height: 44,
     borderRadius: M3Shape.large,
     alignItems: 'center',
     justifyContent: 'center',
   },
   dialKeyText: {
-    fontSize: 22,
     fontWeight: '700',
   },
-  actionBar: {
+  dualActionBar: {
+    flexDirection: 'row',
+    gap: 10,
     marginTop: 6,
   },
-  recordButton: {
-    height: 48,
-    borderRadius: M3Shape.full,
-    overflow: 'hidden',
-    position: 'relative',
+  dualRecordBtn: {
+    flex: 1,
+    borderRadius: M3Shape.large,
+    borderWidth: 1.5,
+    paddingHorizontal: 8,
     justifyContent: 'center',
   },
-  recordProgressTrack: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    overflow: 'hidden',
+  dualRecordBtnContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
   },
-  recordProgressBar: {
-    height: '100%',
-  },
-  recordButtonInner: {
+  dualRecordHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    zIndex: 2,
+    gap: 5,
   },
-  recordButtonLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  recordButtonText: {
-    fontSize: 15,
+  dualRecordBtnTitle: {
+    fontSize: 12.5,
     fontWeight: '800',
     letterSpacing: 0.3,
   },
-  recordBadge: {
-    paddingHorizontal: 9,
-    paddingVertical: 3,
+  dualRecordBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 1.5,
     borderRadius: M3Shape.full,
-    borderWidth: 1,
-    maxWidth: '54%',
   },
-  recordBadgeText: {
-    fontSize: 11,
+  dualRecordBadgeText: {
+    fontSize: 10,
     fontWeight: '800',
-    letterSpacing: 0.2,
   },
-  recordBottomLineTrack: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 3,
-    backgroundColor: 'rgba(0,0,0,0.08)',
-  },
-  recordBottomLineFill: {
-    height: '100%',
-  },
-
-  // BACKDROP
   backdrop: {
     position: 'absolute',
     top: 0,
@@ -2439,10 +1537,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.35)',
     zIndex: 90,
   },
-
-  // ==============================================================
-  // 2. TOP SHEET CONTAINER
-  // ==============================================================
   topSheetContainer: {
     position: 'absolute',
     top: 0,
@@ -2453,8 +1547,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     zIndex: 100,
   },
-
-  // 2A. HERO SECTION: TODAY'S BALANCE & EXPENSE|INCOME SWITCHER
   heroSection: {
     paddingHorizontal: 16,
     paddingTop: 10,
@@ -2464,7 +1556,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 2,
+    marginBottom: 6,
   },
   todayBalanceLabel: {
     fontSize: 10,
@@ -2493,23 +1585,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     borderRadius: M3Shape.large,
     padding: 3,
-    gap: 4,
+    gap: 6,
   },
-  switcherTab: {
+  heroDisplayCard: {
     flex: 1,
-    paddingVertical: 6,
+    paddingVertical: 7,
     paddingHorizontal: 10,
     borderRadius: M3Shape.medium,
     position: 'relative',
     overflow: 'hidden',
     justifyContent: 'center',
-  },
-  switcherTabActive: {},
-  switcherProgressTrack: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    left: 0,
+    borderWidth: 1,
   },
   switcherHeaderRow: {
     flexDirection: 'row',
@@ -2543,11 +1629,21 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.2,
   },
+  heroAmountRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 4,
+    zIndex: 2,
+  },
   switcherTabAmount: {
-    fontSize: 13.5,
+    fontSize: 14,
     fontWeight: '800',
     letterSpacing: -0.2,
-    zIndex: 2,
+  },
+  heroAmountCaption: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   switcherProgressSubtext: {
     fontSize: 9,
@@ -2566,11 +1662,9 @@ const styles = StyleSheet.create({
   switcherBottomLineFill: {
     height: '100%',
   },
-
-  // 2B. RECENT ACTIVITY LIST (Revealed when sheet pulls down)
   activityContentWrapper: {
     flex: 1,
-    marginBottom: 36, // flush against 36px drag handle area (zero dead space)
+    marginBottom: 36,
   },
   historyHeader: {
     flexDirection: 'row',
@@ -2606,7 +1700,7 @@ const styles = StyleSheet.create({
   historyScrollContent: {
     paddingHorizontal: 16,
     paddingTop: 4,
-    paddingBottom: 0, // 6px space between last item and drag handle
+    paddingBottom: 0,
   },
   dateGroupContainer: {
     marginBottom: 14,
@@ -2627,20 +1721,6 @@ const styles = StyleSheet.create({
   dateGroupTotalsRow: {
     flexDirection: 'row',
     gap: 8,
-  },
-  daySummaryFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: M3Shape.medium,
-    marginTop: 4,
-    marginBottom: 8,
-  },
-  daySummaryLabel: {
-    fontSize: 11,
-    fontWeight: '700',
   },
   daySpentPill: {
     fontSize: 10.5,
@@ -2689,54 +1769,53 @@ const styles = StyleSheet.create({
   txDeleteTouch: {
     padding: 3,
   },
-
-  // 2C. DRAG HANDLE BAR AT BOTTOM OF TOP SHEET
   dragHandleArea: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
     height: 36,
+    borderTopWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    borderTopWidth: 0.5,
+    zIndex: 10,
   },
   dragHandleTouch: {
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 2,
+    justifyContent: 'center',
+    width: '100%',
+    height: '100%',
   },
   dragHandlePill: {
-    width: 36,
-    height: 4,
+    width: 32,
+    height: 3.5,
     borderRadius: 2,
     marginBottom: 2,
   },
   dragHandleHintRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 2,
   },
   dragHandleHintText: {
     fontSize: 9.5,
     fontWeight: '600',
   },
-
-  // QUICK MODALS BACKDROP
   quickModalBackdrop: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    zIndex: 9999,
     justifyContent: 'center',
-    padding: 24,
-    zIndex: 999,
+    alignItems: 'center',
+    padding: 20,
   },
   quickModalBox: {
     width: '100%',
+    maxWidth: 340,
     borderRadius: M3Shape.extraLarge,
     padding: 20,
     gap: 12,
@@ -2744,10 +1823,6 @@ const styles = StyleSheet.create({
   quickModalTitle: {
     fontSize: 18,
     fontWeight: '800',
-  },
-  quickModalSubtitle: {
-    fontSize: 12,
-    marginTop: -8,
   },
   quickModalInput: {
     paddingHorizontal: 14,
@@ -2765,194 +1840,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: M3Shape.full,
-  },
-
-  // CALENDAR MODAL STYLES
-  calendarModalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  calNavRow: {
-    flexDirection: 'row',
-    gap: 6,
-  },
-  calNavBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  calWeekdayRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingVertical: 6,
-  },
-  calWeekdayText: {
-    fontSize: 11,
-    fontWeight: '700',
-    width: 36,
-    textAlign: 'center',
-  },
-  calDaysGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-around',
-  },
-  calEmptyCell: {
-    width: 38,
-    height: 38,
-    marginVertical: 2,
-  },
-  calDayCell: {
-    width: 38,
-    height: 38,
-    marginVertical: 2,
-    borderRadius: 19,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1.5,
-  },
-  calDayNum: {
-    fontSize: 13,
-  },
-
-  // ANALOG CLOCK TIME MODAL STYLES
-  clockModalTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  clockHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    marginTop: 2,
-  },
-  clockTimeDisplay: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  clockTimeSegment: {
-    width: 68,
-    height: 54,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  clockTimeText: {
-    fontSize: 32,
-    fontWeight: '800',
-    letterSpacing: -0.5,
-  },
-  clockColon: {
-    fontSize: 28,
-    fontWeight: '800',
-    marginHorizontal: 2,
-  },
-  periodToggleBox: {
-    flexDirection: 'column',
-    borderRadius: 12,
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
-  periodBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  periodText: {
-    fontSize: 11.5,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  clockModeBadgeRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: 2,
-    marginBottom: 4,
-  },
-  clockModeBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 3,
-    borderRadius: M3Shape.full,
-  },
-  clockModeBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-  },
-  clockDial: {
-    width: 230,
-    height: 230,
-    borderRadius: 115,
-    alignSelf: 'center',
-    position: 'relative',
-    marginVertical: 4,
-  },
-  clockHandContainer: {
-    position: 'absolute',
-    width: 230,
-    height: 230,
-    alignItems: 'center',
-  },
-  clockHandLine: {
-    width: 2.5,
-    height: 84,
-    marginTop: 31,
-    borderRadius: 1.5,
-  },
-  clockHandCircle: {
-    position: 'absolute',
-    top: 14,
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-  },
-  clockCenterPin: {
-    position: 'absolute',
-    top: 111,
-    left: 111,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    zIndex: 15,
-  },
-  clockNumberItem: {
-    position: 'absolute',
-    width: 34,
-    height: 34,
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 10,
-  },
-  clockNumberText: {
-    fontSize: 15,
-  },
-  timePresetsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingTop: 8,
-    gap: 6,
-  },
-  timePresetChip: {
-    flex: 1,
-    flexDirection: 'row',
-    paddingVertical: 7,
-    paddingHorizontal: 4,
-    borderRadius: M3Shape.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-  },
-  timePresetText: {
-    fontSize: 10.5,
-    fontWeight: '700',
   },
 });

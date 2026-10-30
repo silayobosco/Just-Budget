@@ -55,6 +55,9 @@ export const initDatabase = async () => {
       currency TEXT NOT NULL,
       base_amount REAL NOT NULL,
       date TEXT NOT NULL, -- YYYY-MM-DD
+      time TEXT,
+      is_paid INTEGER DEFAULT 1,
+      media_uri TEXT,
       note TEXT,
       to_wallet_id TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -88,6 +91,10 @@ export const initDatabase = async () => {
       wallet_id TEXT NOT NULL,
       reminder_enabled INTEGER NOT NULL DEFAULT 1,
       is_active INTEGER NOT NULL DEFAULT 1,
+      end_type TEXT DEFAULT 'never', -- 'never' | 'after_occurrences' | 'on_date'
+      end_occurrences INTEGER,
+      end_date TEXT,
+      occurrences_count INTEGER DEFAULT 0,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (wallet_id) REFERENCES wallets (id) ON DELETE CASCADE
     );
@@ -111,6 +118,27 @@ export const initDatabase = async () => {
   } catch {
     // Column already exists
   }
+  try {
+    db.runSync(`ALTER TABLE transactions ADD COLUMN time TEXT`);
+  } catch {}
+  try {
+    db.runSync(`ALTER TABLE transactions ADD COLUMN is_paid INTEGER DEFAULT 1`);
+  } catch {}
+  try {
+    db.runSync(`ALTER TABLE transactions ADD COLUMN media_uri TEXT`);
+  } catch {}
+  try {
+    db.runSync(`ALTER TABLE recurring_bills ADD COLUMN end_type TEXT DEFAULT 'never'`);
+  } catch {}
+  try {
+    db.runSync(`ALTER TABLE recurring_bills ADD COLUMN end_occurrences INTEGER`);
+  } catch {}
+  try {
+    db.runSync(`ALTER TABLE recurring_bills ADD COLUMN end_date TEXT`);
+  } catch {}
+  try {
+    db.runSync(`ALTER TABLE recurring_bills ADD COLUMN occurrences_count INTEGER DEFAULT 0`);
+  } catch {}
 
   // Seed default data if database is empty
   seedInitialData(db);

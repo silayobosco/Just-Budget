@@ -37,7 +37,10 @@ export interface Transaction {
   currency: string;
   base_amount: number;
   date: string; // YYYY-MM-DD
+  time?: string; // HH:MM
   note?: string;
+  is_paid?: boolean;
+  media_uri?: string;
   to_wallet_id?: string | null;
   created_at?: string;
 }
@@ -80,6 +83,7 @@ export interface BudgetProgress {
 }
 
 export type BillFrequency = 'weekly' | 'monthly' | 'yearly';
+export type RecurrenceEndType = 'never' | 'after_occurrences' | 'on_date';
 
 export interface RecurringBill {
   id: string;
@@ -87,12 +91,16 @@ export interface RecurringBill {
   amount: number;
   currency: string;
   frequency: BillFrequency;
-  due_day: number; // 1-31
+  due_day: number; // 1-31 (or 1-7 for weekly)
   next_due_date: string; // YYYY-MM-DD
   category_id?: string | null;
   wallet_id: string;
   reminder_enabled: boolean;
   is_active: boolean;
+  end_type?: RecurrenceEndType;
+  end_occurrences?: number;
+  end_date?: string; // YYYY-MM-DD
+  occurrences_count?: number;
   created_at?: string;
 }
 
