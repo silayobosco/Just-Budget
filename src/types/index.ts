@@ -48,6 +48,7 @@ export interface BudgetCycle {
   start_date: string; // YYYY-MM-DD
   end_date: string; // YYYY-MM-DD
   target_budget?: number;
+  target_income?: number;
   is_active: boolean;
 }
 

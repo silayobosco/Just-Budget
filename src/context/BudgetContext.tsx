@@ -39,6 +39,9 @@ interface BudgetContextType {
   overallBudgetSpent: number;
   overallBudgetRemaining: number;
   overallBudgetPercent: number;
+  incomeGoal: number;
+  incomeGoalPercent: number;
+  incomeGoalRemaining: number;
   allocatedCategoriesBudget: number;
   unallocatedBudgetRemainder: number;
   categoryBudgetProgressList: BudgetProgress[];
@@ -95,7 +98,7 @@ interface BudgetContextType {
   deleteRecurringBill: (id: string) => Promise<void>;
   payRecurringBill: (bill: RecurringBill) => Promise<void>;
 
-  updateBudgetCycle: (params: { id?: string; name: string; start_date: string; end_date: string; target_budget?: number }) => Promise<void>;
+  updateBudgetCycle: (params: { id?: string; name: string; start_date: string; end_date: string; target_budget?: number; target_income?: number }) => Promise<void>;
   setBudgetLimit: (params: {
     scope: BudgetScope;
     category_id?: string;
@@ -263,21 +266,25 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const todayStr = `${todayY}-${String(todayM).padStart(2, '0')}-${String(todayD).padStart(2, '0')}`;
     const todayDateOnly = new Date(todayY, todayM - 1, todayD, 0, 0, 0);
 
-    let start = new Date(todayDateOnly);
-    let end = new Date(todayDateOnly);
-    end.setDate(end.getDate() + 30); // default 30 days ahead
+    let start: Date;
+    let end: Date;
 
     if (currentCycle && currentCycle.start_date && currentCycle.end_date) {
       const [sy, sm, sd] = currentCycle.start_date.split('-').map(Number);
       const [ey, em, ed] = currentCycle.end_date.split('-').map(Number);
       start = new Date(sy, sm - 1, sd, 0, 0, 0);
       end = new Date(ey, em - 1, ed, 0, 0, 0);
+    } else {
+      // Default to current calendar month (1st of month to last day of month)
+      const lastDayOfMonth = new Date(todayY, todayM, 0).getDate();
+      start = new Date(todayY, todayM - 1, 1, 0, 0, 0);
+      end = new Date(todayY, todayM - 1, lastDayOfMonth, 0, 0, 0);
     }
 
     const totalDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1);
 
     // Days remaining includes today as day 1:
-    // e.g. Oct 27 to Oct 31: 4 days difference + 1 inclusive = 5 days (27, 28, 29, 30, 31)
+    // e.g. Oct 29 to Oct 31: 2 days difference + 1 inclusive = 3 days (29, 30, 31)
     const diffDays = Math.max(0, Math.round((end.getTime() - todayDateOnly.getTime()) / (1000 * 60 * 60 * 24)));
     const daysRemaining = Math.max(1, diffDays + 1);
     const dayIndex = Math.min(totalDays, Math.max(1, totalDays - daysRemaining + 1));
@@ -289,10 +296,15 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     const hasTargetBudget = (currentCycle?.target_budget ?? 0) > 0;
 
-    // Daily Allowance ("Available for Day") formula when budget exists:
-    // (Remaining Cycle Balance + Today's Expenses) / Days Remaining
-    const cyclePoolForRemainingDays = Math.max(0, remainingCycleBalance);
-    const baselineDaily = hasTargetBudget ? (cyclePoolForRemainingDays + todayExpenses) / daysRemaining : 0;
+    // Daily Allowance ("Available for Day") formula:
+    // If target budget is set, pool = remaining cycle balance + today's expenses.
+    // Otherwise, pool = total wallets balance + today's expenses.
+    // Available for day = pool / days remaining in defined month.
+    const pool = hasTargetBudget
+      ? Math.max(0, remainingCycleBalance + todayExpenses)
+      : Math.max(0, totalConvertedBalance + todayExpenses);
+
+    const baselineDaily = daysRemaining > 0 ? pool / daysRemaining : 0;
     const availableForDay = Math.max(0, baselineDaily);
     const remainingToday = availableForDay - todayExpenses;
 
@@ -307,17 +319,22 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       availableForDay,
       spentToday: todayExpenses,
       remainingToday,
-      isOverDaily: hasTargetBudget && todayExpenses > availableForDay && availableForDay > 0,
+      isOverDaily: todayExpenses > availableForDay && availableForDay > 0,
       hasBudget: hasTargetBudget,
       dailyAverage,
     };
-  }, [currentCycle, transactions, remainingCycleBalance, spentInCycle]);
+  }, [currentCycle, transactions, remainingCycleBalance, spentInCycle, totalConvertedBalance]);
 
   // Overall Budget metrics
   const overallBudgetLimit = currentCycle?.target_budget || 0;
   const overallBudgetSpent = spentInCycle;
   const overallBudgetRemaining = overallBudgetLimit - overallBudgetSpent;
   const overallBudgetPercent = overallBudgetLimit > 0 ? (overallBudgetSpent / overallBudgetLimit) * 100 : 0;
+
+  // Income Goal metrics
+  const incomeGoal = currentCycle?.target_income || (currentCycle?.target_budget || 0);
+  const incomeGoalPercent = incomeGoal > 0 ? (incomeInCycle / incomeGoal) * 100 : 0;
+  const incomeGoalRemaining = incomeGoal > 0 ? Math.max(0, incomeGoal - incomeInCycle) : 0;
 
   // Active period for budgets (YYYY-MM or cycle id)
   const activeBudgetPeriod = useMemo(() => {
@@ -726,19 +743,20 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     start_date: string;
     end_date: string;
     target_budget?: number;
+    target_income?: number;
   }) => {
     const db = getDB();
     if (params.id) {
       db.runSync(
-        `UPDATE budget_cycles SET name = ?, start_date = ?, end_date = ?, target_budget = ? WHERE id = ?`,
-        [params.name, params.start_date, params.end_date, params.target_budget || null, params.id]
+        `UPDATE budget_cycles SET name = ?, start_date = ?, end_date = ?, target_budget = ?, target_income = ? WHERE id = ?`,
+        [params.name, params.start_date, params.end_date, params.target_budget ?? null, params.target_income ?? null, params.id]
       );
     } else {
       const id = `cycle-${Date.now()}`;
       db.runSync(`UPDATE budget_cycles SET is_active = 0`);
       db.runSync(
-        `INSERT INTO budget_cycles (id, name, start_date, end_date, target_budget, is_active) VALUES (?, ?, ?, ?, ?, 1)`,
-        [id, params.name, params.start_date, params.end_date, params.target_budget || null]
+        `INSERT INTO budget_cycles (id, name, start_date, end_date, target_budget, target_income, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+        [id, params.name, params.start_date, params.end_date, params.target_budget ?? null, params.target_income ?? null]
       );
     }
     await loadData();
@@ -858,6 +876,9 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         overallBudgetSpent,
         overallBudgetRemaining,
         overallBudgetPercent,
+        incomeGoal,
+        incomeGoalPercent,
+        incomeGoalRemaining,
         allocatedCategoriesBudget,
         unallocatedBudgetRemainder,
         categoryBudgetProgressList,

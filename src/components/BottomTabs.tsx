@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
 
@@ -14,6 +15,8 @@ interface BottomTabsProps {
 export const BottomTabs: React.FC<BottomTabsProps> = ({ currentTab, onSelectTab }) => {
   const { settings } = useBudget();
   const theme = settings.theme_mode === 'dark' ? darkTheme : lightTheme;
+  const insets = useSafeAreaInsets();
+  const bottomInset = Math.max(6, insets.bottom);
 
   const tabs: { key: TabType; label: string; icon: keyof typeof MaterialCommunityIcons.glyphMap }[] = [
     { key: 'home', label: 'Home', icon: 'view-dashboard-outline' },
@@ -24,7 +27,18 @@ export const BottomTabs: React.FC<BottomTabsProps> = ({ currentTab, onSelectTab 
   ];
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.surface, borderTopColor: theme.divider }, M3Elevation.level2]}>
+    <View
+      style={[
+        styles.container,
+        {
+          backgroundColor: theme.surface,
+          borderTopColor: theme.divider,
+          paddingBottom: bottomInset,
+          height: 56 + bottomInset,
+        },
+        M3Elevation.level2,
+      ]}
+    >
       {tabs.map((tab) => {
         const isActive = currentTab === tab.key;
         return (
@@ -56,6 +70,7 @@ export const BottomTabs: React.FC<BottomTabsProps> = ({ currentTab, onSelectTab 
                   fontWeight: isActive ? '700' : '500',
                 },
               ]}
+              maxFontSizeMultiplier={1.2}
             >
               {tab.label}
             </Text>
@@ -69,10 +84,8 @@ export const BottomTabs: React.FC<BottomTabsProps> = ({ currentTab, onSelectTab 
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    height: 70,
     borderTopWidth: 1,
     paddingHorizontal: 8,
-    paddingBottom: 6,
     paddingTop: 6,
     alignItems: 'center',
     justifyContent: 'space-around',
@@ -81,11 +94,11 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 3,
+    gap: 2,
   },
   iconPill: {
     paddingHorizontal: 12,
-    paddingVertical: 4,
+    paddingVertical: 3,
     borderRadius: M3Shape.full,
     alignItems: 'center',
     justifyContent: 'center',

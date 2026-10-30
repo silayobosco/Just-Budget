@@ -12,6 +12,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
 import { formatCurrency } from '../utils/format';
+import { DateRangePickerModal } from '../components/DateRangePickerModal';
 
 export const CalendarScreen: React.FC = () => {
   const {
@@ -31,12 +32,27 @@ export const CalendarScreen: React.FC = () => {
   // Selected date on calendar (defaults to today)
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().slice(0, 10));
 
+  // Visual Date Range Picker Modal State (connecting range polyline/band)
+  const [dateRangePickerVisible, setDateRangePickerVisible] = useState<boolean>(false);
+
+  const handleSaveDateRange = async (newStart: string, newEnd: string) => {
+    await updateBudgetCycle({
+      id: currentCycle?.id,
+      name: currentCycle?.name || 'Budget Cycle',
+      start_date: newStart,
+      end_date: newEnd,
+      target_budget: currentCycle?.target_budget,
+      target_income: currentCycle?.target_income,
+    });
+  };
+
   // Edit Cycle Modal State
   const [cycleModalVisible, setCycleModalVisible] = useState<boolean>(false);
   const [cycleName, setCycleName] = useState<string>('');
   const [cycleStart, setCycleStart] = useState<string>('');
   const [cycleEnd, setCycleEnd] = useState<string>('');
   const [cycleBudget, setCycleBudget] = useState<string>('');
+  const [cycleIncomeGoal, setCycleIncomeGoal] = useState<string>('');
 
   const handleOpenCycleModal = () => {
     if (currentCycle) {
@@ -44,6 +60,7 @@ export const CalendarScreen: React.FC = () => {
       setCycleStart(currentCycle.start_date);
       setCycleEnd(currentCycle.end_date);
       setCycleBudget(currentCycle.target_budget ? currentCycle.target_budget.toString() : '');
+      setCycleIncomeGoal(currentCycle.target_income ? currentCycle.target_income.toString() : '');
     }
     setCycleModalVisible(true);
   };
@@ -51,12 +68,14 @@ export const CalendarScreen: React.FC = () => {
   const handleSaveCycle = async () => {
     if (!cycleName || !cycleStart || !cycleEnd) return;
     const numBudget = parseFloat(cycleBudget);
+    const numIncome = parseFloat(cycleIncomeGoal);
     await updateBudgetCycle({
       id: currentCycle?.id,
       name: cycleName,
       start_date: cycleStart,
       end_date: cycleEnd,
       target_budget: !isNaN(numBudget) ? numBudget : undefined,
+      target_income: !isNaN(numIncome) ? numIncome : undefined,
     });
     setCycleModalVisible(false);
   };
@@ -118,20 +137,27 @@ export const CalendarScreen: React.FC = () => {
         {/* CYCLE BANNER & START / END DATES */}
         <View style={[styles.cycleCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
           <View style={styles.cycleTopRow}>
-            <View>
-              <Text style={[styles.cycleTitle, { color: theme.onSurface }]}>
-                {currentCycle ? currentCycle.name : 'Budget Cycle'}
-              </Text>
+            <TouchableOpacity
+              style={{ flex: 1 }}
+              onPress={handleOpenCycleModal}
+              activeOpacity={0.7}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={[styles.cycleTitle, { color: theme.onSurface }]}>
+                  {currentCycle ? currentCycle.name : 'Budget Cycle'}
+                </Text>
+                <MaterialCommunityIcons name="pencil-outline" size={14} color={theme.onSurfaceVariant} />
+              </View>
               <Text style={[styles.cycleRange, { color: theme.onSurfaceVariant }]}>
                 {currentCycle?.start_date} ➔ {currentCycle?.end_date}
               </Text>
-            </View>
+            </TouchableOpacity>
 
             <TouchableOpacity
               style={[styles.editCycleBtn, { backgroundColor: theme.primaryContainer }]}
-              onPress={handleOpenCycleModal}
+              onPress={() => setDateRangePickerVisible(true)}
             >
-              <MaterialCommunityIcons name="calendar-edit" size={18} color={theme.onPrimaryContainer} />
+              <MaterialCommunityIcons name="calendar-range" size={18} color={theme.onPrimaryContainer} />
               <Text style={[styles.editCycleText, { color: theme.onPrimaryContainer }]}>Edit Dates</Text>
             </TouchableOpacity>
           </View>
@@ -345,17 +371,35 @@ export const CalendarScreen: React.FC = () => {
               </View>
             </View>
 
-            <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>
-              Target Budget Cap ({settings.base_currency})
-            </Text>
-            <TextInput
-              style={[styles.input, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
-              placeholder="e.g. 2000"
-              placeholderTextColor={theme.onSurfaceVariant}
-              keyboardType="decimal-pad"
-              value={cycleBudget}
-              onChangeText={setCycleBudget}
-            />
+            <View style={styles.dateRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>
+                  Target Budget ({settings.base_currency})
+                </Text>
+                <TextInput
+                  style={[styles.input, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
+                  placeholder="e.g. 2000"
+                  placeholderTextColor={theme.onSurfaceVariant}
+                  keyboardType="decimal-pad"
+                  value={cycleBudget}
+                  onChangeText={setCycleBudget}
+                />
+              </View>
+
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>
+                  Income Goal ({settings.base_currency})
+                </Text>
+                <TextInput
+                  style={[styles.input, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
+                  placeholder="e.g. 3000"
+                  placeholderTextColor={theme.onSurfaceVariant}
+                  keyboardType="decimal-pad"
+                  value={cycleIncomeGoal}
+                  onChangeText={setCycleIncomeGoal}
+                />
+              </View>
+            </View>
 
             <View style={styles.modalBtnRow}>
               <TouchableOpacity
@@ -375,6 +419,15 @@ export const CalendarScreen: React.FC = () => {
           </View>
         </View>
       </Modal>
+
+      {/* VISUAL DATE RANGE PICKER (CONNECTING POLYLINE / BAND RANGE PICKER) */}
+      <DateRangePickerModal
+        visible={dateRangePickerVisible}
+        initialStartDate={currentCycle?.start_date}
+        initialEndDate={currentCycle?.end_date}
+        onClose={() => setDateRangePickerVisible(false)}
+        onSave={handleSaveDateRange}
+      />
     </View>
   );
 };

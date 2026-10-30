@@ -67,6 +67,7 @@ export const initDatabase = async () => {
       start_date TEXT NOT NULL,
       end_date TEXT NOT NULL,
       target_budget REAL,
+      target_income REAL,
       is_active INTEGER NOT NULL DEFAULT 1
     );
 
@@ -103,6 +104,13 @@ export const initDatabase = async () => {
       FOREIGN KEY (subcategory_id) REFERENCES subcategories (id) ON DELETE CASCADE
     );
   `);
+
+  // Safe migrations for table changes
+  try {
+    db.runSync(`ALTER TABLE budget_cycles ADD COLUMN target_income REAL`);
+  } catch {
+    // Column already exists
+  }
 
   // Seed default data if database is empty
   seedInitialData(db);

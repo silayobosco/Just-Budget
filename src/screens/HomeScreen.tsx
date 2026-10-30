@@ -7,7 +7,7 @@ import {
   ScrollView,
   Animated,
   PanResponder,
-  Dimensions,
+  useWindowDimensions,
   TextInput,
   Alert,
   Keyboard,
@@ -19,12 +19,6 @@ import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
 import { TransactionType } from '../types';
 import { formatCurrency } from '../utils/format';
 import { CategoryManagerModal } from '../components/CategoryManagerModal';
-
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
-
-// Top Sheet Heights:
-// In collapsed state: shows today's balance + expense|income switcher + preview of the latest transaction + drag handle (~205px)
-const COLLAPSED_SHEET_HEIGHT = 238;
 
 // Analog Clock Time Picker Constants
 const CLOCK_HOURS = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
@@ -44,12 +38,34 @@ const CLOCK_MINUTES = [
 ];
 
 export const HomeScreen: React.FC = () => {
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
+
+  // Responsive device tiers
+  const isTinyScreen = windowHeight < 660; // e.g. iPhone SE, budget Androids
+  const isCompactScreen = windowHeight < 740; // e.g. iPhone 13 mini, compact displays
+
+  // Responsive collapsed sheet height:
+  // Cleanly bounds the hero section (Today Balance + Dual Switcher) and drag handle,
+  // preventing awkward dead space and keeping dial pad accessible on every device.
+  const COLLAPSED_SHEET_HEIGHT = isTinyScreen ? 146 : isCompactScreen ? 150 : 156;
+
+  // Responsive dial pad, button and row dimensions
+  const dialKeyHeight = isTinyScreen ? 36 : isCompactScreen ? 40 : 44;
+  const dialRowMargin = isTinyScreen ? 4 : isCompactScreen ? 5 : 6;
+  const dialKeyFontSize = isTinyScreen ? 19 : isCompactScreen ? 21 : 22;
+  const recordButtonHeight = isTinyScreen ? 42 : isCompactScreen ? 45 : 48;
+  const noteRowMinHeight = isTinyScreen ? 36 : isCompactScreen ? 40 : 44;
+  const amountFontSize = isTinyScreen ? 32 : isCompactScreen ? 36 : 42;
+
   const {
     settings,
     dailyAllowanceStats,
     totalConvertedBalance,
     spentInCycle,
     incomeInCycle,
+    currentCycle,
+    overallBudgetLimit,
+    categoryBudgetProgressList,
     transactions,
     categories,
     wallets,
@@ -419,6 +435,69 @@ export const HomeScreen: React.FC = () => {
     });
   }, [transactions, dateStr, selectedWalletId, txType, parsedAmount, selectedCategoryId, selectedSubcategoryId]);
 
+  // Total income / expense in cycle (live projected with dialpad entry) for the Record Button
+  const recordButtonTotalText = useMemo(() => {
+    if (txType === 'expense') {
+      const total = spentInCycle + parsedAmount;
+      return `Total: ${formatCurrency(total, curr)}`;
+    } else {
+      const total = incomeInCycle + parsedAmount;
+      return `Total: ${formatCurrency(total, curr)}`;
+    }
+  }, [txType, spentInCycle, incomeInCycle, parsedAmount, curr]);
+
+  // Switcher Progress: Expense side towards Target Budget
+  const expenseSwitcherProgress = useMemo(() => {
+    const hasTarget = overallBudgetLimit > 0;
+    const percent = hasTarget ? Math.round((spentInCycle / overallBudgetLimit) * 100) : 0;
+    const isOver = hasTarget && spentInCycle > overallBudgetLimit;
+    const remaining = Math.max(0, overallBudgetLimit - spentInCycle);
+    const overBy = Math.max(0, spentInCycle - overallBudgetLimit);
+
+    return {
+      hasTarget,
+      percent,
+      isOver,
+      remaining,
+      overBy,
+      badgeText: hasTarget ? (isOver ? `⚠️ ${percent}%` : `${percent}%`) : null,
+      subText: hasTarget
+        ? isOver
+          ? `⚠️ ${formatCurrency(overBy, curr)} over`
+          : `${formatCurrency(remaining, curr)} left`
+        : 'No budget set',
+    };
+  }, [overallBudgetLimit, spentInCycle, curr]);
+
+  // Switcher Progress: Income side towards Income Goal
+  const incomeSwitcherProgress = useMemo(() => {
+    const goal =
+      currentCycle?.target_income && currentCycle.target_income > 0
+        ? currentCycle.target_income
+        : overallBudgetLimit > 0
+        ? overallBudgetLimit
+        : 0;
+
+    const hasGoal = goal > 0;
+    const percent = hasGoal ? Math.round((incomeInCycle / goal) * 100) : 0;
+    const isReached = hasGoal && incomeInCycle >= goal;
+    const remaining = Math.max(0, goal - incomeInCycle);
+
+    return {
+      hasGoal,
+      goal,
+      percent,
+      isReached,
+      remaining,
+      badgeText: hasGoal ? (isReached ? `🎉 ${percent}%` : `${percent}%`) : null,
+      subText: hasGoal
+        ? isReached
+          ? '🎉 Goal reached'
+          : `${formatCurrency(remaining, curr)} to go`
+        : 'No goal set',
+    };
+  }, [currentCycle, overallBudgetLimit, incomeInCycle, curr]);
+
   const handleSaveTransaction = async () => {
     if (parsedAmount <= 0) {
       Alert.alert('Invalid Amount', 'Please enter an amount greater than 0');
@@ -555,8 +634,8 @@ export const HomeScreen: React.FC = () => {
       return Math.max(COLLAPSED_SHEET_HEIGHT, screenContainerHeight - 6);
     }
     // Safe initial fallback before onLayout: window height minus status bar, header, and bottom tabs (~210px)
-    return Math.max(COLLAPSED_SHEET_HEIGHT, SCREEN_HEIGHT - 210);
-  }, [screenContainerHeight]);
+    return Math.max(COLLAPSED_SHEET_HEIGHT, windowHeight - 210);
+  }, [screenContainerHeight, COLLAPSED_SHEET_HEIGHT, windowHeight]);
 
   // Content height computed accurately from items and groups
   const historyContentHeight = useMemo(() => {
@@ -571,10 +650,10 @@ export const HomeScreen: React.FC = () => {
   // Dynamic Expanded Height: accurately fits all available items with full visibility,
   // clamped at maxExpandedSheetHeight (strictly bounded above the bottom bar tab).
   const expandedSheetHeight = useMemo(() => {
-    // Base overhead: hero (~96) + history header (41) + drag handle (36) + scroll padding (12) + buffer = 192px
-    const totalTarget = 192 + historyContentHeight;
+    // Base overhead: hero (~114) + history header (41) + drag handle (36) + buffer = 191px
+    const totalTarget = 191 + historyContentHeight;
     return Math.min(maxExpandedSheetHeight, Math.max(COLLAPSED_SHEET_HEIGHT, totalTarget));
-  }, [historyContentHeight, maxExpandedSheetHeight]);
+  }, [historyContentHeight, maxExpandedSheetHeight, COLLAPSED_SHEET_HEIGHT]);
 
   // Ref to hold the scrollview to auto-scroll to the end (newest transactions at bottom)
   const historyScrollRef = useRef<any>(null);
@@ -590,6 +669,14 @@ export const HomeScreen: React.FC = () => {
   const isExpandedRef = useRef(false);
   const currentHeightRef = useRef(COLLAPSED_SHEET_HEIGHT);
 
+  // Sync collapsed height if screen dimensions change
+  useEffect(() => {
+    if (!isExpandedRef.current) {
+      animatedHeight.setValue(COLLAPSED_SHEET_HEIGHT);
+      currentHeightRef.current = COLLAPSED_SHEET_HEIGHT;
+    }
+  }, [COLLAPSED_SHEET_HEIGHT]);
+
   // Smoothly glide sheet height if content count changes (e.g. items added or deleted) while expanded
   useEffect(() => {
     if (isExpandedRef.current) {
@@ -604,13 +691,13 @@ export const HomeScreen: React.FC = () => {
   // Interpolate opacity/height of the sticky History header:
   // Visible ONLY when expanded; smoothly fades out to 0 when collapsed so the last item is directly seen.
   const historyHeaderOpacity = animatedHeight.interpolate({
-    inputRange: [COLLAPSED_SHEET_HEIGHT, COLLAPSED_SHEET_HEIGHT + 35],
+    inputRange: [COLLAPSED_SHEET_HEIGHT, COLLAPSED_SHEET_HEIGHT + 30],
     outputRange: [0, 1],
     extrapolate: 'clamp',
   });
 
   const historyHeaderHeight = animatedHeight.interpolate({
-    inputRange: [COLLAPSED_SHEET_HEIGHT, COLLAPSED_SHEET_HEIGHT + 35],
+    inputRange: [COLLAPSED_SHEET_HEIGHT, COLLAPSED_SHEET_HEIGHT + 30],
     outputRange: [0, 40],
     extrapolate: 'clamp',
   });
@@ -700,15 +787,6 @@ export const HomeScreen: React.FC = () => {
     })
   ).current;
 
-  // Today's balance calculation
-  const todaySpent = dailyAllowanceStats.spentToday;
-  const todayIncome = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    return transactions
-      .filter((t) => t.type === 'income' && t.date === today)
-      .reduce((sum, t) => sum + (t.amount || t.base_amount || 0), 0);
-  }, [transactions]);
-  const todayNetBalance = todayIncome - todaySpent;
 
   return (
     <View
@@ -736,19 +814,23 @@ export const HomeScreen: React.FC = () => {
         )}
 
         {/* UPPER WORKSPACE: Amount Display with currency on left, native cursor, and paste ability */}
-        <View style={styles.inputSpace}>
+        <View style={[styles.inputSpace, isCompactScreen && { paddingVertical: 4 }]}>
           <View style={styles.amountDisplayRow}>
             <TouchableOpacity
               activeOpacity={0.7}
               onPress={() => amountInputRef.current?.focus()}
             >
-              <Text style={[styles.currencyPrefixLeft, { color: theme.onSurfaceVariant }]}>{curr}</Text>
+              <Text style={[styles.currencyPrefixLeft, { color: theme.onSurfaceVariant }, isCompactScreen && { fontSize: 18 }]}>{curr}</Text>
             </TouchableOpacity>
             <TextInput
               ref={amountInputRef}
               style={[
                 styles.displayAmountInput,
-                { color: txType === 'expense' ? theme.error : theme.success },
+                {
+                  color: txType === 'expense' ? theme.error : theme.success,
+                  fontSize: amountFontSize,
+                  paddingVertical: isCompactScreen ? 2 : 4,
+                },
               ]}
               value={amountStr}
               onChangeText={handleAmountChange}
@@ -762,6 +844,8 @@ export const HomeScreen: React.FC = () => {
               autoCorrect={false}
               contextMenuHidden={false}
               scrollEnabled={false}
+              numberOfLines={1}
+              maxFontSizeMultiplier={1.2}
             />
           </View>
 
@@ -776,7 +860,7 @@ export const HomeScreen: React.FC = () => {
         {/* LOWER SECTION: CHIPS DIRECTLY DOCKED ON TOP OF KEYPAD */}
         <View style={styles.dockedLowerSection}>
           {/* TOP ENTRY BAR: DATE CHIP, TIME CHIP, PAID/NOT PAID TOGGLE */}
-          <View style={[styles.dateTimeToggleBar, { backgroundColor: theme.surface, borderBottomColor: theme.divider }]}>
+          <View style={[styles.dateTimeToggleBar, { backgroundColor: theme.surface, borderBottomColor: theme.divider }, isCompactScreen && { paddingVertical: 5 }]}>
             {/* Calendar Date Chip */}
             <TouchableOpacity
               style={[styles.dateTimeChip, { backgroundColor: theme.pillBg }]}
@@ -788,7 +872,7 @@ export const HomeScreen: React.FC = () => {
               activeOpacity={0.7}
             >
               <MaterialCommunityIcons name="calendar-month-outline" size={15} color={theme.primary} />
-              <Text style={[styles.dateTimeChipText, { color: theme.onSurface }]}>
+              <Text style={[styles.dateTimeChipText, { color: theme.onSurface }]} maxFontSizeMultiplier={1.2}>
                 {formattedDateLabel}
               </Text>
               <MaterialCommunityIcons name="menu-down" size={14} color={theme.onSurfaceVariant} />
@@ -801,7 +885,7 @@ export const HomeScreen: React.FC = () => {
               activeOpacity={0.7}
             >
               <MaterialCommunityIcons name="clock-time-four-outline" size={15} color={theme.primary} />
-              <Text style={[styles.dateTimeChipText, { color: theme.onSurface }]}>
+              <Text style={[styles.dateTimeChipText, { color: theme.onSurface }]} maxFontSizeMultiplier={1.2}>
                 {timeStr}
               </Text>
               <MaterialCommunityIcons name="menu-down" size={14} color={theme.onSurfaceVariant} />
@@ -828,6 +912,7 @@ export const HomeScreen: React.FC = () => {
                   styles.paidStatusText,
                   { color: isPaid ? theme.onSuccessContainer : theme.onErrorContainer },
                 ]}
+                maxFontSizeMultiplier={1.2}
               >
                 {isPaid ? 'Paid' : 'Not Paid'}
               </Text>
@@ -835,9 +920,9 @@ export const HomeScreen: React.FC = () => {
           </View>
 
           {/* CHIP SELECTION STRIPS: Note, Wallet, Category, Subcategory */}
-          <View style={[styles.chipsWorkspace, { backgroundColor: theme.surface }]}>
+          <View style={[styles.chipsWorkspace, { backgroundColor: theme.surface }, isCompactScreen && { paddingVertical: 1, gap: 2 }]}>
             {/* NOTE INPUT CARD (Positioned above Wallets with enhanced card size) */}
-            <View style={[styles.noteRow, { backgroundColor: theme.pillBg, borderColor: theme.divider, zIndex: 100 }]}>
+            <View style={[styles.noteRow, { backgroundColor: theme.pillBg, borderColor: theme.divider, minHeight: noteRowMinHeight, zIndex: 100 }, isCompactScreen && { marginVertical: 2, paddingVertical: 4 }]}>
               <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.primary} />
               <TextInput
                 ref={noteInputRef}
@@ -1031,43 +1116,57 @@ export const HomeScreen: React.FC = () => {
           </View>
 
           {/* 1B. DOCKED DIAL PAD (PINNED TO BOTTOM) */}
-          <View style={[styles.dockedDialPadArea, { borderTopColor: theme.divider, backgroundColor: theme.surface }]}>
+          <View style={[styles.dockedDialPadArea, { borderTopColor: theme.divider, backgroundColor: theme.surface }, isCompactScreen && { paddingTop: 6, paddingBottom: 8 }]}>
             {[
               ['1', '2', '3'],
               ['4', '5', '6'],
               ['7', '8', '9'],
               ['.', '0', 'backspace'],
             ].map((row, rIdx) => (
-              <View key={rIdx} style={styles.dialRow}>
+              <View key={rIdx} style={[styles.dialRow, { marginBottom: dialRowMargin }]}>
                 {row.map((k) => (
                   <TouchableOpacity
                     key={k}
-                    style={[styles.dialKey, { backgroundColor: theme.pillBg }]}
+                    style={[
+                      styles.dialKey,
+                      {
+                        backgroundColor: theme.pillBg,
+                        height: dialKeyHeight,
+                      },
+                    ]}
                     onPress={() => handleKeyPress(k)}
                     activeOpacity={0.65}
                   >
                     {k === 'backspace' ? (
-                      <MaterialCommunityIcons name="backspace-outline" size={24} color={theme.onSurface} />
+                      <MaterialCommunityIcons name="backspace-outline" size={isTinyScreen ? 20 : 24} color={theme.onSurface} />
                     ) : (
-                      <Text style={[styles.dialKeyText, { color: theme.onSurface }]}>{k}</Text>
+                      <Text
+                        style={[styles.dialKeyText, { color: theme.onSurface, fontSize: dialKeyFontSize }]}
+                        maxFontSizeMultiplier={1.2}
+                      >
+                        {k}
+                      </Text>
                     )}
                   </TouchableOpacity>
                 ))}
               </View>
             ))}
 
-            {/* Record Action Bar */}
-            <View style={styles.actionBar}>
+            {/* Record Action Bar with Total Income / Expense */}
+            <View style={[styles.actionBar, isCompactScreen && { marginTop: 4 }]}>
               <TouchableOpacity
                 style={[
                   styles.recordButton,
                   {
+                    height: recordButtonHeight,
                     backgroundColor:
                       parsedAmount > 0
                         ? txType === 'expense'
                           ? theme.primary
                           : theme.success
-                        : theme.divider,
+                        : theme.pillBg,
+                    borderColor: parsedAmount > 0 ? 'transparent' : theme.divider,
+                    borderWidth: parsedAmount > 0 ? 0 : 1,
                   },
                   M3Elevation.level2,
                 ]}
@@ -1075,10 +1174,54 @@ export const HomeScreen: React.FC = () => {
                 disabled={parsedAmount <= 0}
                 activeOpacity={0.85}
               >
-                <MaterialCommunityIcons name="check" size={22} color={theme.onPrimary} />
-                <Text style={[styles.recordButtonText, { color: theme.onPrimary }]}>
-                  Record {txType === 'expense' ? 'Expense' : 'Income'}
-                </Text>
+                <View style={styles.recordButtonInner}>
+                  <View style={styles.recordButtonLeft}>
+                    <MaterialCommunityIcons
+                      name="check"
+                      size={20}
+                      color={parsedAmount > 0 ? theme.onPrimary : theme.onSurface}
+                    />
+                    <Text
+                      style={[
+                        styles.recordButtonText,
+                        { color: parsedAmount > 0 ? theme.onPrimary : theme.onSurface },
+                      ]}
+                    >
+                      Record {txType === 'expense' ? 'Expense' : 'Income'}
+                    </Text>
+                  </View>
+
+                  {/* Total Income / Expense Badge */}
+                  <View
+                    style={[
+                      styles.recordBadge,
+                      {
+                        backgroundColor:
+                          parsedAmount > 0
+                            ? 'rgba(255, 255, 255, 0.24)'
+                            : theme.cardBg,
+                        borderColor: parsedAmount > 0 ? 'transparent' : theme.divider,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.recordBadgeText,
+                        {
+                          color:
+                            parsedAmount > 0
+                              ? theme.onPrimary
+                              : txType === 'expense'
+                              ? theme.error
+                              : theme.success,
+                        },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {recordButtonTotalText}
+                    </Text>
+                  </View>
+                </View>
               </TouchableOpacity>
             </View>
           </View>
@@ -1110,24 +1253,25 @@ export const HomeScreen: React.FC = () => {
         ]}
       >
         {/* 2A. HERO HEADER: TODAY'S BALANCE + EXPENSE|INCOME SWITCHER */}
-        <View {...panResponder.panHandlers} style={styles.heroSection}>
-          {/* Today's Net Balance Row */}
+        <View {...panResponder.panHandlers} style={[styles.heroSection, isCompactScreen && { paddingTop: 6, paddingBottom: 6 }]}>
+          {/* Available for Today Row */}
           <View style={styles.todayBalanceRow}>
             <View>
-              <Text style={[styles.todayBalanceLabel, { color: theme.onSurfaceVariant }]}>
-                TODAY'S NET BALANCE
+              <Text style={[styles.todayBalanceLabel, { color: theme.onSurfaceVariant }, isCompactScreen && { fontSize: 9.5 }]} maxFontSizeMultiplier={1.2}>
+                AVAILABLE FOR TODAY
               </Text>
               <Text
                 style={[
                   styles.todayBalanceAmount,
-                  { color: todayNetBalance >= 0 ? theme.primary : theme.error },
+                  { color: dailyAllowanceStats.remainingToday >= 0 ? theme.primary : theme.error },
+                  isCompactScreen && { fontSize: 21 },
                 ]}
                 numberOfLines={1}
                 adjustsFontSizeToFit
                 minimumFontScale={0.7}
+                maxFontSizeMultiplier={1.2}
               >
-                {todayNetBalance >= 0 ? '+' : ''}
-                {formatCurrency(todayNetBalance, curr)}
+                {formatCurrency(dailyAllowanceStats.remainingToday, curr)}
               </Text>
             </View>
 
@@ -1140,7 +1284,7 @@ export const HomeScreen: React.FC = () => {
             </View>
           </View>
 
-          {/* Dual Switcher & Totals: EXPENSES & INCOME */}
+          {/* Dual Switcher & Totals: EXPENSES & INCOME with Target & Goal Progress */}
           <View style={[styles.switcherContainer, { backgroundColor: theme.surfaceVariant }]}>
             {/* Expense Tab / Switcher */}
             <TouchableOpacity
@@ -1155,34 +1299,121 @@ export const HomeScreen: React.FC = () => {
               onPress={() => setTxType('expense')}
               activeOpacity={0.8}
             >
-              <View style={styles.switcherIconTextRow}>
+              {/* Background Progress Fill Track */}
+              {expenseSwitcherProgress.hasTarget && (
                 <View
                   style={[
-                    styles.tabDot,
-                    { backgroundColor: txType === 'expense' ? theme.error : theme.outline },
-                  ]}
-                />
-                <Text
-                  style={[
-                    styles.switcherTabTitle,
+                    styles.switcherProgressTrack,
                     {
-                      color:
-                        txType === 'expense' ? theme.onErrorContainer : theme.onSurfaceVariant,
+                      width: `${Math.min(100, Math.max(0, expenseSwitcherProgress.percent))}%`,
+                      backgroundColor:
+                        txType === 'expense'
+                          ? 'rgba(43, 3, 3, 0.53)'
+                          : 'rgba(239, 68, 68, 0.08)',
                     },
                   ]}
-                >
-                  EXPENSES
-                </Text>
+                />
+              )}
+
+              {/* Tab Header: Dot + EXPENSES title + Progress % Badge */}
+              <View style={styles.switcherHeaderRow}>
+                <View style={styles.switcherIconTextRow}>
+                  <View
+                    style={[
+                      styles.tabDot,
+                      { backgroundColor: txType === 'expense' ? theme.error : theme.outline },
+                    ]}
+                  />
+                  <Text
+                    style={[
+                      styles.switcherTabTitle,
+                      {
+                        color:
+                          txType === 'expense' ? theme.onErrorContainer : theme.onSurfaceVariant,
+                      },
+                    ]}
+                  >
+                    EXPENSES
+                  </Text>
+                </View>
+
+                {expenseSwitcherProgress.badgeText && (
+                  <View
+                    style={[
+                      styles.switcherBadgePill,
+                      {
+                        backgroundColor:
+                          txType === 'expense'
+                            ? expenseSwitcherProgress.isOver
+                              ? '#FEE2E2'
+                              : 'rgba(255, 255, 255, 0.65)'
+                            : theme.cardBg,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.switcherBadgeText,
+                        {
+                          color: expenseSwitcherProgress.isOver
+                            ? '#DC2626'
+                            : txType === 'expense'
+                            ? theme.error
+                            : theme.onSurfaceVariant,
+                        },
+                      ]}
+                    >
+                      {expenseSwitcherProgress.badgeText}
+                    </Text>
+                  </View>
+                )}
               </View>
+
+              {/* Amount Display */}
               <Text
                 style={[
                   styles.switcherTabAmount,
-                  { color: txType === 'expense' ? theme.error : theme.onSurfaceVariant },
+                  { color: txType === 'expense' ? theme.error : theme.onSurface },
                 ]}
                 numberOfLines={1}
               >
                 {formatCurrency(spentInCycle, curr)}
               </Text>
+
+              {/* Progress Toward Target Budget Subtext */}
+              <Text
+                style={[
+                  styles.switcherProgressSubtext,
+                  {
+                    color:
+                      expenseSwitcherProgress.isOver
+                        ? '#DC2626'
+                        : txType === 'expense'
+                        ? theme.onErrorContainer
+                        : theme.onSurfaceVariant,
+                  },
+                ]}
+                numberOfLines={1}
+              >
+                {expenseSwitcherProgress.subText}
+              </Text>
+
+              {/* Bottom Line Progress Indicator */}
+              {expenseSwitcherProgress.hasTarget && (
+                <View style={styles.switcherBottomLineTrack}>
+                  <View
+                    style={[
+                      styles.switcherBottomLineFill,
+                      {
+                        width: `${Math.min(100, Math.max(0, expenseSwitcherProgress.percent))}%`,
+                        backgroundColor: expenseSwitcherProgress.isOver
+                          ? '#EF4444'
+                          : theme.error,
+                      },
+                    ]}
+                  />
+                </View>
+              )}
             </TouchableOpacity>
 
             {/* Income Tab / Switcher */}
@@ -1198,34 +1429,119 @@ export const HomeScreen: React.FC = () => {
               onPress={() => setTxType('income')}
               activeOpacity={0.8}
             >
-              <View style={styles.switcherIconTextRow}>
+              {/* Background Progress Fill Track */}
+              {incomeSwitcherProgress.hasGoal && (
                 <View
                   style={[
-                    styles.tabDot,
-                    { backgroundColor: txType === 'income' ? theme.success : theme.outline },
-                  ]}
-                />
-                <Text
-                  style={[
-                    styles.switcherTabTitle,
+                    styles.switcherProgressTrack,
                     {
-                      color:
-                        txType === 'income' ? theme.onSuccessContainer : theme.onSurfaceVariant,
+                      width: `${Math.min(100, Math.max(0, incomeSwitcherProgress.percent))}%`,
+                      backgroundColor:
+                        txType === 'income'
+                          ? 'rgba(0, 2, 1, 0.38)'
+                          : 'rgba(16, 185, 129, 0.08)',
                     },
                   ]}
-                >
-                  INCOME
-                </Text>
+                />
+              )}
+
+              {/* Tab Header: Dot + INCOME title + Progress % Badge */}
+              <View style={styles.switcherHeaderRow}>
+                <View style={styles.switcherIconTextRow}>
+                  <View
+                    style={[
+                      styles.tabDot,
+                      { backgroundColor: txType === 'income' ? theme.success : theme.outline },
+                    ]}
+                  />
+                  <Text
+                    style={[
+                      styles.switcherTabTitle,
+                      {
+                        color:
+                          txType === 'income' ? theme.onSuccessContainer : theme.onSurfaceVariant,
+                      },
+                    ]}
+                  >
+                    INCOME
+                  </Text>
+                </View>
+
+                {incomeSwitcherProgress.badgeText && (
+                  <View
+                    style={[
+                      styles.switcherBadgePill,
+                      {
+                        backgroundColor:
+                          txType === 'income'
+                            ? incomeSwitcherProgress.isReached
+                              ? '#D1FAE5'
+                              : 'rgba(255, 255, 255, 0.65)'
+                            : theme.cardBg,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.switcherBadgeText,
+                        {
+                          color: incomeSwitcherProgress.isReached
+                            ? '#059669'
+                            : txType === 'income'
+                            ? theme.success
+                            : theme.onSurfaceVariant,
+                        },
+                      ]}
+                    >
+                      {incomeSwitcherProgress.badgeText}
+                    </Text>
+                  </View>
+                )}
               </View>
+
+              {/* Amount Display */}
               <Text
                 style={[
                   styles.switcherTabAmount,
-                  { color: txType === 'income' ? theme.success : theme.onSurfaceVariant },
+                  { color: txType === 'income' ? theme.success : theme.onSurface },
                 ]}
                 numberOfLines={1}
               >
                 {formatCurrency(incomeInCycle, curr)}
               </Text>
+
+              {/* Progress Toward Income Goal Subtext */}
+              <Text
+                style={[
+                  styles.switcherProgressSubtext,
+                  {
+                    color:
+                      incomeSwitcherProgress.isReached
+                        ? '#059669'
+                        : txType === 'income'
+                        ? theme.onSuccessContainer
+                        : theme.onSurfaceVariant,
+                  },
+                ]}
+                numberOfLines={1}
+              >
+                {incomeSwitcherProgress.subText}
+              </Text>
+
+              {/* Bottom Line Progress Indicator */}
+              {incomeSwitcherProgress.hasGoal && (
+                <View style={styles.switcherBottomLineTrack}>
+                  <View
+                    style={[
+                      styles.switcherBottomLineFill,
+                      {
+                        width: `${Math.min(100, Math.max(0, incomeSwitcherProgress.percent))}%`,
+                        backgroundColor: theme.success,
+                      },
+                    ]}
+                  />
+                </View>
+              )}
             </TouchableOpacity>
           </View>
         </View>
@@ -2055,17 +2371,62 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   recordButton: {
+    height: 48,
+    borderRadius: M3Shape.full,
+    overflow: 'hidden',
+    position: 'relative',
+    justifyContent: 'center',
+  },
+  recordProgressTrack: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    overflow: 'hidden',
+  },
+  recordProgressBar: {
+    height: '100%',
+  },
+  recordButtonInner: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    height: 46,
-    borderRadius: M3Shape.full,
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    zIndex: 2,
+  },
+  recordButtonLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
   },
   recordButtonText: {
     fontSize: 15,
     fontWeight: '800',
     letterSpacing: 0.3,
+  },
+  recordBadge: {
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderRadius: M3Shape.full,
+    borderWidth: 1,
+    maxWidth: '54%',
+  },
+  recordBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
+  recordBottomLineTrack: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+    backgroundColor: 'rgba(0,0,0,0.08)',
+  },
+  recordBottomLineFill: {
+    height: '100%',
   },
 
   // BACKDROP
@@ -2139,15 +2500,28 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 10,
     borderRadius: M3Shape.medium,
-    alignItems: 'center',
+    position: 'relative',
+    overflow: 'hidden',
     justifyContent: 'center',
   },
   switcherTabActive: {},
+  switcherProgressTrack: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+  },
+  switcherHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 2,
+    zIndex: 2,
+  },
   switcherIconTextRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    marginBottom: 1,
   },
   tabDot: {
     width: 6,
@@ -2159,9 +2533,38 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.8,
   },
+  switcherBadgePill: {
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: M3Shape.full,
+  },
+  switcherBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
   switcherTabAmount: {
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 13.5,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+    zIndex: 2,
+  },
+  switcherProgressSubtext: {
+    fontSize: 9,
+    fontWeight: '600',
+    marginTop: 1,
+    zIndex: 2,
+  },
+  switcherBottomLineTrack: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+    backgroundColor: 'rgba(0, 0, 0, 0.08)',
+  },
+  switcherBottomLineFill: {
+    height: '100%',
   },
 
   // 2B. RECENT ACTIVITY LIST (Revealed when sheet pulls down)
