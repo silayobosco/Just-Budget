@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,7 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
-import { Category, BudgetProgress, BudgetScope } from '../types';
+import { Category, Subcategory, BudgetProgress, BudgetScope } from '../types';
 import { formatCurrency, formatTypingNumber } from '../utils/format';
 
 interface CategoryManagerModalProps {
@@ -27,9 +27,11 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
     updateCategory,
     deleteCategory,
     addSubcategory,
+    updateSubcategory,
     deleteSubcategory,
     budgets,
     setBudgetLimit,
+    deleteBudgetLimit,
     categoryBudgetProgressList,
     overallBudgetLimit,
     overallBudgetSpent,
@@ -64,6 +66,19 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
   const [editLimitTargetName, setEditLimitTargetName] = useState<string>('');
   const [editLimitAmountStr, setEditLimitAmountStr] = useState<string>('');
   const [editLimitMaxAllowed, setEditLimitMaxAllowed] = useState<number | null>(null);
+
+  // Edit Subcategory Modal state
+  const [editingSubModalVisible, setEditingSubModalVisible] = useState(false);
+  const [editingSubParentCat, setEditingSubParentCat] = useState<Category | null>(null);
+  const [editingSubcategory, setEditingSubcategory] = useState<Subcategory | null>(null);
+  const [editSubName, setEditSubName] = useState('');
+  const [editSubLimitStr, setEditSubLimitStr] = useState('');
+
+  const parentCatLimit = useMemo(() => {
+    if (!editingSubParentCat) return 0;
+    const p = categoryBudgetProgressList.find((c) => c.id === editingSubParentCat.id);
+    return p?.limit || 0;
+  }, [editingSubParentCat, categoryBudgetProgressList]);
 
   // Expanded subcategories per category
   const [expandedCatIds, setExpandedCatIds] = useState<Record<string, boolean>>({});
@@ -183,6 +198,61 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
     setNewSubName('');
     setNewSubLimitStr('');
     setActiveSubInputCatId(null);
+  };
+
+  const handleStartEditSub = (cat: Category, sub: Subcategory) => {
+    setEditingSubParentCat(cat);
+    setEditingSubcategory(sub);
+    setEditSubName(sub.name);
+
+    // Look up current subcategory limit
+    const catProgress = categoryBudgetProgressList.find((c) => c.id === cat.id);
+    const subProgress = catProgress?.subBudgets?.find((s) => s.id === sub.id);
+    setEditSubLimitStr(subProgress && subProgress.limit > 0 ? subProgress.limit.toString() : '');
+
+    setEditingSubModalVisible(true);
+  };
+
+  const handleSaveSubcategory = async () => {
+    if (!editingSubcategory || !editSubName.trim()) return;
+
+    // 1. Update subcategory name
+    await updateSubcategory(editingSubcategory.id, editSubName.trim());
+
+    // 2. If expense, update or clear budget limit
+    if (filterType === 'expense' && editingSubParentCat) {
+      const limitVal = parseFloat(editSubLimitStr.replace(/,/g, '').trim()) || 0;
+      await setBudgetLimit({
+        scope: 'subcategory',
+        category_id: editingSubParentCat.id,
+        subcategory_id: editingSubcategory.id,
+        amount: limitVal,
+      });
+    }
+
+    setEditingSubModalVisible(false);
+    setEditingSubcategory(null);
+    setEditingSubParentCat(null);
+  };
+
+  const handleDeleteSubcategory = (subId: string, subName: string) => {
+    Alert.alert(
+      'Delete Subcategory',
+      `Are you sure you want to delete "${subName}"? Associated transactions will keep their records.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            await deleteSubcategory(subId);
+            setEditingSubModalVisible(false);
+            setEditingSubcategory(null);
+            setEditingSubParentCat(null);
+          },
+        },
+      ]
+    );
   };
 
   // Quick edit limit dialog openers
@@ -683,19 +753,12 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
                             </View>
 
                             <View style={styles.subItemActions}>
-                              {filterType === 'expense' && (
-                                <TouchableOpacity
-                                  style={[styles.subIconBtn, { backgroundColor: theme.surface }]}
-                                  onPress={() => openEditSubLimit(cat, sub.id, sub.name)}
-                                >
-                                  <MaterialCommunityIcons name="pencil-outline" size={14} color={theme.onSurface} />
-                                </TouchableOpacity>
-                              )}
                               <TouchableOpacity
                                 style={[styles.subIconBtn, { backgroundColor: theme.surface }]}
-                                onPress={() => deleteSubcategory(sub.id)}
+                                onPress={() => handleStartEditSub(cat, sub)}
+                                accessibilityLabel="Edit Subcategory"
                               >
-                                <MaterialCommunityIcons name="close" size={14} color={theme.error} />
+                                <MaterialCommunityIcons name="pencil-outline" size={14} color={theme.onSurface} />
                               </TouchableOpacity>
                             </View>
                           </View>
@@ -815,6 +878,100 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
                     onPress={handleSaveInlineLimit}
                   >
                     <Text style={[styles.dialogSaveBtnText, { color: theme.onPrimary }]}>Save Limit</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
+
+          {/* EDIT SUBCATEGORY MODAL */}
+          <Modal
+            visible={editingSubModalVisible}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setEditingSubModalVisible(false)}
+          >
+            <View style={styles.dialogOverlay}>
+              <View style={[styles.dialogBox, { backgroundColor: theme.surface }, M3Elevation.level3]}>
+                <View style={styles.dialogHeader}>
+                  <Text style={[styles.dialogTitle, { color: theme.onSurface }]}>Edit Subcategory</Text>
+                  <TouchableOpacity onPress={() => setEditingSubModalVisible(false)}>
+                    <MaterialCommunityIcons name="close" size={20} color={theme.onSurfaceVariant} />
+                  </TouchableOpacity>
+                </View>
+
+                {editingSubParentCat && (
+                  <Text style={[styles.dialogTargetName, { color: theme.primary }]}>
+                    Category: {editingSubParentCat.name}
+                  </Text>
+                )}
+
+                {/* Subcategory Name */}
+                <Text style={[styles.dialogFieldLabel, { color: theme.onSurfaceVariant }]}>NAME</Text>
+                <TextInput
+                  style={[
+                    styles.dialogNameInput,
+                    { backgroundColor: theme.pillBg, color: theme.onSurface, borderColor: theme.divider },
+                  ]}
+                  placeholder="Subcategory Name"
+                  placeholderTextColor={theme.outline}
+                  value={editSubName}
+                  onChangeText={setEditSubName}
+                />
+
+                {/* Monthly Spending Limit (for expense categories) */}
+                {filterType === 'expense' && (
+                  <>
+                    <View style={styles.dialogLimitLabelRow}>
+                      <Text style={[styles.dialogFieldLabel, { color: theme.onSurfaceVariant }]}>
+                        MONTHLY LIMIT (OPTIONAL)
+                      </Text>
+                      {parentCatLimit > 0 && (
+                        <Text style={[styles.dialogSubHint, { color: theme.primary }]}>
+                          Parent limit: {formatCurrency(parentCatLimit, curr)}
+                        </Text>
+                      )}
+                    </View>
+                    <View style={[styles.dialogInputWrap, { backgroundColor: theme.pillBg, borderColor: theme.divider }]}>
+                      <Text style={[styles.inputPrefix, { color: theme.onSurfaceVariant }]}>{curr}</Text>
+                      <TextInput
+                        style={[styles.dialogInput, { color: theme.onSurface }]}
+                        placeholder="0.00"
+                        placeholderTextColor={theme.outline}
+                        keyboardType="numeric"
+                        value={editSubLimitStr}
+                        onChangeText={setEditSubLimitStr}
+                      />
+                    </View>
+                  </>
+                )}
+
+                {/* Dialog Actions: Delete on left, Cancel & Save on right */}
+                <View style={styles.dialogActions}>
+                  {editingSubcategory && (
+                    <TouchableOpacity
+                      style={[styles.dialogDeleteBtn, { backgroundColor: theme.errorContainer }]}
+                      onPress={() => handleDeleteSubcategory(editingSubcategory.id, editingSubcategory.name)}
+                    >
+                      <MaterialCommunityIcons name="trash-can-outline" size={16} color={theme.onErrorContainer} />
+                      <Text style={[styles.dialogDeleteBtnText, { color: theme.onErrorContainer }]}>Delete</Text>
+                    </TouchableOpacity>
+                  )}
+
+                  <View style={{ flex: 1 }} />
+
+                  <TouchableOpacity
+                    style={[styles.dialogCancelBtn, { backgroundColor: theme.pillBg }]}
+                    onPress={() => setEditingSubModalVisible(false)}
+                  >
+                    <Text style={[styles.dialogCancelBtnText, { color: theme.onSurface }]}>Cancel</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.dialogSaveBtn, { backgroundColor: theme.primary }]}
+                    onPress={handleSaveSubcategory}
+                  >
+                    <Text style={[styles.dialogSaveBtnText, { color: theme.onPrimary }]}>Save</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -1334,5 +1491,52 @@ const styles = StyleSheet.create({
   dialogSaveBtnText: {
     fontSize: 13,
     fontWeight: '700',
+  },
+  dialogFieldLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    marginBottom: 6,
+    letterSpacing: 0.5,
+  },
+  dialogNameInput: {
+    height: 44,
+    borderRadius: M3Shape.medium,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  dialogLimitLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  dialogSubHint: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  dialogDeleteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: M3Shape.full,
+    gap: 4,
+  },
+  dialogDeleteBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  dialogCancelBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: M3Shape.full,
+    marginRight: 8,
+  },
+  dialogCancelBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

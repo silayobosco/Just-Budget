@@ -85,6 +85,7 @@ interface BudgetContextType {
   updateCategory: (category: Category) => Promise<void>;
   deleteCategory: (id: string) => Promise<void>;
   addSubcategory: (category_id: string, name: string, initial_limit?: number) => Promise<string>;
+  updateSubcategory: (id: string, name: string) => Promise<void>;
   deleteSubcategory: (id: string) => Promise<void>;
 
   addRecurringBill: (params: {
@@ -665,6 +666,12 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return id;
   };
 
+  const updateSubcategory = async (id: string, name: string) => {
+    const db = getDB();
+    db.runSync(`UPDATE subcategories SET name = ? WHERE id = ?`, [name, id]);
+    await loadData();
+  };
+
   const deleteSubcategory = async (id: string) => {
     const db = getDB();
     db.runSync(`DELETE FROM budgets WHERE subcategory_id = ?`, [id]);
@@ -937,6 +944,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         updateCategory,
         deleteCategory,
         addSubcategory,
+        updateSubcategory,
         deleteSubcategory,
         addRecurringBill,
         updateRecurringBill,
