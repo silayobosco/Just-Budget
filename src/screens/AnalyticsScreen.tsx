@@ -25,6 +25,7 @@ export const AnalyticsScreen: React.FC = () => {
     dailyAllowanceStats,
     analyticsFocus,
     setAnalyticsFocus,
+    openCycleModal,
   } = useBudget();
 
   const isDarkMode = settings.theme_mode === 'dark';
@@ -232,65 +233,91 @@ export const AnalyticsScreen: React.FC = () => {
         {/* 1. EXPENSE ANALYZER FOCUS VIEW */}
         {analyticsFocus === 'expense' && (
           <View style={styles.focusContainer}>
-            {/* Target Budget Progress Card */}
-            <View style={[styles.analyzerCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
-              <View style={styles.analyzerCardHeader}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <MaterialCommunityIcons name="bullseye-arrow" size={20} color={theme.error} />
-                  <Text style={[styles.cardHeading, { color: theme.onSurface, marginBottom: 0 }]}>
-                    Budget Cap Analysis
-                  </Text>
+            {/* Target Budget Progress Card OR Prompt to Set */}
+            {effectiveBudget <= 0 ? (
+              <View style={[styles.analyzerCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
+                <View style={styles.analyzerCardHeader}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <MaterialCommunityIcons name="bullseye-arrow" size={20} color={theme.error} />
+                    <Text style={[styles.cardHeading, { color: theme.onSurface, marginBottom: 0 }]}>
+                      Budget Cap Analysis
+                    </Text>
+                  </View>
                 </View>
-                <View
-                  style={[
-                    styles.tagBadge,
-                    { backgroundColor: isBudgetOver ? (isDarkMode ? 'rgba(239, 68, 68, 0.3)' : '#FEE2E2') : (isDarkMode ? 'rgba(16, 185, 129, 0.2)' : '#D1FAE5') },
-                  ]}
+                <Text style={{ fontSize: 13, color: theme.onSurfaceVariant, marginVertical: 6, lineHeight: 18 }}>
+                  No budget cap set for this period. Set a budget cap to analyze your spending pace and remaining daily allowance.
+                </Text>
+                <TouchableOpacity
+                  style={[styles.setGoalPromptBtn, { backgroundColor: theme.primaryContainer }]}
+                  onPress={openCycleModal}
+                  activeOpacity={0.8}
                 >
-                  <Text style={[styles.tagBadgeText, { color: isBudgetOver ? theme.error : theme.success }]}>
-                    {budgetPercent}% Spent
+                  <MaterialCommunityIcons name="plus" size={16} color={theme.onPrimaryContainer} />
+                  <Text style={[styles.setGoalPromptText, { color: theme.onPrimaryContainer }]}>
+                    Set Budget Cap
                   </Text>
-                </View>
+                </TouchableOpacity>
               </View>
-
-              <View style={styles.metricGrid}>
-                <View style={styles.metricItem}>
-                  <Text style={[styles.metricLabel, { color: theme.onSurfaceVariant }]}>Total Spent</Text>
-                  <Text style={[styles.metricValue, { color: isBudgetOver ? theme.error : theme.onSurface }]}>
-                    {formatCurrency(budgetSpent, settings.base_currency)}
-                  </Text>
-                </View>
-                <View style={styles.metricItem}>
-                  <Text style={[styles.metricLabel, { color: theme.onSurfaceVariant }]}>
-                    {isBudgetOver ? 'Over Budget' : 'Remaining Left'}
-                  </Text>
-                  <Text style={[styles.metricValue, { color: isBudgetOver ? theme.error : theme.primary }]}>
-                    {formatCurrency(Math.abs(budgetRemaining), settings.base_currency)}
-                  </Text>
-                </View>
-                <View style={styles.metricItem}>
-                  <Text style={[styles.metricLabel, { color: theme.onSurfaceVariant }]}>Target Cap</Text>
-                  <Text style={[styles.metricValue, { color: theme.onSurfaceVariant }]}>
-                    {effectiveBudget > 0 ? formatCurrency(effectiveBudget, settings.base_currency) : 'None'}
-                  </Text>
-                </View>
-              </View>
-
-              {/* Progress Bar */}
-              {effectiveBudget > 0 && (
-                <View style={[styles.analyzerBarTrack, { backgroundColor: theme.pillBg }]}>
+            ) : (
+              <View style={[styles.analyzerCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
+                <View style={styles.analyzerCardHeader}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <MaterialCommunityIcons name="bullseye-arrow" size={20} color={theme.error} />
+                    <Text style={[styles.cardHeading, { color: theme.onSurface, marginBottom: 0 }]}>
+                      Budget Cap Analysis
+                    </Text>
+                  </View>
                   <View
                     style={[
-                      styles.analyzerBarFill,
-                      {
-                        width: `${Math.min(100, Math.max(0, budgetPercent))}%`,
-                        backgroundColor: isBudgetOver ? theme.error : theme.primary,
-                      },
+                      styles.tagBadge,
+                      { backgroundColor: isBudgetOver ? (isDarkMode ? 'rgba(239, 68, 68, 0.3)' : '#FEE2E2') : (isDarkMode ? 'rgba(16, 185, 129, 0.2)' : '#D1FAE5') },
                     ]}
-                  />
+                  >
+                    <Text style={[styles.tagBadgeText, { color: isBudgetOver ? theme.error : theme.success }]}>
+                      {budgetPercent}% Spent
+                    </Text>
+                  </View>
                 </View>
-              )}
-            </View>
+
+                <View style={styles.metricGrid}>
+                  <View style={styles.metricItem}>
+                    <Text style={[styles.metricLabel, { color: theme.onSurfaceVariant }]}>Total Spent</Text>
+                    <Text style={[styles.metricValue, { color: isBudgetOver ? theme.error : theme.onSurface }]}>
+                      {formatCurrency(budgetSpent, settings.base_currency)}
+                    </Text>
+                  </View>
+                  <View style={styles.metricItem}>
+                    <Text style={[styles.metricLabel, { color: theme.onSurfaceVariant }]}>
+                      {isBudgetOver ? 'Over Budget' : 'Remaining Left'}
+                    </Text>
+                    <Text style={[styles.metricValue, { color: isBudgetOver ? theme.error : theme.primary }]}>
+                      {formatCurrency(Math.abs(budgetRemaining), settings.base_currency)}
+                    </Text>
+                  </View>
+                  <View style={styles.metricItem}>
+                    <Text style={[styles.metricLabel, { color: theme.onSurfaceVariant }]}>Target Cap</Text>
+                    <Text style={[styles.metricValue, { color: theme.onSurfaceVariant }]}>
+                      {effectiveBudget > 0 ? formatCurrency(effectiveBudget, settings.base_currency) : 'None'}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Progress Bar */}
+                {effectiveBudget > 0 && (
+                  <View style={[styles.analyzerBarTrack, { backgroundColor: theme.pillBg }]}>
+                    <View
+                      style={[
+                        styles.analyzerBarFill,
+                        {
+                          width: `${Math.min(100, Math.max(0, budgetPercent))}%`,
+                          backgroundColor: isBudgetOver ? theme.error : theme.primary,
+                        },
+                      ]}
+                    />
+                  </View>
+                )}
+              </View>
+            )}
 
             {/* Daily Spending Stats */}
             <View style={styles.statsCardsRow}>
@@ -358,65 +385,91 @@ export const AnalyticsScreen: React.FC = () => {
         {/* 2. INCOME ANALYZER FOCUS VIEW */}
         {analyticsFocus === 'income' && (
           <View style={styles.focusContainer}>
-            {/* Target Income Progress Card */}
-            <View style={[styles.analyzerCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
-              <View style={styles.analyzerCardHeader}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <MaterialCommunityIcons name="cash-check" size={20} color={theme.success} />
-                  <Text style={[styles.cardHeading, { color: theme.onSurface, marginBottom: 0 }]}>
-                    Income Target Analysis
-                  </Text>
+            {/* Target Income Progress Card OR Prompt to Set */}
+            {effectiveIncomeGoal <= 0 ? (
+              <View style={[styles.analyzerCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
+                <View style={styles.analyzerCardHeader}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <MaterialCommunityIcons name="cash-check" size={20} color={theme.success} />
+                    <Text style={[styles.cardHeading, { color: theme.onSurface, marginBottom: 0 }]}>
+                      Income Target Analysis
+                    </Text>
+                  </View>
                 </View>
-                <View
-                  style={[
-                    styles.tagBadge,
-                    { backgroundColor: isIncomeGoalReached ? (isDarkMode ? 'rgba(16, 185, 129, 0.3)' : '#D1FAE5') : (isDarkMode ? 'rgba(99, 102, 241, 0.2)' : '#EDE9FE') },
-                  ]}
+                <Text style={{ fontSize: 13, color: theme.onSurfaceVariant, marginVertical: 6, lineHeight: 18 }}>
+                  No income goal set for this period. Set an income target to track your earnings, income sources, and goal achievement.
+                </Text>
+                <TouchableOpacity
+                  style={[styles.setGoalPromptBtn, { backgroundColor: theme.successContainer }]}
+                  onPress={openCycleModal}
+                  activeOpacity={0.8}
                 >
-                  <Text style={[styles.tagBadgeText, { color: isIncomeGoalReached ? theme.success : theme.primary }]}>
-                    {incomePercent}% Achieved
+                  <MaterialCommunityIcons name="plus" size={16} color={theme.success} />
+                  <Text style={[styles.setGoalPromptText, { color: theme.success }]}>
+                    Set Income Goal
                   </Text>
-                </View>
+                </TouchableOpacity>
               </View>
-
-              <View style={styles.metricGrid}>
-                <View style={styles.metricItem}>
-                  <Text style={[styles.metricLabel, { color: theme.onSurfaceVariant }]}>Income Earned</Text>
-                  <Text style={[styles.metricValue, { color: theme.success }]}>
-                    {formatCurrency(incomeEarned, settings.base_currency)}
-                  </Text>
-                </View>
-                <View style={styles.metricItem}>
-                  <Text style={[styles.metricLabel, { color: theme.onSurfaceVariant }]}>
-                    {isIncomeGoalReached ? '🎉 Surplus' : 'To Reach Goal'}
-                  </Text>
-                  <Text style={[styles.metricValue, { color: isIncomeGoalReached ? theme.success : theme.onSurface }]}>
-                    {formatCurrency(incomeRemainingToGo, settings.base_currency)}
-                  </Text>
-                </View>
-                <View style={styles.metricItem}>
-                  <Text style={[styles.metricLabel, { color: theme.onSurfaceVariant }]}>Target Goal</Text>
-                  <Text style={[styles.metricValue, { color: theme.onSurfaceVariant }]}>
-                    {effectiveIncomeGoal > 0 ? formatCurrency(effectiveIncomeGoal, settings.base_currency) : 'None'}
-                  </Text>
-                </View>
-              </View>
-
-              {/* Progress Bar */}
-              {effectiveIncomeGoal > 0 && (
-                <View style={[styles.analyzerBarTrack, { backgroundColor: theme.pillBg }]}>
+            ) : (
+              <View style={[styles.analyzerCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
+                <View style={styles.analyzerCardHeader}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <MaterialCommunityIcons name="cash-check" size={20} color={theme.success} />
+                    <Text style={[styles.cardHeading, { color: theme.onSurface, marginBottom: 0 }]}>
+                      Income Target Analysis
+                    </Text>
+                  </View>
                   <View
                     style={[
-                      styles.analyzerBarFill,
-                      {
-                        width: `${Math.min(100, Math.max(0, incomePercent))}%`,
-                        backgroundColor: theme.success,
-                      },
+                      styles.tagBadge,
+                      { backgroundColor: isIncomeGoalReached ? (isDarkMode ? 'rgba(16, 185, 129, 0.3)' : '#D1FAE5') : (isDarkMode ? 'rgba(99, 102, 241, 0.2)' : '#EDE9FE') },
                     ]}
-                  />
+                  >
+                    <Text style={[styles.tagBadgeText, { color: isIncomeGoalReached ? theme.success : theme.primary }]}>
+                      {incomePercent}% Achieved
+                    </Text>
+                  </View>
                 </View>
-              )}
-            </View>
+
+                <View style={styles.metricGrid}>
+                  <View style={styles.metricItem}>
+                    <Text style={[styles.metricLabel, { color: theme.onSurfaceVariant }]}>Income Earned</Text>
+                    <Text style={[styles.metricValue, { color: theme.success }]}>
+                      {formatCurrency(incomeEarned, settings.base_currency)}
+                    </Text>
+                  </View>
+                  <View style={styles.metricItem}>
+                    <Text style={[styles.metricLabel, { color: theme.onSurfaceVariant }]}>
+                      {isIncomeGoalReached ? '🎉 Surplus' : 'To Reach Goal'}
+                    </Text>
+                    <Text style={[styles.metricValue, { color: isIncomeGoalReached ? theme.success : theme.onSurface }]}>
+                      {formatCurrency(incomeRemainingToGo, settings.base_currency)}
+                    </Text>
+                  </View>
+                  <View style={styles.metricItem}>
+                    <Text style={[styles.metricLabel, { color: theme.onSurfaceVariant }]}>Target Goal</Text>
+                    <Text style={[styles.metricValue, { color: theme.onSurfaceVariant }]}>
+                      {effectiveIncomeGoal > 0 ? formatCurrency(effectiveIncomeGoal, settings.base_currency) : 'None'}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Progress Bar */}
+                {effectiveIncomeGoal > 0 && (
+                  <View style={[styles.analyzerBarTrack, { backgroundColor: theme.pillBg }]}>
+                    <View
+                      style={[
+                        styles.analyzerBarFill,
+                        {
+                          width: `${Math.min(100, Math.max(0, incomePercent))}%`,
+                          backgroundColor: theme.success,
+                        },
+                      ]}
+                    />
+                  </View>
+                )}
+              </View>
+            )}
 
             {/* Income Sources / Categories Breakdown */}
             <View style={styles.sectionHeader}>
@@ -650,6 +703,21 @@ const styles = StyleSheet.create({
   analyzerBarFill: {
     height: '100%',
     borderRadius: M3Shape.full,
+  },
+  setGoalPromptBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: M3Shape.full,
+    alignSelf: 'flex-start',
+    marginTop: 6,
+  },
+  setGoalPromptText: {
+    fontSize: 12.5,
+    fontWeight: '700',
   },
   scopeBar: {
     flexDirection: 'row',

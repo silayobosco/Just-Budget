@@ -145,38 +145,31 @@ export const initDatabase = async () => {
 };
 
 const seedInitialData = (db: SQLite.SQLiteDatabase) => {
-  // Check if settings exists
-  const baseCurrencyRow = db.getFirstSync<{ value: string }>(
-    `SELECT value FROM settings WHERE key = 'base_currency'`
+  // Check if onboarding is completed
+  const onboardingRow = db.getFirstSync<{ value: string }>(
+    `SELECT value FROM settings WHERE key = 'onboarding_completed'`
   );
 
-  if (!baseCurrencyRow) {
-    db.runSync(`INSERT INTO settings (key, value) VALUES ('base_currency', 'USD')`);
-    db.runSync(`INSERT INTO settings (key, value) VALUES ('theme_mode', 'light')`);
-    db.runSync(`INSERT INTO settings (key, value) VALUES ('app_name', 'just budget')`);
+  // If this is a fresh setup or onboarding was never explicitly marked completed:
+  // Clean up any legacy dummy seed data (dummy wallets with fake balances, dummy recurring bills, dummy budgets)
+  if (!onboardingRow || onboardingRow.value !== '1') {
+    // Clean up dummy seed wallets
+    db.runSync(`DELETE FROM wallets WHERE id IN ('w-cash', 'w-bank', 'w-savings')`);
+    // Clean up dummy recurring bills
+    db.runSync(`DELETE FROM recurring_bills WHERE id IN ('bill-1', 'bill-2')`);
+    // Clean up dummy pre-seeded budgets
+    db.runSync(`DELETE FROM budgets WHERE id IN ('b-food', 'b-food-groc', 'b-food-rest', 'b-housing', 'b-transport', 'b-shopping', 'b-entertainment')`);
+    // Clean up dummy cycle targets
+    db.runSync(`UPDATE budget_cycles SET target_budget = NULL, target_income = NULL WHERE target_budget = 2000`);
+
+    if (!onboardingRow) {
+      db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('onboarding_completed', '0')`);
+      db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('theme_mode', 'light')`);
+      db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('app_name', 'just budget')`);
+    }
   }
 
-  // Check wallets
-  const walletCount = db.getFirstSync<{ count: number }>(`SELECT COUNT(*) as count FROM wallets`);
-  if (!walletCount || walletCount.count === 0) {
-    db.runSync(
-      `INSERT INTO wallets (id, name, currency, starting_balance, current_balance, color, icon, is_default)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      ['w-cash', 'Cash Wallet', 'USD', 500, 500, '#10B981', 'cash', 1]
-    );
-    db.runSync(
-      `INSERT INTO wallets (id, name, currency, starting_balance, current_balance, color, icon, is_default)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      ['w-bank', 'Bank Account', 'USD', 2500, 2500, '#3B82F6', 'bank', 0]
-    );
-    db.runSync(
-      `INSERT INTO wallets (id, name, currency, starting_balance, current_balance, color, icon, is_default)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      ['w-savings', 'Savings / Reserve', 'USD', 1200, 1200, '#8B5CF6', 'piggy-bank', 0]
-    );
-  }
-
-  // Check categories
+  // Check categories (Seed standard categories taxonomy if empty, without monetary amounts)
   const catCount = db.getFirstSync<{ count: number }>(`SELECT COUNT(*) as count FROM categories`);
   if (!catCount || catCount.count === 0) {
     const defaultCategories: {
@@ -260,70 +253,6 @@ const seedInitialData = (db: SQLite.SQLiteDatabase) => {
     }
   }
 
-  // Check budget cycles
-  const cycleCount = db.getFirstSync<{ count: number }>(`SELECT COUNT(*) as count FROM budget_cycles`);
-  if (!cycleCount || cycleCount.count === 0) {
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = today.getMonth(); // 0-indexed
-    const monthStr = String(month + 1).padStart(2, '0');
-    const startDate = `${year}-${monthStr}-01`;
-    const lastDay = new Date(year, month + 1, 0).getDate();
-    const endDate = `${year}-${monthStr}-${String(lastDay).padStart(2, '0')}`;
-
-    const monthNames = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'
-    ];
-
-    db.runSync(
-      `INSERT INTO budget_cycles (id, name, start_date, end_date, target_budget, is_active)
-       VALUES (?, ?, ?, ?, ?, 1)`,
-      [`cycle-${year}-${month + 1}`, `${monthNames[month]} ${year}`, startDate, endDate, 2000]
-    );
-  }
-
-  // Check recurring bills
-  const billCount = db.getFirstSync<{ count: number }>(`SELECT COUNT(*) as count FROM recurring_bills`);
-  if (!billCount || billCount.count === 0) {
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, '0');
-
-    db.runSync(
-      `INSERT INTO recurring_bills (id, name, amount, currency, frequency, due_day, next_due_date, category_id, wallet_id, reminder_enabled, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ['bill-1', 'Netflix Subscription', 15.0, 'USD', 'monthly', 15, `${year}-${month}-15`, 'cat-entertainment', 'w-bank', 1, 1]
-    );
-    db.runSync(
-      `INSERT INTO recurring_bills (id, name, amount, currency, frequency, due_day, next_due_date, category_id, wallet_id, reminder_enabled, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ['bill-2', 'Home Wi-Fi Internet', 50.0, 'USD', 'monthly', 1, `${year}-${month}-01`, 'cat-housing', 'w-bank', 1, 1]
-    );
-  }
-
-  // Check budgets (Category & Subcategory budgets)
-  const budgetCount = db.getFirstSync<{ count: number }>(`SELECT COUNT(*) as count FROM budgets`);
-  if (!budgetCount || budgetCount.count === 0) {
-    const today = new Date();
-    const period = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
-
-    const defaultBudgets: [string, string, string | null, string | null, number][] = [
-      ['b-food', 'category', 'cat-food', null, 500],
-      ['b-food-groc', 'subcategory', 'cat-food', 'cat-food-sub-1', 300],
-      ['b-food-rest', 'subcategory', 'cat-food', 'cat-food-sub-2', 200],
-      ['b-housing', 'category', 'cat-housing', null, 700],
-      ['b-transport', 'category', 'cat-transport', null, 250],
-      ['b-shopping', 'category', 'cat-shopping', null, 200],
-      ['b-entertainment', 'category', 'cat-entertainment', null, 150],
-    ];
-
-    for (const [bId, scope, catId, subId, amount] of defaultBudgets) {
-      db.runSync(
-        `INSERT INTO budgets (id, scope, category_id, subcategory_id, amount, period)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [bId, scope, catId, subId, amount, period]
-      );
-    }
-  }
+  // Note: No dummy wallets, no dummy recurring bills, and no dummy budgets are seeded.
+  // The app invites the user to create their first wallet and budget cycle on onboarding.
 };

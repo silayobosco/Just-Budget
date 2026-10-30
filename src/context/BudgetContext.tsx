@@ -29,6 +29,13 @@ interface BudgetContextType {
   allCycles: BudgetCycle[];
   settings: AppSettings;
   isLoading: boolean;
+  completeOnboarding: (params: {
+    currency: string;
+    firstWalletName?: string;
+    startingBalance?: number;
+    budgetCap?: number;
+    incomeGoal?: number;
+  }) => Promise<void>;
 
   // Cycle Modal & Analytics Navigation State
   isCycleModalOpen: boolean;
@@ -180,6 +187,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         base_currency: sMap['base_currency'] || 'USD',
         theme_mode: (sMap['theme_mode'] as any) || 'light',
         app_name: sMap['app_name'] || 'just budget',
+        onboarding_completed: sMap['onboarding_completed'] === '1',
         cycle_mode: (sMap['cycle_mode'] as any) || 'regular',
         cycle_balance_mode: (sMap['cycle_balance_mode'] as any) || 'monthly',
         cycle_target_mode: (sMap['cycle_target_mode'] as any) || 'monthly',
@@ -228,10 +236,10 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             );
             cycle = { ...cycle, name: reg.name, start_date: reg.startDate, end_date: reg.endDate };
           }
-        } else {
+        } else if (newSettings.onboarding_completed) {
           const regId = `cycle-reg-${reg.startDate}`;
-          const bVal = newSettings.cycle_default_budget || 2000;
-          const iVal = newSettings.cycle_default_income || 2500;
+          const bVal = newSettings.cycle_default_budget ?? null;
+          const iVal = newSettings.cycle_default_income ?? null;
           db.runSync(
             `INSERT INTO budget_cycles (id, name, start_date, end_date, target_budget, target_income, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)`,
             [regId, reg.name, reg.startDate, reg.endDate, bVal, iVal]
@@ -241,8 +249,8 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             name: reg.name,
             start_date: reg.startDate,
             end_date: reg.endDate,
-            target_budget: bVal,
-            target_income: iVal,
+            target_budget: bVal ?? undefined,
+            target_income: iVal ?? undefined,
             is_active: true,
           };
         }
@@ -1073,6 +1081,50 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return result;
   };
 
+  const completeOnboarding = async (params: {
+    currency: string;
+    firstWalletName?: string;
+    startingBalance?: number;
+    budgetCap?: number;
+    incomeGoal?: number;
+  }) => {
+    const db = getDB();
+    const curr = params.currency || 'USD';
+    db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('base_currency', ?)`, [curr]);
+    db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('onboarding_completed', '1')`);
+
+    // Create first wallet if specified
+    if (params.firstWalletName && params.firstWalletName.trim()) {
+      const wId = `w-${Date.now()}`;
+      const startBal = params.startingBalance || 0;
+      db.runSync(
+        `INSERT INTO wallets (id, name, currency, starting_balance, current_balance, color, icon, is_default) VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+        [wId, params.firstWalletName.trim(), curr, startBal, startBal, '#10B981', 'cash']
+      );
+    }
+
+    // Set up initial cycle if budget or income target provided
+    const reg = getRegularCycleDates(1);
+    const regId = `cycle-reg-${reg.startDate}`;
+    const targetB = params.budgetCap !== undefined && params.budgetCap > 0 ? params.budgetCap : null;
+    const targetI = params.incomeGoal !== undefined && params.incomeGoal > 0 ? params.incomeGoal : null;
+
+    db.runSync(`UPDATE budget_cycles SET is_active = 0`);
+    db.runSync(
+      `INSERT INTO budget_cycles (id, name, start_date, end_date, target_budget, target_income, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+      [regId, reg.name, reg.startDate, reg.endDate, targetB, targetI]
+    );
+
+    if (targetB) {
+      db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('cycle_default_budget', ?)`, [targetB.toString()]);
+    }
+    if (targetI) {
+      db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('cycle_default_income', ?)`, [targetI.toString()]);
+    }
+
+    await loadData();
+  };
+
   return (
     <BudgetContext.Provider
       value={{
@@ -1085,6 +1137,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         allCycles,
         settings,
         isLoading,
+        completeOnboarding,
         isCycleModalOpen,
         setIsCycleModalOpen,
         openCycleModal,

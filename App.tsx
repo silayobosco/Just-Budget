@@ -6,6 +6,7 @@ import { BudgetProvider, useBudget } from './src/context/BudgetContext';
 import { Header } from './src/components/Header';
 import { BottomTabs, TabType } from './src/components/BottomTabs';
 import { BudgetCycleModal } from './src/components/BudgetCycleModal';
+import { OnboardingModal } from './src/components/OnboardingModal';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { CalendarScreen } from './src/screens/CalendarScreen';
 import { WalletsScreen } from './src/screens/WalletsScreen';
@@ -52,6 +53,9 @@ const MainApp: React.FC = () => {
         theme={theme}
         onClose={closeCycleModal}
       />
+
+      {/* Onboarding Currency & Setup Modal */}
+      <OnboardingModal />
     </SafeAreaView>
   );
 };

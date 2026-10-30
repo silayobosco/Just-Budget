@@ -112,6 +112,7 @@ export interface AppSettings {
   base_currency: string;
   theme_mode: 'light' | 'dark' | 'system';
   app_name: string;
+  onboarding_completed?: boolean;
   cycle_mode?: CycleMode;
   cycle_balance_mode?: CycleBalanceMode;
   cycle_target_mode?: CycleTargetMode;

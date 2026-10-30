@@ -265,24 +265,18 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
       isOver,
       remaining,
       overBy,
-      badgeText: hasTarget ? (isOver ? `⚠️ ${percent}%` : `${percent}%`) : null,
+      badgeText: hasTarget ? (isOver ? `⚠️ ${percent}%` : `${percent}%`) : '+ Set Cap',
       subText: hasTarget
         ? isOver
           ? `⚠️ ${formatCurrency(overBy, curr)} over`
           : `${formatCurrency(remaining, curr)} left`
-        : 'Set budget cap',
+        : 'Tap to set budget cap',
     };
   }, [overallBudgetLimit, spentInCycle, curr]);
 
   // Income Goal Progress
   const incomeSwitcherProgress = useMemo(() => {
-    const goal =
-      currentCycle?.target_income && currentCycle.target_income > 0
-        ? currentCycle.target_income
-        : overallBudgetLimit > 0
-        ? overallBudgetLimit
-        : 0;
-
+    const goal = currentCycle?.target_income && currentCycle.target_income > 0 ? currentCycle.target_income : 0;
     const hasGoal = goal > 0;
     const percent = hasGoal ? Math.round((incomeInCycle / goal) * 100) : 0;
     const isReached = hasGoal && incomeInCycle >= goal;
@@ -294,14 +288,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
       percent,
       isReached,
       remaining,
-      badgeText: hasGoal ? (isReached ? `🎉 ${percent}%` : `${percent}%`) : null,
+      badgeText: hasGoal ? (isReached ? '🎉 100%' : `${percent}%`) : '+ Set Goal',
       subText: hasGoal
         ? isReached
           ? '🎉 Goal reached'
-          : `${formatCurrency(remaining, curr)} to go`
-        : 'Set income goal',
+          : `Goal: ${formatCurrency(goal, curr)}`
+        : 'Tap to set income goal',
     };
-  }, [currentCycle, overallBudgetLimit, incomeInCycle, curr]);
+  }, [currentCycle, incomeInCycle, curr]);
 
   // Flow Triggers: Tapping Record Income or Record Expense
   const handleOpenRecordFlow = (type: TransactionType) => {
@@ -310,7 +304,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
       return;
     }
     if (!selectedWalletId && wallets.length === 0) {
-      Alert.alert('No Wallet', 'Please create a wallet first.');
+      setNewWalletName('');
+      setNewWalletBal('0');
+      setQuickWalletModalVisible(true);
       return;
     }
     setActiveTxType(type);
@@ -720,50 +716,85 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
             <View style={styles.chipRowWrap}>
               <Text style={[styles.chipSectionLabel, { color: theme.onSurfaceVariant }]}>WALLET</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll}>
-                {wallets.map((w) => {
-                  const isSelected = w.id === selectedWalletId;
-                  return (
-                    <TouchableOpacity
-                      key={w.id}
+                {wallets.length === 0 ? (
+                  <TouchableOpacity
+                    style={[
+                      styles.chipItem,
+                      {
+                        backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.22)' : theme.primaryContainer,
+                        borderColor: theme.primary,
+                        borderWidth: 1,
+                        paddingHorizontal: 12,
+                      },
+                    ]}
+                    onPress={() => {
+                      setNewWalletName('');
+                      setNewWalletBal('0');
+                      setQuickWalletModalVisible(true);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <MaterialCommunityIcons name="wallet-plus" size={14} color={theme.primary} />
+                    <Text
                       style={[
-                        styles.chipItem,
+                        styles.chipText,
                         {
-                          backgroundColor: isSelected ? theme.primaryContainer : theme.pillBg,
-                          borderColor: isSelected ? theme.primary : 'transparent',
+                          color: isDarkMode ? '#C7D2FE' : theme.onPrimaryContainer,
+                          fontWeight: '800',
                         },
                       ]}
-                      onPress={() => setSelectedWalletId(w.id)}
-                      activeOpacity={0.7}
                     >
-                      <MaterialCommunityIcons
-                        name={(w.icon as any) || 'wallet'}
-                        size={14}
-                        color={isSelected ? theme.onPrimaryContainer : theme.onSurface}
-                      />
-                      <Text
+                      + Register First Wallet
+                    </Text>
+                  </TouchableOpacity>
+                ) : (
+                  wallets.map((w) => {
+                    const isSelected = w.id === selectedWalletId;
+                    return (
+                      <TouchableOpacity
+                        key={w.id}
                         style={[
-                          styles.chipText,
+                          styles.chipItem,
                           {
-                            color: isSelected ? theme.onPrimaryContainer : theme.onSurface,
-                            fontWeight: isSelected ? '700' : '500',
+                            backgroundColor: isSelected ? theme.primaryContainer : theme.pillBg,
+                            borderColor: isSelected ? theme.primary : 'transparent',
                           },
                         ]}
+                        onPress={() => setSelectedWalletId(w.id)}
+                        activeOpacity={0.7}
                       >
-                        {w.name}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-                <TouchableOpacity
-                  style={[styles.addChipBtn, { backgroundColor: theme.primaryContainer }]}
-                  onPress={() => {
-                    setNewWalletName('');
-                    setNewWalletBal('0');
-                    setQuickWalletModalVisible(true);
-                  }}
-                >
-                  <MaterialCommunityIcons name="plus" size={15} color={theme.onPrimaryContainer} />
-                </TouchableOpacity>
+                        <MaterialCommunityIcons
+                          name={(w.icon as any) || 'wallet'}
+                          size={14}
+                          color={isSelected ? theme.onPrimaryContainer : theme.onSurface}
+                        />
+                        <Text
+                          style={[
+                            styles.chipText,
+                            {
+                              color: isSelected ? theme.onPrimaryContainer : theme.onSurface,
+                              fontWeight: isSelected ? '700' : '500',
+                            },
+                          ]}
+                        >
+                          {w.name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })
+                )}
+                {wallets.length > 0 && (
+                  <TouchableOpacity
+                    style={[styles.addChipBtn, { backgroundColor: theme.primaryContainer }]}
+                    onPress={() => {
+                      setNewWalletName('');
+                      setNewWalletBal('0');
+                      setQuickWalletModalVisible(true);
+                    }}
+                  >
+                    <MaterialCommunityIcons name="plus" size={15} color={theme.onPrimaryContainer} />
+                  </TouchableOpacity>
+                )}
               </ScrollView>
             </View>
           </View>
@@ -953,21 +984,42 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
                 minimumFontScale={0.7}
                 maxFontSizeMultiplier={1.2}
               >
-                {formatCurrency(dailyAllowanceStats.remainingToday, curr)}
+                {wallets.length === 0 && overallBudgetLimit === 0
+                  ? formatCurrency(0, curr)
+                  : formatCurrency(dailyAllowanceStats.remainingToday, curr)}
               </Text>
             </View>
 
-            {/* Wallet summary pill - Tap to open Wallets screen */}
+            {/* Wallet summary pill - Tap to open Wallets screen or Add Wallet */}
             <TouchableOpacity
-              style={[styles.walletSumPill, { backgroundColor: theme.pillBg }]}
+              style={[
+                styles.walletSumPill,
+                {
+                  backgroundColor: wallets.length === 0
+                    ? (isDarkMode ? 'rgba(99, 102, 241, 0.22)' : theme.primaryContainer)
+                    : theme.pillBg,
+                },
+              ]}
               onPress={() => onNavigateTab?.('wallets')}
               activeOpacity={0.7}
               accessibilityRole="button"
               accessibilityLabel="Open Wallets Screen"
             >
-              <MaterialCommunityIcons name="wallet-outline" size={14} color={theme.primary} />
-              <Text style={[styles.walletSumText, { color: theme.onSurface }]}>
-                {formatCurrency(totalConvertedBalance, curr)}
+              <MaterialCommunityIcons
+                name={wallets.length === 0 ? 'wallet-plus-outline' : 'wallet-outline'}
+                size={14}
+                color={wallets.length === 0 ? theme.primary : theme.primary}
+              />
+              <Text
+                style={[
+                  styles.walletSumText,
+                  {
+                    color: wallets.length === 0 ? (isDarkMode ? '#C7D2FE' : theme.onPrimaryContainer) : theme.onSurface,
+                    fontWeight: wallets.length === 0 ? '800' : '700',
+                  },
+                ]}
+              >
+                {wallets.length === 0 ? '+ Add Wallet' : formatCurrency(totalConvertedBalance, curr)}
               </Text>
             </TouchableOpacity>
           </View>
@@ -1049,9 +1101,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
                 >
                   {incomeSwitcherProgress.hasGoal
                     ? formatCurrency(incomeSwitcherProgress.remaining, curr)
-                    : formatCurrency(0, curr)}
+                    : '+ Set Goal'}
                 </Text>
-                <Text style={[styles.heroAmountCaption, { color: theme.onSurfaceVariant }]}>TO GO</Text>
+                {incomeSwitcherProgress.hasGoal && (
+                  <Text style={[styles.heroAmountCaption, { color: theme.onSurfaceVariant }]}>TO GO</Text>
+                )}
               </View>
 
               {/* Subtext: Target or Reached */}
@@ -1066,11 +1120,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
                 ]}
                 numberOfLines={1}
               >
-                {incomeSwitcherProgress.hasGoal
-                  ? incomeSwitcherProgress.isReached
-                    ? '🎉 Goal reached'
-                    : `Goal: ${formatCurrency(incomeSwitcherProgress.goal, curr)}`
-                  : 'Tap to set goal'}
+                {incomeSwitcherProgress.subText}
               </Text>
 
               {/* Bottom Progress Line */}
@@ -1171,9 +1221,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
                     ? expenseSwitcherProgress.isOver
                       ? `-${formatCurrency(expenseSwitcherProgress.overBy, curr)}`
                       : formatCurrency(expenseSwitcherProgress.remaining, curr)
-                    : formatCurrency(0, curr)}
+                    : '+ Set Cap'}
                 </Text>
-                <Text style={[styles.heroAmountCaption, { color: theme.onSurfaceVariant }]}>LEFT</Text>
+                {expenseSwitcherProgress.hasTarget && (
+                  <Text style={[styles.heroAmountCaption, { color: theme.onSurfaceVariant }]}>LEFT</Text>
+                )}
               </View>
 
               {/* Subtext: Cap or Over status */}
@@ -1188,11 +1240,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
                 ]}
                 numberOfLines={1}
               >
-                {expenseSwitcherProgress.hasTarget
-                  ? expenseSwitcherProgress.isOver
-                    ? `⚠️ ${formatCurrency(expenseSwitcherProgress.overBy, curr)} over`
-                    : `Cap: ${formatCurrency(overallBudgetLimit, curr)}`
-                  : 'Tap to set cap'}
+                {expenseSwitcherProgress.subText}
               </Text>
 
               {/* Bottom Progress Line */}

@@ -31,19 +31,26 @@ export const Header: React.FC<HeaderProps> = ({
           </View>
           <View>
             <Text style={[styles.title, { color: theme.onSurface }]}>just budget</Text>
-            {currentCycle && (
+            {currentCycle ? (
               <TouchableOpacity onPress={openCycleModal} activeOpacity={0.7} style={styles.subtitleTouch}>
                 <Text style={[styles.subtitle, { color: theme.onSurfaceVariant }]}>
                   {cycleDisplayRange}
                 </Text>
                 <MaterialCommunityIcons name="chevron-down" size={14} color={theme.onSurfaceVariant} style={{ marginTop: 1, marginLeft: 2 }} />
               </TouchableOpacity>
+            ) : (
+              <TouchableOpacity onPress={openCycleModal} activeOpacity={0.7} style={styles.subtitleTouch}>
+                <Text style={[styles.subtitle, { color: theme.primary, fontWeight: '700' }]}>
+                  + Set Budget Cycle
+                </Text>
+                <MaterialCommunityIcons name="chevron-down" size={14} color={theme.primary} style={{ marginTop: 1, marginLeft: 2 }} />
+              </TouchableOpacity>
             )}
           </View>
         </View>
 
-        {/* Remaining Days in Cycle Badge */}
-        {currentCycle && (
+        {/* Remaining Days in Cycle Badge OR Invite to Create Cycle */}
+        {currentCycle ? (
           <TouchableOpacity
             style={[
               styles.daysBadge,
@@ -69,6 +76,34 @@ export const Header: React.FC<HeaderProps> = ({
               numberOfLines={1}
             >
               {dailyAllowanceStats.daysRemaining} {dailyAllowanceStats.daysRemaining === 1 ? 'day left' : 'days left'}
+            </Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={[
+              styles.daysBadge,
+              {
+                backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.2)' : theme.primaryContainer,
+                borderColor: theme.primary,
+              },
+            ]}
+            onPress={openCycleModal}
+            activeOpacity={0.7}
+          >
+            <MaterialCommunityIcons
+              name="calendar-plus"
+              size={13}
+              color={isDarkMode ? '#A5B4FC' : theme.primary}
+              style={{ marginRight: 4 }}
+            />
+            <Text
+              style={[
+                styles.daysBadgeText,
+                { color: isDarkMode ? '#E0E7FF' : theme.onPrimaryContainer },
+              ]}
+              numberOfLines={1}
+            >
+              Set Cycle
             </Text>
           </TouchableOpacity>
         )}

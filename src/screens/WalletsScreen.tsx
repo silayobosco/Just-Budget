@@ -174,73 +174,93 @@ export const WalletsScreen: React.FC = () => {
         {/* WALLETS LIST */}
         <Text style={[styles.sectionTitle, { color: theme.onSurface }]}>My Wallets & Accounts</Text>
 
-        {wallets.map((w) => {
-          return (
-            <View
-              key={w.id}
-              style={[styles.walletCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}
-            >
-              <View style={styles.walletCardTop}>
-                <View style={[styles.walletIconCircle, { backgroundColor: w.color }]}>
-                  <MaterialCommunityIcons name={w.icon as any} size={22} color="#FFFFFF" />
-                </View>
-
-                <View style={styles.walletDetails}>
-                  <Text style={[styles.walletName, { color: theme.onSurface }]}>{w.name}</Text>
-                  <Text style={[styles.walletCurrencyBadge, { color: theme.onSurfaceVariant }]}>
-                    {settings.base_currency} Account
-                  </Text>
-                </View>
-
-                <View style={styles.cardActions}>
-                  <TouchableOpacity
-                    style={[styles.cardActionIcon, { backgroundColor: theme.pillBg }]}
-                    onPress={() => handleOpenTransfer(w.id)}
-                  >
-                    <MaterialCommunityIcons name="swap-horizontal" size={16} color={theme.primary} />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.cardActionIcon, { backgroundColor: theme.pillBg }]}
-                    onPress={() => handleOpenEditWallet(w)}
-                  >
-                    <MaterialCommunityIcons name="pencil-outline" size={16} color={theme.onSurface} />
-                  </TouchableOpacity>
-                  {wallets.length > 1 && (
-                    <TouchableOpacity
-                      style={[styles.cardActionIcon, { backgroundColor: theme.errorContainer }]}
-                      onPress={() => deleteWallet(w.id)}
-                    >
-                      <MaterialCommunityIcons name="trash-can-outline" size={16} color={theme.onErrorContainer} />
-                    </TouchableOpacity>
-                  )}
-                </View>
-              </View>
-
-              <View style={[styles.dividerLine, { backgroundColor: theme.divider }]} />
-
-              <View style={styles.balanceGrid}>
-                <View style={styles.balCol}>
-                  <Text style={[styles.balLabel, { color: theme.onSurfaceVariant }]}>STARTING</Text>
-                  <Text style={[styles.balValue, { color: theme.onSurfaceVariant }]}>
-                    {formatCurrency(w.starting_balance, w.currency)}
-                  </Text>
-                </View>
-
-                <View style={styles.balCol}>
-                  <Text style={[styles.balLabel, { color: theme.primary }]}>REMAINING BALANCE</Text>
-                  <Text
-                    style={[
-                      styles.balCurrent,
-                      { color: w.current_balance < 0 ? theme.error : theme.onSurface },
-                    ]}
-                  >
-                    {formatCurrency(w.current_balance, settings.base_currency)}
-                  </Text>
-                </View>
-              </View>
+        {wallets.length === 0 ? (
+          <View style={[styles.emptyWalletCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
+            <View style={[styles.emptyWalletIconCircle, { backgroundColor: theme.primaryContainer }]}>
+              <MaterialCommunityIcons name="wallet-plus" size={32} color={theme.primary} />
             </View>
-          );
-        })}
+            <Text style={[styles.emptyWalletTitle, { color: theme.onSurface }]}>No Wallets Registered Yet</Text>
+            <Text style={[styles.emptyWalletSub, { color: theme.onSurfaceVariant }]}>
+              Register your first wallet (like Cash, Bank Account, or Mobile Money) to start tracking balances and recording transactions.
+            </Text>
+            <TouchableOpacity
+              style={[styles.emptyAddBtn, { backgroundColor: theme.primary }]}
+              onPress={handleOpenAddWallet}
+              activeOpacity={0.8}
+            >
+              <MaterialCommunityIcons name="plus" size={18} color={theme.onPrimary} />
+              <Text style={[styles.emptyAddBtnText, { color: theme.onPrimary }]}>Register Your First Wallet</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          wallets.map((w) => {
+            return (
+              <View
+                key={w.id}
+                style={[styles.walletCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}
+              >
+                <View style={styles.walletCardTop}>
+                  <View style={[styles.walletIconCircle, { backgroundColor: w.color }]}>
+                    <MaterialCommunityIcons name={w.icon as any} size={22} color="#FFFFFF" />
+                  </View>
+
+                  <View style={styles.walletDetails}>
+                    <Text style={[styles.walletName, { color: theme.onSurface }]}>{w.name}</Text>
+                    <Text style={[styles.walletCurrencyBadge, { color: theme.onSurfaceVariant }]}>
+                      {settings.base_currency} Account
+                    </Text>
+                  </View>
+
+                  <View style={styles.cardActions}>
+                    <TouchableOpacity
+                      style={[styles.cardActionIcon, { backgroundColor: theme.pillBg }]}
+                      onPress={() => handleOpenTransfer(w.id)}
+                    >
+                      <MaterialCommunityIcons name="swap-horizontal" size={16} color={theme.primary} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.cardActionIcon, { backgroundColor: theme.pillBg }]}
+                      onPress={() => handleOpenEditWallet(w)}
+                    >
+                      <MaterialCommunityIcons name="pencil-outline" size={16} color={theme.onSurface} />
+                    </TouchableOpacity>
+                    {wallets.length > 1 && (
+                      <TouchableOpacity
+                        style={[styles.cardActionIcon, { backgroundColor: theme.errorContainer }]}
+                        onPress={() => deleteWallet(w.id)}
+                      >
+                        <MaterialCommunityIcons name="trash-can-outline" size={16} color={theme.onErrorContainer} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+
+                <View style={[styles.dividerLine, { backgroundColor: theme.divider }]} />
+
+                <View style={styles.balanceGrid}>
+                  <View style={styles.balCol}>
+                    <Text style={[styles.balLabel, { color: theme.onSurfaceVariant }]}>STARTING</Text>
+                    <Text style={[styles.balValue, { color: theme.onSurfaceVariant }]}>
+                      {formatCurrency(w.starting_balance, w.currency)}
+                    </Text>
+                  </View>
+
+                  <View style={styles.balCol}>
+                    <Text style={[styles.balLabel, { color: theme.primary }]}>REMAINING BALANCE</Text>
+                    <Text
+                      style={[
+                        styles.balCurrent,
+                        { color: w.current_balance < 0 ? theme.error : theme.onSurface },
+                      ]}
+                    >
+                      {formatCurrency(w.current_balance, settings.base_currency)}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            );
+          })
+        )}
       </ScrollView>
 
       {/* ADD / EDIT WALLET MODAL */}
@@ -706,6 +726,47 @@ const styles = StyleSheet.create({
     borderRadius: M3Shape.full,
   },
   btnText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  emptyWalletCard: {
+    borderWidth: 1,
+    borderRadius: M3Shape.extraLarge,
+    padding: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 12,
+    gap: 10,
+  },
+  emptyWalletIconCircle: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  emptyWalletTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  emptyWalletSub: {
+    fontSize: 12,
+    textAlign: 'center',
+    lineHeight: 17,
+    paddingHorizontal: 12,
+  },
+  emptyAddBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 20,
+    paddingVertical: 11,
+    borderRadius: M3Shape.full,
+    marginTop: 6,
+  },
+  emptyAddBtnText: {
     fontSize: 13,
     fontWeight: '700',
   },

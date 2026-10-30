@@ -149,7 +149,7 @@ export const CalendarScreen: React.FC = () => {
                 <MaterialCommunityIcons name="pencil-outline" size={14} color={theme.onSurfaceVariant} />
               </View>
               <Text style={[styles.cycleRange, { color: theme.onSurfaceVariant }]}>
-                {currentCycle?.start_date} ➔ {currentCycle?.end_date}
+                {currentCycle?.start_date ? `${currentCycle.start_date} ➔ ${currentCycle.end_date}` : 'Tap to set up budget cycle'}
               </Text>
             </TouchableOpacity>
 
