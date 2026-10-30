@@ -37,6 +37,10 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
     overallBudgetSpent,
     allocatedCategoriesBudget,
     unallocatedBudgetRemainder,
+    incomeGoal,
+    incomeInCycle,
+    allocatedCategoriesIncome,
+    unallocatedIncomeRemainder,
     settings,
   } = useBudget();
 
@@ -152,13 +156,12 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
         color: newCatColor,
       });
 
-      if (filterType === 'expense') {
-        await setBudgetLimit({
-          scope: 'category',
-          category_id: editingCategory.id,
-          amount: limitVal,
-        });
-      }
+      await setBudgetLimit({
+        scope: 'category',
+        category_id: editingCategory.id,
+        amount: limitVal,
+        type: filterType,
+      });
 
       setEditingCategory(null);
     } else {
@@ -167,7 +170,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
         type: filterType,
         icon: newCatIcon,
         color: newCatColor,
-        initial_limit: filterType === 'expense' ? limitVal : undefined,
+        initial_limit: limitVal > 0 ? limitVal : undefined,
       });
 
       setIsAddingNew(false);
@@ -182,19 +185,19 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
 
     const subLimitVal = parseFloat(newSubLimitStr.replace(/,/g, '').trim()) || 0;
 
-    // Check if parent category has a limit and subcategory limit exceeds it
-    if (filterType === 'expense' && subLimitVal > 0) {
+    // Check if parent category has a limit/target and subcategory exceeds it
+    if (subLimitVal > 0) {
       const catProgress = categoryBudgetProgressList.find((c) => c.id === catId);
       if (catProgress && catProgress.limit > 0 && subLimitVal > catProgress.limit) {
         Alert.alert(
-          'Limit Exceeded',
-          `Subcategory limit cannot exceed the parent category budget of ${formatCurrency(catProgress.limit, curr)}.`
+          filterType === 'expense' ? 'Limit Exceeded' : 'Target Exceeded',
+          `Subcategory ${filterType === 'expense' ? 'limit' : 'target'} cannot exceed parent category of ${formatCurrency(catProgress.limit, curr)}.`
         );
         return;
       }
     }
 
-    await addSubcategory(catId, newSubName.trim(), filterType === 'expense' ? subLimitVal : undefined);
+    await addSubcategory(catId, newSubName.trim(), subLimitVal > 0 ? subLimitVal : undefined);
     setNewSubName('');
     setNewSubLimitStr('');
     setActiveSubInputCatId(null);
@@ -283,8 +286,12 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
     setEditLimitScope('overall');
     setEditLimitTargetId('overall');
     setEditLimitParentCatId('');
-    setEditLimitTargetName('Overall Target Budget');
-    setEditLimitAmountStr(overallBudgetLimit > 0 ? overallBudgetLimit.toString() : '');
+    setEditLimitTargetName(filterType === 'expense' ? 'Overall Monthly Spending Budget' : 'Overall Monthly Income Target');
+    setEditLimitAmountStr(
+      filterType === 'expense'
+        ? (overallBudgetLimit > 0 ? overallBudgetLimit.toString() : '')
+        : (incomeGoal > 0 ? incomeGoal.toString() : '')
+    );
     setEditLimitMaxAllowed(null);
     setEditLimitVisible(true);
   };
@@ -305,22 +312,23 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
       amount > editLimitMaxAllowed
     ) {
       Alert.alert(
-        'Subcategory Limit Exceeded',
-        `A subcategory limit cannot exceed its category limit of ${formatCurrency(editLimitMaxAllowed, curr)}.`
+        filterType === 'expense' ? 'Subcategory Limit Exceeded' : 'Subcategory Target Exceeded',
+        `A subcategory ${filterType === 'expense' ? 'limit' : 'target'} cannot exceed parent of ${formatCurrency(editLimitMaxAllowed, curr)}.`
       );
       return;
     }
 
     if (editLimitScope === 'overall') {
-      await setBudgetLimit({ scope: 'overall', amount });
+      await setBudgetLimit({ scope: 'overall', amount, type: filterType });
     } else if (editLimitScope === 'category') {
-      await setBudgetLimit({ scope: 'category', category_id: editLimitTargetId, amount });
+      await setBudgetLimit({ scope: 'category', category_id: editLimitTargetId, amount, type: filterType });
     } else if (editLimitScope === 'subcategory') {
       await setBudgetLimit({
         scope: 'subcategory',
         category_id: editLimitParentCatId,
         subcategory_id: editLimitTargetId,
         amount,
+        type: filterType,
       });
     }
 
@@ -329,15 +337,16 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
 
   const handleClearInlineLimit = async () => {
     if (editLimitScope === 'overall') {
-      await setBudgetLimit({ scope: 'overall', amount: 0 });
+      await setBudgetLimit({ scope: 'overall', amount: 0, type: filterType });
     } else if (editLimitScope === 'category') {
-      await setBudgetLimit({ scope: 'category', category_id: editLimitTargetId, amount: 0 });
+      await setBudgetLimit({ scope: 'category', category_id: editLimitTargetId, amount: 0, type: filterType });
     } else if (editLimitScope === 'subcategory') {
       await setBudgetLimit({
         scope: 'subcategory',
         category_id: editLimitParentCatId,
         subcategory_id: editLimitTargetId,
         amount: 0,
+        type: filterType,
       });
     }
 
@@ -399,36 +408,38 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
             </TouchableOpacity>
           </View>
 
-          {/* Context Banner: Overall Budget & Envelope Remainder for Expenses */}
-          {filterType === 'expense' && (
-            <View
-              style={[
-                styles.overviewBanner,
-                allocatedCategoriesBudget > overallBudgetLimit && overallBudgetLimit > 0
-                  ? { backgroundColor: '#FEF2F2', borderColor: '#FCA5A5' }
-                  : { backgroundColor: theme.cardBg, borderColor: theme.divider },
-                M3Elevation.level1,
-              ]}
-            >
-              <View style={styles.overviewTopRow}>
-                <View>
-                  <Text style={[styles.overviewLabel, { color: theme.onSurfaceVariant }]}>
-                    OVERALL SPENDING BUDGET
-                  </Text>
-                  <Text style={[styles.overviewAmount, { color: theme.primary }]}>
-                    {overallBudgetLimit > 0 ? formatCurrency(overallBudgetLimit, curr) : 'No limit set'}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={[styles.editOverallBtn, { backgroundColor: theme.primaryContainer }]}
-                  onPress={openEditOverallLimit}
-                >
-                  <MaterialCommunityIcons name="pencil-outline" size={14} color={theme.onPrimaryContainer} />
-                  <Text style={[styles.editOverallBtnText, { color: theme.onPrimaryContainer }]}>Edit</Text>
-                </TouchableOpacity>
+          {/* Context Banner: Overall Budget & Envelope Remainder for Expenses OR Income Target for Income */}
+          <View
+            style={[
+              styles.overviewBanner,
+              filterType === 'expense' && allocatedCategoriesBudget > overallBudgetLimit && overallBudgetLimit > 0
+                ? { backgroundColor: '#FEF2F2', borderColor: '#FCA5A5' }
+                : { backgroundColor: theme.cardBg, borderColor: theme.divider },
+              M3Elevation.level1,
+            ]}
+          >
+            <View style={styles.overviewTopRow}>
+              <View>
+                <Text style={[styles.overviewLabel, { color: theme.onSurfaceVariant }]}>
+                  {filterType === 'expense' ? 'OVERALL SPENDING BUDGET' : 'OVERALL INCOME TARGET'}
+                </Text>
+                <Text style={[styles.overviewAmount, { color: filterType === 'expense' ? theme.primary : theme.success }]}>
+                  {filterType === 'expense'
+                    ? (overallBudgetLimit > 0 ? formatCurrency(overallBudgetLimit, curr) : 'No limit set')
+                    : (incomeGoal > 0 ? formatCurrency(incomeGoal, curr) : 'No target set')}
+                </Text>
               </View>
+              <TouchableOpacity
+                style={[styles.editOverallBtn, { backgroundColor: theme.primaryContainer }]}
+                onPress={openEditOverallLimit}
+              >
+                <MaterialCommunityIcons name="pencil-outline" size={14} color={theme.onPrimaryContainer} />
+                <Text style={[styles.editOverallBtnText, { color: theme.onPrimaryContainer }]}>Edit</Text>
+              </TouchableOpacity>
+            </View>
 
-              {overallBudgetLimit > 0 && (
+            {filterType === 'expense' ? (
+              overallBudgetLimit > 0 && (
                 <View style={[styles.overviewProgressBg, { backgroundColor: theme.surfaceVariant }]}>
                   <View
                     style={[
@@ -445,12 +456,31 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
                     ]}
                   />
                 </View>
-              )}
+              )
+            ) : (
+              incomeGoal > 0 && (
+                <View style={[styles.overviewProgressBg, { backgroundColor: theme.surfaceVariant }]}>
+                  <View
+                    style={[
+                      styles.overviewProgressFill,
+                      {
+                        width: `${Math.min(100, Math.round((incomeInCycle / incomeGoal) * 100))}%`,
+                        backgroundColor: incomeInCycle >= incomeGoal ? theme.success : theme.primary,
+                      },
+                    ]}
+                  />
+                </View>
+              )
+            )}
 
-              <View style={styles.overviewStatsRow}>
-                <Text style={[styles.overviewStatText, { color: theme.onSurfaceVariant }]}>
-                  Envelopes: <Text style={{ fontWeight: '700' }}>{formatCurrency(allocatedCategoriesBudget, curr)}</Text>
+            <View style={styles.overviewStatsRow}>
+              <Text style={[styles.overviewStatText, { color: theme.onSurfaceVariant }]}>
+                {filterType === 'expense' ? 'Envelopes: ' : 'Allocated: '}
+                <Text style={{ fontWeight: '700' }}>
+                  {formatCurrency(filterType === 'expense' ? allocatedCategoriesBudget : allocatedCategoriesIncome, curr)}
                 </Text>
+              </Text>
+              {filterType === 'expense' ? (
                 <Text
                   style={[
                     styles.overviewStatText,
@@ -467,9 +497,14 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
                     ? `Over-allocated by ${formatCurrency(allocatedCategoriesBudget - overallBudgetLimit, curr)}`
                     : `Unallocated: ${formatCurrency(unallocatedBudgetRemainder, curr)}`}
                 </Text>
-              </View>
+              ) : (
+                <Text style={[styles.overviewStatText, { color: theme.onSurfaceVariant }]}>
+                  Earned: <Text style={{ fontWeight: '700', color: theme.success }}>{formatCurrency(incomeInCycle, curr)}</Text>
+                  {incomeGoal > 0 ? ` (${Math.round((incomeInCycle / incomeGoal) * 100)}%)` : ''}
+                </Text>
+              )}
             </View>
-          )}
+          </View>
 
           {/* Add / Edit Category Form */}
           {(isAddingNew || editingCategory) && (
@@ -486,30 +521,38 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
                 onChangeText={setNewCatName}
               />
 
-              {/* Monthly Budget Limit Input (for Expenses) */}
-              {filterType === 'expense' && (
-                <View style={styles.limitFormSection}>
-                  <View style={styles.limitLabelRow}>
-                    <Text style={[styles.label, { color: theme.onSurfaceVariant }]}>Monthly Spending Limit</Text>
-                    {unallocatedBudgetRemainder > 0 && (
+              {/* Monthly Budget Limit / Target Input */}
+              <View style={styles.limitFormSection}>
+                <View style={styles.limitLabelRow}>
+                  <Text style={[styles.label, { color: theme.onSurfaceVariant }]}>
+                    {filterType === 'expense' ? 'Monthly Spending Limit' : 'Monthly Income Target'}
+                  </Text>
+                  {filterType === 'expense' ? (
+                    unallocatedBudgetRemainder > 0 && (
                       <Text style={[styles.unallocatedHint, { color: theme.primary }]}>
                         ({formatCurrency(unallocatedBudgetRemainder, curr)} unallocated)
                       </Text>
-                    )}
-                  </View>
-                  <View style={[styles.limitInputWrap, { backgroundColor: theme.pillBg }]}>
-                    <Text style={[styles.limitInputPrefix, { color: theme.onSurfaceVariant }]}>{curr}</Text>
-                    <TextInput
-                      style={[styles.limitInput, { color: theme.onSurface }]}
-                      placeholder="0.00 (optional limit)"
-                      placeholderTextColor={theme.outline}
-                      keyboardType="numeric"
-                      value={newCatLimitStr}
-                      onChangeText={setNewCatLimitStr}
-                    />
-                  </View>
+                    )
+                  ) : (
+                    unallocatedIncomeRemainder > 0 && (
+                      <Text style={[styles.unallocatedHint, { color: theme.primary }]}>
+                        ({formatCurrency(unallocatedIncomeRemainder, curr)} unallocated)
+                      </Text>
+                    )
+                  )}
                 </View>
-              )}
+                <View style={[styles.limitInputWrap, { backgroundColor: theme.pillBg }]}>
+                  <Text style={[styles.limitInputPrefix, { color: theme.onSurfaceVariant }]}>{curr}</Text>
+                  <TextInput
+                    style={[styles.limitInput, { color: theme.onSurface }]}
+                    placeholder={filterType === 'expense' ? '0.00 (optional limit)' : '0.00 (optional target)'}
+                    placeholderTextColor={theme.outline}
+                    keyboardType="numeric"
+                    value={newCatLimitStr}
+                    onChangeText={setNewCatLimitStr}
+                  />
+                </View>
+              </View>
 
               {/* Color Palette */}
               <Text style={[styles.label, { color: theme.onSurfaceVariant }]}>Color</Text>
@@ -593,17 +636,27 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
               const isAddingSubHere = activeSubInputCatId === cat.id;
 
               let statusColor = theme.onSurfaceVariant;
-              let statusText = 'No limit';
+              let statusText = filterType === 'expense' ? 'No limit' : 'No target';
               if (hasLimit) {
-                if (catProgress.isOverBudget) {
-                  statusColor = theme.error;
-                  statusText = `Over by ${formatCurrency(catProgress.spent - catProgress.limit, curr)}`;
-                } else if (catProgress.isNearLimit) {
-                  statusColor = '#D97706';
-                  statusText = `${Math.round(catProgress.percent)}% used`;
+                if (filterType === 'expense') {
+                  if (catProgress.isOverBudget) {
+                    statusColor = theme.error;
+                    statusText = `Over by ${formatCurrency(catProgress.spent - catProgress.limit, curr)}`;
+                  } else if (catProgress.isNearLimit) {
+                    statusColor = '#D97706';
+                    statusText = `${Math.round(catProgress.percent)}% used`;
+                  } else {
+                    statusColor = theme.success;
+                    statusText = `${formatCurrency(catProgress.remaining, curr)} left`;
+                  }
                 } else {
-                  statusColor = theme.success;
-                  statusText = `${formatCurrency(catProgress.remaining, curr)} left`;
+                  if (catProgress.spent >= catProgress.limit) {
+                    statusColor = theme.success;
+                    statusText = 'Target reached! 🎉';
+                  } else {
+                    statusColor = theme.primary;
+                    statusText = `${formatCurrency(catProgress.remaining, curr)} to go (${Math.round(catProgress.percent)}%)`;
+                  }
                 }
               }
 
@@ -621,37 +674,35 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
                     <View style={styles.catDetails}>
                       <View style={styles.catNameRow}>
                         <Text style={[styles.catName, { color: theme.onSurface }]}>{cat.name}</Text>
-                        {filterType === 'expense' && (
-                          <Text style={[styles.catStatusText, { color: statusColor }]}>{statusText}</Text>
-                        )}
+                        <Text style={[styles.catStatusText, { color: statusColor }]}>{statusText}</Text>
                       </View>
 
-                      {filterType === 'expense' ? (
-                        <View style={styles.budgetRow}>
-                          <Text style={[styles.catSpentText, { color: theme.onSurfaceVariant }]}>
-                            Spent: {formatCurrency(catProgress?.spent || 0, curr)}
-                            {hasLimit ? ` / ${formatCurrency(catProgress.limit, curr)}` : ''}
-                          </Text>
-                        </View>
-                      ) : (
-                        <Text style={[styles.catSubCount, { color: theme.onSurfaceVariant }]}>
-                          {cat.subcategories?.length || 0} subcategories
+                      <View style={styles.budgetRow}>
+                        <Text style={[styles.catSpentText, { color: theme.onSurfaceVariant }]}>
+                          {filterType === 'expense' ? 'Spent: ' : 'Earned: '}
+                          {formatCurrency(catProgress?.spent || 0, curr)}
+                          {hasLimit ? ` / ${formatCurrency(catProgress.limit, curr)}` : ''}
                         </Text>
-                      )}
+                      </View>
 
-                      {/* Category Budget Progress Bar */}
-                      {filterType === 'expense' && hasLimit && (
+                      {/* Category Budget / Target Progress Bar */}
+                      {hasLimit && (
                         <View style={[styles.catProgressBg, { backgroundColor: theme.surfaceVariant }]}>
                           <View
                             style={[
                               styles.catProgressFill,
                               {
                                 width: `${Math.min(100, Math.round(catProgress.percent))}%`,
-                                backgroundColor: catProgress.isOverBudget
-                                  ? theme.error
-                                  : catProgress.isNearLimit
-                                  ? '#D97706'
-                                  : cat.color,
+                                backgroundColor:
+                                  filterType === 'expense'
+                                    ? (catProgress.isOverBudget
+                                      ? theme.error
+                                      : catProgress.isNearLimit
+                                      ? '#D97706'
+                                      : cat.color)
+                                    : (catProgress.spent >= catProgress.limit
+                                      ? theme.success
+                                      : cat.color),
                               },
                             ]}
                           />
@@ -714,37 +765,49 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
                             <View style={styles.subMainInfo}>
                               <View style={styles.subTitleRow}>
                                 <Text style={[styles.subItemName, { color: theme.onSurface }]}>{sub.name}</Text>
-                                {filterType === 'expense' && subHasLimit && (
+                                {subHasLimit && (
                                   <Text
                                     style={[
                                       styles.subLimitBadgeText,
-                                      { color: subProgress.isOverBudget ? theme.error : theme.primary },
+                                      {
+                                        color:
+                                          filterType === 'expense'
+                                            ? (subProgress.isOverBudget ? theme.error : theme.primary)
+                                            : (subProgress.spent >= subProgress.limit ? theme.success : theme.primary),
+                                      },
                                     ]}
                                   >
-                                    Limit: {formatCurrency(subProgress.limit, curr)}
+                                    {filterType === 'expense' ? 'Limit: ' : 'Target: '}
+                                    {formatCurrency(subProgress.limit, curr)}
                                   </Text>
                                 )}
                               </View>
 
-                              {filterType === 'expense' && (
-                                <Text style={[styles.subSpentText, { color: theme.onSurfaceVariant }]}>
-                                  Spent: {formatCurrency(subProgress?.spent || 0, curr)}
-                                  {subHasLimit ? ` (${Math.round(subProgress.percent)}%)` : ' • No limit'}
-                                </Text>
-                              )}
+                              <Text style={[styles.subSpentText, { color: theme.onSurfaceVariant }]}>
+                                {filterType === 'expense' ? 'Spent: ' : 'Earned: '}
+                                {formatCurrency(subProgress?.spent || 0, curr)}
+                                {subHasLimit
+                                  ? ` (${Math.round(subProgress.percent)}%)`
+                                  : (filterType === 'expense' ? ' • No limit' : ' • No target')}
+                              </Text>
 
-                              {filterType === 'expense' && subHasLimit && (
+                              {subHasLimit && (
                                 <View style={[styles.subProgressBg, { backgroundColor: theme.surfaceVariant }]}>
                                   <View
                                     style={[
                                       styles.subProgressFill,
                                       {
                                         width: `${Math.min(100, Math.round(subProgress.percent))}%`,
-                                        backgroundColor: subProgress.isOverBudget
-                                          ? theme.error
-                                          : subProgress.isNearLimit
-                                          ? '#D97706'
-                                          : theme.primary,
+                                        backgroundColor:
+                                          filterType === 'expense'
+                                            ? (subProgress.isOverBudget
+                                              ? theme.error
+                                              : subProgress.isNearLimit
+                                              ? '#D97706'
+                                              : theme.primary)
+                                            : (subProgress.spent >= subProgress.limit
+                                              ? theme.success
+                                              : theme.primary),
                                       },
                                     ]}
                                   />
@@ -777,19 +840,17 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
                             onChangeText={setNewSubName}
                             autoFocus
                           />
-                          {filterType === 'expense' && (
-                            <View style={[styles.addSubLimitInputWrap, { backgroundColor: theme.pillBg }]}>
-                              <Text style={[styles.limitInputPrefix, { color: theme.onSurfaceVariant }]}>{curr}</Text>
-                              <TextInput
-                                style={[styles.addSubInput, { color: theme.onSurface }]}
-                                placeholder="Optional limit (e.g. 200)"
-                                placeholderTextColor={theme.outline}
-                                keyboardType="numeric"
-                                value={newSubLimitStr}
-                                onChangeText={setNewSubLimitStr}
-                              />
-                            </View>
-                          )}
+                          <View style={[styles.addSubLimitInputWrap, { backgroundColor: theme.pillBg }]}>
+                            <Text style={[styles.limitInputPrefix, { color: theme.onSurfaceVariant }]}>{curr}</Text>
+                            <TextInput
+                              style={[styles.addSubInput, { color: theme.onSurface }]}
+                              placeholder={filterType === 'expense' ? 'Optional limit (e.g. 200)' : 'Optional target (e.g. 500)'}
+                              placeholderTextColor={theme.outline}
+                              keyboardType="numeric"
+                              value={newSubLimitStr}
+                              onChangeText={setNewSubLimitStr}
+                            />
+                          </View>
                           <View style={styles.addSubBoxActions}>
                             <TouchableOpacity
                               style={[styles.addSubCancelBtn, { backgroundColor: theme.pillBg }]}
@@ -870,14 +931,18 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
                     style={[styles.dialogClearBtn, { backgroundColor: theme.pillBg }]}
                     onPress={handleClearInlineLimit}
                   >
-                    <Text style={[styles.dialogClearBtnText, { color: theme.error }]}>Remove Limit</Text>
+                    <Text style={[styles.dialogClearBtnText, { color: theme.error }]}>
+                      {filterType === 'expense' ? 'Remove Limit' : 'Remove Target'}
+                    </Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
                     style={[styles.dialogSaveBtn, { backgroundColor: theme.primary }]}
                     onPress={handleSaveInlineLimit}
                   >
-                    <Text style={[styles.dialogSaveBtnText, { color: theme.onPrimary }]}>Save Limit</Text>
+                    <Text style={[styles.dialogSaveBtnText, { color: theme.onPrimary }]}>
+                      {filterType === 'expense' ? 'Save Limit' : 'Save Target'}
+                    </Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -919,32 +984,29 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
                   onChangeText={setEditSubName}
                 />
 
-                {/* Monthly Spending Limit (for expense categories) */}
-                {filterType === 'expense' && (
-                  <>
-                    <View style={styles.dialogLimitLabelRow}>
-                      <Text style={[styles.dialogFieldLabel, { color: theme.onSurfaceVariant }]}>
-                        MONTHLY LIMIT (OPTIONAL)
-                      </Text>
-                      {parentCatLimit > 0 && (
-                        <Text style={[styles.dialogSubHint, { color: theme.primary }]}>
-                          Parent limit: {formatCurrency(parentCatLimit, curr)}
-                        </Text>
-                      )}
-                    </View>
-                    <View style={[styles.dialogInputWrap, { backgroundColor: theme.pillBg, borderColor: theme.divider }]}>
-                      <Text style={[styles.inputPrefix, { color: theme.onSurfaceVariant }]}>{curr}</Text>
-                      <TextInput
-                        style={[styles.dialogInput, { color: theme.onSurface }]}
-                        placeholder="0.00"
-                        placeholderTextColor={theme.outline}
-                        keyboardType="numeric"
-                        value={editSubLimitStr}
-                        onChangeText={setEditSubLimitStr}
-                      />
-                    </View>
-                  </>
-                )}
+                {/* Monthly Spending Limit / Target */}
+                <View style={styles.dialogLimitLabelRow}>
+                  <Text style={[styles.dialogFieldLabel, { color: theme.onSurfaceVariant }]}>
+                    {filterType === 'expense' ? 'MONTHLY LIMIT (OPTIONAL)' : 'MONTHLY TARGET (OPTIONAL)'}
+                  </Text>
+                  {parentCatLimit > 0 && (
+                    <Text style={[styles.dialogSubHint, { color: theme.primary }]}>
+                      {filterType === 'expense' ? 'Parent limit: ' : 'Parent target: '}
+                      {formatCurrency(parentCatLimit, curr)}
+                    </Text>
+                  )}
+                </View>
+                <View style={[styles.dialogInputWrap, { backgroundColor: theme.pillBg, borderColor: theme.divider }]}>
+                  <Text style={[styles.inputPrefix, { color: theme.onSurfaceVariant }]}>{curr}</Text>
+                  <TextInput
+                    style={[styles.dialogInput, { color: theme.onSurface }]}
+                    placeholder={filterType === 'expense' ? '0.00 (limit)' : '0.00 (target)'}
+                    placeholderTextColor={theme.outline}
+                    keyboardType="numeric"
+                    value={editSubLimitStr}
+                    onChangeText={setEditSubLimitStr}
+                  />
+                </View>
 
                 {/* Dialog Actions: Delete on left, Cancel & Save on right */}
                 <View style={styles.dialogActions}>

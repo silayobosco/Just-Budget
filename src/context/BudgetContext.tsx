@@ -45,6 +45,8 @@ interface BudgetContextType {
   incomeGoalRemaining: number;
   allocatedCategoriesBudget: number;
   unallocatedBudgetRemainder: number;
+  allocatedCategoriesIncome: number;
+  unallocatedIncomeRemainder: number;
   categoryBudgetProgressList: BudgetProgress[];
 
   // Actions
@@ -113,6 +115,7 @@ interface BudgetContextType {
     subcategory_id?: string;
     amount: number;
     period?: string;
+    type?: 'expense' | 'income';
   }) => Promise<void>;
   deleteBudgetLimit: (id: string) => Promise<void>;
   updateSettings: (newSettings: Partial<AppSettings>) => Promise<void>;
@@ -357,13 +360,12 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return new Date().toISOString().slice(0, 7);
   }, [currentCycle]);
 
-  // Compute Category and Subcategory budget progress list
+  // Compute Category and Subcategory budget progress list for both expenses & income
   const categoryBudgetProgressList = useMemo<BudgetProgress[]>(() => {
-    // Expense categories only
-    const expenseCategories = categories.filter((c) => c.type === 'expense');
+    return categories.map((cat) => {
+      const isExpense = cat.type === 'expense';
 
-    return expenseCategories.map((cat) => {
-      // Find category budget limit
+      // Find category budget limit / target
       const catBudget = budgets.find(
         (b) =>
           b.scope === 'category' &&
@@ -372,15 +374,15 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       );
       const limit = catBudget ? catBudget.amount : 0;
 
-      // Spent across all wallets in current cycle
+      // Spent / Earned across all wallets in current cycle
       const spent = cycleTransactions
-        .filter((t) => t.type === 'expense' && t.category_id === cat.id)
+        .filter((t) => t.type === cat.type && t.category_id === cat.id)
         .reduce((sum, t) => sum + t.base_amount, 0);
 
-      const remaining = limit > 0 ? limit - spent : 0;
+      const remaining = limit > 0 ? (isExpense ? limit - spent : Math.max(0, limit - spent)) : 0;
       const percent = limit > 0 ? (spent / limit) * 100 : 0;
-      const isOverBudget = limit > 0 && spent > limit;
-      const isNearLimit = limit > 0 && percent >= 80 && !isOverBudget;
+      const isOverBudget = isExpense ? (limit > 0 && spent > limit) : (limit > 0 && spent >= limit);
+      const isNearLimit = isExpense ? (limit > 0 && percent >= 80 && !isOverBudget) : (limit > 0 && percent >= 80 && !isOverBudget);
 
       // Subcategories
       const subBudgets: BudgetProgress[] = (cat.subcategories || []).map((sub) => {
@@ -392,13 +394,13 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         );
         const subLimit = subBudget ? subBudget.amount : 0;
         const subSpent = cycleTransactions
-          .filter((t) => t.type === 'expense' && t.category_id === cat.id && t.subcategory_id === sub.id)
+          .filter((t) => t.type === cat.type && t.category_id === cat.id && t.subcategory_id === sub.id)
           .reduce((sum, t) => sum + t.base_amount, 0);
 
-        const subRemaining = subLimit > 0 ? subLimit - subSpent : 0;
+        const subRemaining = subLimit > 0 ? (isExpense ? subLimit - subSpent : Math.max(0, subLimit - subSpent)) : 0;
         const subPercent = subLimit > 0 ? (subSpent / subLimit) * 100 : 0;
-        const subIsOver = subLimit > 0 && subSpent > subLimit;
-        const subIsNear = subLimit > 0 && subPercent >= 80 && !subIsOver;
+        const subIsOver = isExpense ? (subLimit > 0 && subSpent > subLimit) : (subLimit > 0 && subSpent >= subLimit);
+        const subIsNear = isExpense ? (subLimit > 0 && subPercent >= 80 && !subIsOver) : (subLimit > 0 && subPercent >= 80 && !subIsOver);
 
         return {
           scope: 'subcategory' as BudgetScope,
@@ -432,15 +434,35 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
   }, [categories, budgets, cycleTransactions, activeBudgetPeriod, currentCycle]);
 
-  // Total allocated to category limits
+  // Total allocated to expense category limits
   const allocatedCategoriesBudget = useMemo(() => {
-    return categoryBudgetProgressList.reduce((sum, p) => sum + p.limit, 0);
-  }, [categoryBudgetProgressList]);
+    return categoryBudgetProgressList
+      .filter((p) => {
+        const cat = categories.find((c) => c.id === p.id);
+        return cat?.type === 'expense';
+      })
+      .reduce((sum, p) => sum + p.limit, 0);
+  }, [categoryBudgetProgressList, categories]);
 
-  // Unallocated remainder
+  // Unallocated expense budget remainder
   const unallocatedBudgetRemainder = useMemo(() => {
     return Math.max(0, overallBudgetLimit - allocatedCategoriesBudget);
   }, [overallBudgetLimit, allocatedCategoriesBudget]);
+
+  // Total allocated to income category targets
+  const allocatedCategoriesIncome = useMemo(() => {
+    return categoryBudgetProgressList
+      .filter((p) => {
+        const cat = categories.find((c) => c.id === p.id);
+        return cat?.type === 'income';
+      })
+      .reduce((sum, p) => sum + p.limit, 0);
+  }, [categoryBudgetProgressList, categories]);
+
+  // Unallocated income target remainder
+  const unallocatedIncomeRemainder = useMemo(() => {
+    return Math.max(0, incomeGoal - allocatedCategoriesIncome);
+  }, [incomeGoal, allocatedCategoriesIncome]);
 
   // Actions
   const addTransaction = async (params: {
@@ -820,13 +842,18 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     subcategory_id?: string;
     amount: number;
     period?: string;
+    type?: 'expense' | 'income';
   }) => {
     const db = getDB();
     const activePeriod = params.period || activeBudgetPeriod;
 
     if (params.scope === 'overall') {
       if (currentCycle) {
-        db.runSync(`UPDATE budget_cycles SET target_budget = ? WHERE id = ?`, [params.amount, currentCycle.id]);
+        if (params.type === 'income') {
+          db.runSync(`UPDATE budget_cycles SET target_income = ? WHERE id = ?`, [params.amount, currentCycle.id]);
+        } else {
+          db.runSync(`UPDATE budget_cycles SET target_budget = ? WHERE id = ?`, [params.amount, currentCycle.id]);
+        }
       }
     }
 
@@ -933,6 +960,8 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         incomeGoalRemaining,
         allocatedCategoriesBudget,
         unallocatedBudgetRemainder,
+        allocatedCategoriesIncome,
+        unallocatedIncomeRemainder,
         categoryBudgetProgressList,
         addTransaction,
         deleteTransaction,
