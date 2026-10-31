@@ -29,6 +29,11 @@ interface TransactionDetailsModalProps {
   initialSubcategoryId?: string;
   initialDate?: string;
   initialTime?: string;
+  initialNote?: string;
+  initialMediaUri?: string | null;
+  initialIsPaid?: boolean;
+  initialCurrency?: string;
+  isEditing?: boolean;
   wallets: Wallet[];
   categories: Category[];
   theme: any;
@@ -68,6 +73,11 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   initialSubcategoryId,
   initialDate,
   initialTime,
+  initialNote,
+  initialMediaUri,
+  initialIsPaid,
+  initialCurrency,
+  isEditing,
   wallets,
   categories,
   theme,
@@ -117,8 +127,8 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       setSelectedWalletId(initialWalletId || (wallets.length > 0 ? wallets[0].id : ''));
       setSelectedCategoryId(initialCategoryId || '');
       setSelectedSubcategoryId(initialSubcategoryId || '');
-      setNote('');
-      setCurrency(baseCurrency);
+      setNote(initialNote || '');
+      setCurrency(initialCurrency || baseCurrency);
       const initD = initialDate || new Date().toISOString().slice(0, 10);
       setDateStr(initD);
       const parsedDay = parseInt(initD.slice(8, 10), 10);
@@ -127,8 +137,8 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
         initialTime ||
           `${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`
       );
-      setIsPaid(true);
-      setMediaUri(null);
+      setIsPaid(initialIsPaid !== undefined ? initialIsPaid : true);
+      setMediaUri(initialMediaUri || null);
       setRepeatEnabled(false);
       setRepeatFrequency('monthly');
       setRepeatEndType('never');
@@ -147,6 +157,10 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
     initialSubcategoryId,
     initialDate,
     initialTime,
+    initialNote,
+    initialMediaUri,
+    initialIsPaid,
+    initialCurrency,
     baseCurrency,
     wallets,
   ]);
@@ -274,7 +288,9 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
           >
             <MaterialCommunityIcons name="arrow-left" size={20} color={theme.onSurface} />
           </TouchableOpacity>
-          <Text style={[styles.topBarTitle, { color: theme.onSurface }]}>Transaction Details</Text>
+          <Text style={[styles.topBarTitle, { color: theme.onSurface }]}>
+            {isEditing ? 'Edit Transaction' : 'Transaction Details'}
+          </Text>
           <TouchableOpacity
             onPress={handleSave}
             style={[styles.topSaveBtn, { backgroundColor: accentColor }]}

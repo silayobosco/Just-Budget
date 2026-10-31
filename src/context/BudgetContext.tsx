@@ -44,6 +44,10 @@ interface BudgetContextType {
   closeCycleModal: () => void;
   analyticsFocus: 'overview' | 'expense' | 'income';
   setAnalyticsFocus: (focus: 'overview' | 'expense' | 'income') => void;
+  selectedCalendarDate: string;
+  setSelectedCalendarDate: (date: string) => void;
+  selectedTransactionIdForCalendar: string | null;
+  setSelectedTransactionIdForCalendar: (id: string | null) => void;
 
   // Computed
   totalConvertedBalance: number;
@@ -68,6 +72,21 @@ interface BudgetContextType {
 
   // Actions
   addTransaction: (params: {
+    wallet_id: string;
+    category_id?: string;
+    subcategory_id?: string;
+    type: TransactionType;
+    amount: number;
+    currency?: string;
+    date: string;
+    time?: string;
+    is_paid?: boolean;
+    media_uri?: string;
+    note?: string;
+    to_wallet_id?: string;
+  }) => Promise<void>;
+  updateTransaction: (params: {
+    id: string;
     wallet_id: string;
     category_id?: string;
     subcategory_id?: string;
@@ -158,6 +177,8 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [allCycles, setAllCycles] = useState<BudgetCycle[]>([]);
   const [isCycleModalOpen, setIsCycleModalOpen] = useState<boolean>(false);
   const [analyticsFocus, setAnalyticsFocus] = useState<'overview' | 'expense' | 'income'>('overview');
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [selectedTransactionIdForCalendar, setSelectedTransactionIdForCalendar] = useState<string | null>(null);
 
   const openCycleModal = useCallback(() => setIsCycleModalOpen(true), []);
   const closeCycleModal = useCallback(() => setIsCycleModalOpen(false), []);
@@ -634,6 +655,117 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             params.wallet_id,
           ]);
           // credit to destination wallet
+          db.runSync(`UPDATE wallets SET current_balance = current_balance + ? WHERE id = ?`, [
+            params.amount,
+            params.to_wallet_id,
+          ]);
+        }
+      }
+    });
+
+    await loadData();
+  };
+
+  const updateTransaction = async (params: {
+    id: string;
+    wallet_id: string;
+    category_id?: string;
+    subcategory_id?: string;
+    type: TransactionType;
+    amount: number;
+    currency?: string;
+    date: string;
+    time?: string;
+    is_paid?: boolean;
+    media_uri?: string;
+    note?: string;
+    to_wallet_id?: string;
+  }) => {
+    const db = getDB();
+    const tx = transactions.find((t) => t.id === params.id);
+    if (!tx) return;
+
+    const isOldPaid = tx.is_paid !== false;
+    const isNewPaid = params.is_paid !== false;
+    const newCurrency = params.currency || tx.currency || settings.base_currency;
+
+    db.withTransactionSync(() => {
+      // 1. Revert old balance effect (if old was paid)
+      if (isOldPaid) {
+        if (tx.type === 'expense') {
+          db.runSync(`UPDATE wallets SET current_balance = current_balance + ? WHERE id = ?`, [
+            tx.amount,
+            tx.wallet_id,
+          ]);
+        } else if (tx.type === 'income') {
+          db.runSync(`UPDATE wallets SET current_balance = current_balance - ? WHERE id = ?`, [
+            tx.amount,
+            tx.wallet_id,
+          ]);
+        } else if (tx.type === 'transfer' && tx.to_wallet_id) {
+          db.runSync(`UPDATE wallets SET current_balance = current_balance + ? WHERE id = ?`, [
+            tx.amount,
+            tx.wallet_id,
+          ]);
+          db.runSync(`UPDATE wallets SET current_balance = current_balance - ? WHERE id = ?`, [
+            tx.amount,
+            tx.to_wallet_id,
+          ]);
+        }
+      }
+
+      // 2. Update transaction row
+      db.runSync(
+        `UPDATE transactions SET
+           wallet_id = ?,
+           category_id = ?,
+           subcategory_id = ?,
+           type = ?,
+           amount = ?,
+           currency = ?,
+           base_amount = ?,
+           date = ?,
+           time = ?,
+           is_paid = ?,
+           media_uri = ?,
+           note = ?,
+           to_wallet_id = ?
+         WHERE id = ?`,
+        [
+          params.wallet_id,
+          params.category_id || null,
+          params.subcategory_id || null,
+          params.type,
+          params.amount,
+          newCurrency,
+          params.amount,
+          params.date,
+          params.time || null,
+          isNewPaid ? 1 : 0,
+          params.media_uri || null,
+          params.note || null,
+          params.to_wallet_id || null,
+          params.id,
+        ]
+      );
+
+      // 3. Apply new balance effect (if new is paid)
+      if (isNewPaid) {
+        if (params.type === 'expense') {
+          db.runSync(`UPDATE wallets SET current_balance = current_balance - ? WHERE id = ?`, [
+            params.amount,
+            params.wallet_id,
+          ]);
+        } else if (params.type === 'income') {
+          db.runSync(`UPDATE wallets SET current_balance = current_balance + ? WHERE id = ?`, [
+            params.amount,
+            params.wallet_id,
+          ]);
+        } else if (params.type === 'transfer' && params.to_wallet_id) {
+          db.runSync(`UPDATE wallets SET current_balance = current_balance - ? WHERE id = ?`, [
+            params.amount,
+            params.wallet_id,
+          ]);
           db.runSync(`UPDATE wallets SET current_balance = current_balance + ? WHERE id = ?`, [
             params.amount,
             params.to_wallet_id,
@@ -1162,6 +1294,10 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         closeCycleModal,
         analyticsFocus,
         setAnalyticsFocus,
+        selectedCalendarDate,
+        setSelectedCalendarDate,
+        selectedTransactionIdForCalendar,
+        setSelectedTransactionIdForCalendar,
         totalConvertedBalance,
         spentInCycle,
         incomeInCycle,
@@ -1180,6 +1316,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         unallocatedIncomeRemainder,
         categoryBudgetProgressList,
         addTransaction,
+        updateTransaction,
         deleteTransaction,
         addWallet,
         updateWallet,

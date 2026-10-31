@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,9 @@ import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
 import { formatCurrency } from '../utils/format';
 import { DateRangePickerModal } from '../components/DateRangePickerModal';
+import { TransactionDetailModal } from '../components/TransactionDetailModal';
+import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
+import { Transaction } from '../types';
 
 export const CalendarScreen: React.FC = () => {
   const {
@@ -25,12 +28,95 @@ export const CalendarScreen: React.FC = () => {
     remainingCycleBalance,
     spentInCycle,
     totalConvertedBalance,
+    selectedCalendarDate,
+    setSelectedCalendarDate,
+    selectedTransactionIdForCalendar,
+    setSelectedTransactionIdForCalendar,
+    updateTransaction,
+    deleteTransaction,
+    addSubcategory,
   } = useBudget();
 
   const theme = settings.theme_mode === 'dark' ? darkTheme : lightTheme;
 
-  // Selected date on calendar (defaults to today)
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  // Selected date on calendar (bound to global calendar date)
+  const selectedDate = selectedCalendarDate;
+  const setSelectedDate = setSelectedCalendarDate;
+
+  // Transaction Detail & Edit Modal states
+  const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+
+  // Auto-open transaction detail if navigating from home screen history sheet
+  useEffect(() => {
+    if (selectedTransactionIdForCalendar) {
+      const match = transactions.find((t) => t.id === selectedTransactionIdForCalendar);
+      if (match) {
+        setViewingTransaction(match);
+      }
+      setSelectedTransactionIdForCalendar(null);
+    }
+  }, [selectedTransactionIdForCalendar, transactions, setSelectedTransactionIdForCalendar]);
+
+  const handleStartEdit = (tx: Transaction) => {
+    setEditingTransaction(tx);
+    setEditModalVisible(true);
+  };
+
+  const handleSaveEditedTransaction = async (txData: {
+    amount: number;
+    wallet_id: string;
+    category_id?: string;
+    subcategory_id?: string;
+    type: any;
+    currency: string;
+    date: string;
+    time?: string;
+    is_paid: boolean;
+    note?: string;
+    media_uri?: string;
+  }) => {
+    if (!editingTransaction) return;
+
+    await updateTransaction({
+      id: editingTransaction.id,
+      amount: txData.amount,
+      wallet_id: txData.wallet_id,
+      category_id: txData.category_id,
+      subcategory_id: txData.subcategory_id,
+      type: txData.type,
+      currency: txData.currency,
+      date: txData.date,
+      time: txData.time,
+      is_paid: txData.is_paid,
+      note: txData.note,
+      media_uri: txData.media_uri,
+    });
+
+    // Keep viewing modal in sync with edited fields
+    setViewingTransaction((prev) =>
+      prev && prev.id === editingTransaction.id
+        ? {
+            ...prev,
+            amount: txData.amount,
+            wallet_id: txData.wallet_id,
+            category_id: txData.category_id,
+            subcategory_id: txData.subcategory_id,
+            type: txData.type,
+            currency: txData.currency,
+            date: txData.date,
+            time: txData.time,
+            is_paid: txData.is_paid,
+            note: txData.note,
+            media_uri: txData.media_uri,
+          }
+        : prev
+    );
+
+    setEditModalVisible(false);
+    setEditingTransaction(null);
+  };
 
   // Visual Date Range Picker Modal State (connecting range polyline/band)
   const [dateRangePickerVisible, setDateRangePickerVisible] = useState<boolean>(false);
@@ -302,11 +388,13 @@ export const CalendarScreen: React.FC = () => {
                 .join(' • ');
 
               return (
-                <View
+                <TouchableOpacity
                   key={tx.id}
                   style={[styles.dayTxItem, { backgroundColor: theme.cardBg, borderColor: theme.divider }]}
+                  onPress={() => setViewingTransaction(tx)}
+                  activeOpacity={0.7}
                 >
-                  <View style={[styles.catDot, { backgroundColor: cat?.color || theme.primary }]} />
+                  <View style={[styles.catDot, { backgroundColor: isTransfer ? theme.tertiary : cat?.color || theme.primary }]} />
                   <View style={{ flex: 1, marginLeft: 10 }}>
                     <Text style={[styles.dayTxTitle, { color: theme.onSurface }]}>{mainTitle}</Text>
                     <Text style={[styles.dayTxMeta, { color: theme.onSurfaceVariant }]}>{subMeta}</Text>
@@ -314,13 +402,19 @@ export const CalendarScreen: React.FC = () => {
                   <Text
                     style={[
                       styles.dayTxAmount,
-                      { color: isExpense ? theme.error : theme.success },
+                      { color: isExpense ? theme.error : isTransfer ? theme.tertiary : theme.success },
                     ]}
                   >
-                    {isExpense ? '-' : '+'}
-                    {formatCurrency(tx.amount, settings.base_currency)}
+                    {isExpense ? '-' : isTransfer ? '' : '+'}
+                    {formatCurrency(tx.amount, tx.currency || settings.base_currency)}
                   </Text>
-                </View>
+                  <MaterialCommunityIcons
+                    name="chevron-right"
+                    size={18}
+                    color={theme.onSurfaceVariant}
+                    style={{ marginLeft: 6 }}
+                  />
+                </TouchableOpacity>
               );
             })
           )}
@@ -428,6 +522,48 @@ export const CalendarScreen: React.FC = () => {
         onClose={() => setDateRangePickerVisible(false)}
         onSave={handleSaveDateRange}
       />
+
+      {/* TRANSACTION FULL DETAILS MODAL (OPENED WHEN HISTORY ITEM IS CLICKED) */}
+      <TransactionDetailModal
+        visible={Boolean(viewingTransaction)}
+        transaction={viewingTransaction}
+        categories={categories}
+        wallets={wallets}
+        theme={theme}
+        baseCurrency={settings.base_currency}
+        onClose={() => setViewingTransaction(null)}
+        onEdit={handleStartEdit}
+        onDelete={deleteTransaction}
+      />
+
+      {/* EDIT TRANSACTION MODAL */}
+      {Boolean(editingTransaction) && (
+        <TransactionDetailsModal
+          visible={editModalVisible}
+          txType={editingTransaction?.type || 'expense'}
+          initialAmount={editingTransaction?.amount || 0}
+          initialWalletId={editingTransaction?.wallet_id || ''}
+          initialCategoryId={editingTransaction?.category_id || undefined}
+          initialSubcategoryId={editingTransaction?.subcategory_id || undefined}
+          initialDate={editingTransaction?.date}
+          initialTime={editingTransaction?.time}
+          initialNote={editingTransaction?.note}
+          initialMediaUri={editingTransaction?.media_uri}
+          initialIsPaid={editingTransaction?.is_paid}
+          initialCurrency={editingTransaction?.currency}
+          isEditing={true}
+          wallets={wallets}
+          categories={categories}
+          theme={theme}
+          baseCurrency={settings.base_currency}
+          onClose={() => {
+            setEditModalVisible(false);
+            setEditingTransaction(null);
+          }}
+          onSave={handleSaveEditedTransaction}
+          onAddSubcategory={addSubcategory}
+        />
+      )}
     </View>
   );
 };

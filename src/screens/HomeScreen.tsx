@@ -17,7 +17,7 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
-import { TransactionType, BillFrequency, RecurrenceEndType } from '../types';
+import { Transaction, TransactionType, BillFrequency, RecurrenceEndType } from '../types';
 import { formatCurrency } from '../utils/format';
 import { CategoryManagerModal } from '../components/CategoryManagerModal';
 import { CategoryPickerSheet } from '../components/CategoryPickerSheet';
@@ -39,7 +39,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
 
   // Responsive collapsed sheet height:
   // Provides clean vertical space for header + dual badges, with drag handle comfortably lowered below without overlap
-  const COLLAPSED_SHEET_HEIGHT = isTinyScreen ? 90 : isCompactScreen ? 176 : 260; // 150 : 156
+  const COLLAPSED_SHEET_HEIGHT = isTinyScreen ? 90 : isCompactScreen ? 176 : 320; // 150 : 156
 
   // Responsive dial pad, button and row dimensions
   const dialKeyHeight = isTinyScreen ? 38 : isCompactScreen ? 42 : 46;
@@ -67,6 +67,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
     updateCurrentCycleTarget,
     deleteTransaction,
     setAnalyticsFocus,
+    setSelectedCalendarDate,
+    setSelectedTransactionIdForCalendar,
     isCycleModalOpen,
     closeCycleModal,
   } = useBudget();
@@ -598,6 +600,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
     });
     setIsSheetExpanded(false);
     isExpandedRef.current = false;
+  };
+
+  const handlePressHistoryItem = (tx: Transaction) => {
+    setSelectedCalendarDate(tx.date);
+    setSelectedTransactionIdForCalendar(tx.id);
+    closeSheet();
+    onNavigateTab?.('calendar');
   };
 
   const toggleSheet = () => {
@@ -1347,19 +1356,21 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
                         .join(' • ');
 
                       return (
-                        <View
+                        <TouchableOpacity
                           key={tx.id}
                           style={[
                             styles.txItemRow,
                             { backgroundColor: theme.cardBg, borderColor: theme.divider },
                           ]}
+                          onPress={() => handlePressHistoryItem(tx)}
+                          activeOpacity={0.7}
                         >
                           <View
                             style={[
                               styles.txCatDot,
                               {
                                 backgroundColor: isTransfer
-                                  ? theme.tertiary
+                                    ? theme.tertiary
                                   : cat?.color || theme.primary,
                               },
                             ]}
@@ -1400,8 +1411,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
                               {formatCurrency(tx.amount, tx.currency)}
                             </Text>
                             <TouchableOpacity
-                              onPress={() => deleteTransaction(tx.id)}
+                              onPress={(e) => {
+                                e?.stopPropagation?.();
+                                deleteTransaction(tx.id);
+                              }}
                               style={styles.txDeleteTouch}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             >
                               <MaterialCommunityIcons
                                 name="close-circle-outline"
@@ -1410,7 +1425,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
                               />
                             </TouchableOpacity>
                           </View>
-                        </View>
+                        </TouchableOpacity>
                       );
                     })}
                   </View>
