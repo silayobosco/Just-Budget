@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
-import { getDB, initDatabase } from '../services/db';
+import { getDB, initDatabase, ensureDefaultWallets, ensureDefaultIncomeCategories } from '../services/db';
 import { exportBackupData, importBackupData } from '../services/backup';
 import { formatCycleDateRange, getRegularCycleDates } from '../utils/format';
 import {
@@ -196,6 +196,10 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         cycle_default_income: sMap['cycle_default_income'] ? parseFloat(sMap['cycle_default_income']) : undefined,
       };
       setSettings(newSettings);
+
+      // Ensure default wallets and income categories
+      ensureDefaultWallets(db, newSettings.base_currency);
+      ensureDefaultIncomeCategories(db);
 
       // Wallets (all aligned with the base currency)
       let walletsRows = db.getAllSync<Wallet>(`SELECT * FROM wallets ORDER BY is_default DESC, name ASC`);
@@ -1093,14 +1097,28 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('base_currency', ?)`, [curr]);
     db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('onboarding_completed', '1')`);
 
-    // Create first wallet if specified
+    // Ensure default wallets and sync currency
+    ensureDefaultWallets(db, curr);
+    db.runSync(`UPDATE wallets SET currency = ?`, [curr]);
+
+    // Create first custom wallet if specified and not duplicate
     if (params.firstWalletName && params.firstWalletName.trim()) {
-      const wId = `w-${Date.now()}`;
-      const startBal = params.startingBalance || 0;
-      db.runSync(
-        `INSERT INTO wallets (id, name, currency, starting_balance, current_balance, color, icon, is_default) VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
-        [wId, params.firstWalletName.trim(), curr, startBal, startBal, '#10B981', 'cash']
-      );
+      const trimmed = params.firstWalletName.trim();
+      const existing = db.getFirstSync<{ id: string }>(`SELECT id FROM wallets WHERE LOWER(name) = LOWER(?)`, [trimmed]);
+      if (existing) {
+        if (params.startingBalance && params.startingBalance > 0) {
+          db.runSync(`UPDATE wallets SET starting_balance = ?, current_balance = ? WHERE id = ?`, [params.startingBalance, params.startingBalance, existing.id]);
+        }
+      } else {
+        const wId = `w-${Date.now()}`;
+        const startBal = params.startingBalance || 0;
+        db.runSync(
+          `INSERT INTO wallets (id, name, currency, starting_balance, current_balance, color, icon, is_default) VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+          [wId, trimmed, curr, startBal, startBal, '#10B981', 'cash']
+        );
+      }
+    } else if (params.startingBalance && params.startingBalance > 0) {
+      db.runSync(`UPDATE wallets SET starting_balance = ?, current_balance = ? WHERE id = 'w-cash'`, [params.startingBalance, params.startingBalance]);
     }
 
     // Set up initial cycle if budget or income target provided

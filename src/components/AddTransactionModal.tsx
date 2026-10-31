@@ -73,41 +73,25 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
           wallets[0];
         setSelectedWalletId(preferred.id);
       }
-      const initialCat = categories.find((c) => c.type === (initialType === 'income' ? 'income' : 'expense'));
-      if (initialCat) {
-        setSelectedCategoryId(initialCat.id);
-        if (initialCat.subcategories && initialCat.subcategories.length > 0) {
-          setSelectedSubcategoryId(initialCat.subcategories[0].id);
-        } else {
-          setSelectedSubcategoryId('');
-        }
-      }
-    }
-  }, [visible, initialType, wallets, categories]);
-
-  // When type changes, switch category selection
-  const handleTypeChange = (newType: TransactionType) => {
-    setType(newType);
-    const cat = categories.find((c) => c.type === (newType === 'income' ? 'income' : 'expense'));
-    if (cat) {
-      setSelectedCategoryId(cat.id);
-      if (cat.subcategories && cat.subcategories.length > 0) {
-        setSelectedSubcategoryId(cat.subcategories[0].id);
-      } else {
-        setSelectedSubcategoryId('');
-      }
-    } else {
+      // Do not autoselect category or subcategory
       setSelectedCategoryId('');
       setSelectedSubcategoryId('');
     }
+  }, [visible, initialType, wallets, categories]);
+
+  // When type changes, clear category selection
+  const handleTypeChange = (newType: TransactionType) => {
+    setType(newType);
+    setSelectedCategoryId('');
+    setSelectedSubcategoryId('');
   };
 
   const handleCategorySelect = (catId: string) => {
-    setSelectedCategoryId(catId);
-    const cat = categories.find((c) => c.id === catId);
-    if (cat?.subcategories && cat.subcategories.length > 0) {
-      setSelectedSubcategoryId(cat.subcategories[0].id);
+    if (selectedCategoryId === catId) {
+      setSelectedCategoryId('');
+      setSelectedSubcategoryId('');
     } else {
+      setSelectedCategoryId(catId);
       setSelectedSubcategoryId('');
     }
   };

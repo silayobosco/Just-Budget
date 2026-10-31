@@ -140,8 +140,123 @@ export const initDatabase = async () => {
     db.runSync(`ALTER TABLE recurring_bills ADD COLUMN occurrences_count INTEGER DEFAULT 0`);
   } catch {}
 
+  // Run migrations & ensure defaults
+  ensureDefaultIncomeCategories(db);
+  const currSetting = db.getFirstSync<{ value: string }>(`SELECT value FROM settings WHERE key = 'base_currency'`);
+  ensureDefaultWallets(db, currSetting?.value || 'USD');
+
   // Seed default data if database is empty
   seedInitialData(db);
+};
+
+export const DEFAULT_WALLETS = [
+  { id: 'w-cash', name: 'Cash', color: '#10B981', icon: 'cash', is_default: 1 },
+  { id: 'w-bank', name: 'Bank', color: '#3B82F6', icon: 'bank', is_default: 0 },
+  { id: 'w-mobile', name: 'Mobile Money', color: '#F59E0B', icon: 'cellphone', is_default: 0 },
+  { id: 'w-savings', name: 'Savings', color: '#8B5CF6', icon: 'piggy-bank', is_default: 0 },
+];
+
+export const DEFAULT_INCOME_CATEGORIES: {
+  id: string;
+  name: string;
+  type: 'income';
+  icon: string;
+  color: string;
+  subs: string[];
+}[] = [
+  {
+    id: 'cat-salary',
+    name: 'Salary',
+    type: 'income',
+    icon: 'briefcase-check',
+    color: '#10B981',
+    subs: ['Monthly Salary', 'Overtime', 'Bonus', 'Commission'],
+  },
+  {
+    id: 'cat-investment',
+    name: 'Investment',
+    type: 'income',
+    icon: 'trending-up',
+    color: '#3B82F6',
+    subs: ['Dividends', 'Capital Gains', 'Interest', 'Real Estate'],
+  },
+  {
+    id: 'cat-rewards',
+    name: 'Rewards',
+    type: 'income',
+    icon: 'trophy-outline',
+    color: '#F59E0B',
+    subs: ['Cashback', 'Points & Vouchers', 'Refunds', 'Contests'],
+  },
+  {
+    id: 'cat-gifts',
+    name: 'Gifts',
+    type: 'income',
+    icon: 'gift-outline',
+    color: '#EC4899',
+    subs: ['Family & Friends', 'Grants', 'Donations', 'Allowances'],
+  },
+  {
+    id: 'cat-business',
+    name: 'Business',
+    type: 'income',
+    icon: 'store-outline',
+    color: '#8B5CF6',
+    subs: ['Product Sales', 'Services & Freelance', 'Consulting', 'Royalties'],
+  },
+];
+
+export const ensureDefaultWallets = (db: SQLite.SQLiteDatabase, currency: string = 'USD') => {
+  try {
+    const txCount = db.getFirstSync<{ count: number }>(`SELECT COUNT(*) as count FROM transactions`);
+    const hasZeroTransactions = !txCount || txCount.count === 0;
+
+    for (const w of DEFAULT_WALLETS) {
+      const existing = db.getFirstSync<{ id: string }>(`SELECT id FROM wallets WHERE id = ?`, [w.id]);
+      if (!existing) {
+        db.runSync(
+          `INSERT INTO wallets (id, name, currency, starting_balance, current_balance, color, icon, is_default) VALUES (?, ?, ?, 0, 0, ?, ?, ?)`,
+          [w.id, w.name, currency, w.color, w.icon, w.is_default]
+        );
+      } else if (hasZeroTransactions) {
+        // Reset starting & current balances to 0 if no transactions recorded yet
+        db.runSync(
+          `UPDATE wallets SET starting_balance = 0, current_balance = 0 WHERE id = ? AND (starting_balance != 0 OR current_balance != 0)`,
+          [w.id]
+        );
+      }
+    }
+  } catch (err) {
+    console.error('Error ensuring default wallets:', err);
+  }
+};
+
+export const ensureDefaultIncomeCategories = (db: SQLite.SQLiteDatabase) => {
+  try {
+    // If legacy cat-income exists, migrate its transactions and remove it
+    const legacyIncome = db.getFirstSync<{ id: string }>(`SELECT id FROM categories WHERE id = 'cat-income'`);
+    if (legacyIncome) {
+      db.runSync(`UPDATE transactions SET category_id = 'cat-salary' WHERE category_id = 'cat-income'`);
+      db.runSync(`DELETE FROM subcategories WHERE category_id = 'cat-income'`);
+      db.runSync(`DELETE FROM categories WHERE id = 'cat-income'`);
+    }
+
+    for (const cat of DEFAULT_INCOME_CATEGORIES) {
+      db.runSync(
+        `INSERT OR IGNORE INTO categories (id, name, type, icon, color, is_default) VALUES (?, ?, ?, ?, ?, 1)`,
+        [cat.id, cat.name, cat.type, cat.icon, cat.color]
+      );
+      for (let i = 0; i < cat.subs.length; i++) {
+        const subId = `${cat.id}-sub-${i + 1}`;
+        db.runSync(
+          `INSERT OR IGNORE INTO subcategories (id, category_id, name) VALUES (?, ?, ?)`,
+          [subId, cat.id, cat.subs[i]]
+        );
+      }
+    }
+  } catch (err) {
+    console.error('Error ensuring default income categories:', err);
+  }
 };
 
 const seedInitialData = (db: SQLite.SQLiteDatabase) => {
@@ -151,10 +266,8 @@ const seedInitialData = (db: SQLite.SQLiteDatabase) => {
   );
 
   // If this is a fresh setup or onboarding was never explicitly marked completed:
-  // Clean up any legacy dummy seed data (dummy wallets with fake balances, dummy recurring bills, dummy budgets)
+  // Clean up any legacy dummy recurring bills or dummy budgets
   if (!onboardingRow || onboardingRow.value !== '1') {
-    // Clean up dummy seed wallets
-    db.runSync(`DELETE FROM wallets WHERE id IN ('w-cash', 'w-bank', 'w-savings')`);
     // Clean up dummy recurring bills
     db.runSync(`DELETE FROM recurring_bills WHERE id IN ('bill-1', 'bill-2')`);
     // Clean up dummy pre-seeded budgets
@@ -168,6 +281,11 @@ const seedInitialData = (db: SQLite.SQLiteDatabase) => {
       db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('app_name', 'just budget')`);
     }
   }
+
+  // Restore default wallets with 0 balance
+  const curr = db.getFirstSync<{ value: string }>(`SELECT value FROM settings WHERE key = 'base_currency'`)?.value || 'USD';
+  ensureDefaultWallets(db, curr);
+  ensureDefaultIncomeCategories(db);
 
   // Check categories (Seed standard categories taxonomy if empty, without monetary amounts)
   const catCount = db.getFirstSync<{ count: number }>(`SELECT COUNT(*) as count FROM categories`);
@@ -228,14 +346,7 @@ const seedInitialData = (db: SQLite.SQLiteDatabase) => {
         color: '#06B6D4',
         subs: ['Doctor & Pharmacy', 'Fitness & Gym', 'Dental & Vision', 'Therapy'],
       },
-      {
-        id: 'cat-income',
-        name: 'Income & Inflow',
-        type: 'income',
-        icon: 'cash-plus',
-        color: '#10B981',
-        subs: ['Salary / Paycheck', 'Freelance & Side Hustle', 'Investments & Dividends', 'Bonus & Gifts'],
-      },
+      ...DEFAULT_INCOME_CATEGORIES,
     ];
 
     for (const cat of defaultCategories) {

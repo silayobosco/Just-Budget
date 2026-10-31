@@ -171,11 +171,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       setSelectedSubcategoryId('');
     } else {
       setSelectedCategoryId(cat.id);
-      if (cat.subcategories && cat.subcategories.length > 0) {
-        setSelectedSubcategoryId(cat.subcategories[0].id);
-      } else {
-        setSelectedSubcategoryId('');
-      }
+      setSelectedSubcategoryId('');
     }
   };
 

@@ -58,18 +58,9 @@ export const CategoryPickerSheet: React.FC<CategoryPickerSheetProps> = ({
 
   useEffect(() => {
     if (visible) {
-      // Default to first category if available or reset
-      if (activeCategories.length > 0) {
-        setSelectedCategoryId(activeCategories[0].id);
-        if (activeCategories[0].subcategories && activeCategories[0].subcategories.length > 0) {
-          setSelectedSubcategoryId(activeCategories[0].subcategories[0].id);
-        } else {
-          setSelectedSubcategoryId('');
-        }
-      } else {
-        setSelectedCategoryId('');
-        setSelectedSubcategoryId('');
-      }
+      // Do not autoselect category or subcategory on open
+      setSelectedCategoryId('');
+      setSelectedSubcategoryId('');
     }
   }, [visible, txType]);
 
@@ -79,11 +70,7 @@ export const CategoryPickerSheet: React.FC<CategoryPickerSheetProps> = ({
       setSelectedSubcategoryId('');
     } else {
       setSelectedCategoryId(cat.id);
-      if (cat.subcategories && cat.subcategories.length > 0) {
-        setSelectedSubcategoryId(cat.subcategories[0].id);
-      } else {
-        setSelectedSubcategoryId('');
-      }
+      setSelectedSubcategoryId('');
     }
   };
 
