@@ -41,3 +41,4 @@ $bmpFav.Dispose()
 
 $img.Dispose()
 Write-Host "Icons generated successfully in $destDir"
+
