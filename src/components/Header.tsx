@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape } from '../theme';
@@ -26,9 +26,11 @@ export const Header: React.FC<HeaderProps> = ({
     <View style={[styles.container, { backgroundColor: theme.surface, borderBottomColor: theme.divider }]}>
       <View style={styles.titleRow}>
         <View style={styles.brandContainer}>
-          <View style={[styles.badgePill, { backgroundColor: theme.primaryContainer }]}>
-            <Text style={[styles.badgeText, { color: theme.onPrimaryContainer }]}>JB</Text>
-          </View>
+          <Image
+            source={require('../../assets/icon.png')}
+            style={styles.logoImage}
+            resizeMode="cover"
+          />
           <View>
             <Text style={[styles.title, { color: theme.onSurface }]}>just budget</Text>
             {currentCycle ? (
@@ -129,6 +131,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     flexShrink: 1,
+  },
+  logoImage: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
   },
   badgePill: {
     paddingHorizontal: 9,

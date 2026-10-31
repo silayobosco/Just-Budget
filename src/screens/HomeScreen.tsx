@@ -39,7 +39,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
 
   // Responsive collapsed sheet height:
   // Provides clean vertical space for header + dual badges, with drag handle comfortably lowered below without overlap
-  const COLLAPSED_SHEET_HEIGHT = isTinyScreen ? 90 : isCompactScreen ? 176 : 320; // 150 : 156
+  const COLLAPSED_SHEET_HEIGHT = isTinyScreen ? 90 : isCompactScreen ? 196 : 350; // 150 : 156
 
   // Responsive dial pad, button and row dimensions
   const dialKeyHeight = isTinyScreen ? 38 : isCompactScreen ? 42 : 46;

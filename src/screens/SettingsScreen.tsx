@@ -8,6 +8,7 @@ import {
   TextInput,
   Alert,
   Switch,
+  Image,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
@@ -257,9 +258,11 @@ export const SettingsScreen: React.FC = () => {
         <Text style={[styles.sectionHeader, { color: theme.primary }]}>ABOUT</Text>
         <View style={[styles.cardGroup, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
           <View style={styles.aboutRow}>
-            <View style={[styles.itemIconCircle, { backgroundColor: theme.primaryContainer }]}>
-              <Text style={{ fontWeight: '800', color: theme.onPrimaryContainer }}>JB</Text>
-            </View>
+            <Image
+              source={require('../../assets/icon.png')}
+              style={styles.aboutLogoImage}
+              resizeMode="cover"
+            />
             <View style={styles.itemTextWrap}>
               <Text style={[styles.itemTitle, { color: theme.onSurface }]}>just budget</Text>
               <Text style={[styles.itemSubtitle, { color: theme.onSurfaceVariant }]}>
@@ -336,6 +339,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
+  },
+  aboutLogoImage: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    marginRight: 14,
   },
   itemTextWrap: {
     flex: 1,

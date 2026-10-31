@@ -8,6 +8,7 @@ import {
   TextInput,
   ScrollView,
   SafeAreaView,
+  Image,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
@@ -78,9 +79,11 @@ export const OnboardingModal: React.FC = () => {
         >
           {/* Welcome Branding */}
           <View style={styles.heroSection}>
-            <View style={[styles.logoBadge, { backgroundColor: theme.primaryContainer }]}>
-              <Text style={[styles.logoText, { color: theme.onPrimaryContainer }]}>JB</Text>
-            </View>
+            <Image
+              source={require('../../assets/icon.png')}
+              style={styles.onboardingLogoImage}
+              resizeMode="cover"
+            />
             <Text style={[styles.welcomeTitle, { color: theme.onSurface }]}>Welcome to just budget</Text>
             <Text style={[styles.welcomeSubtitle, { color: theme.onSurfaceVariant }]}>
               Offline-first, completely private personal finance. Let's set up your core currency to get started.
@@ -273,6 +276,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 20,
     marginTop: 10,
+  },
+  onboardingLogoImage: {
+    width: 64,
+    height: 64,
+    borderRadius: 16,
+    marginBottom: 14,
   },
   logoBadge: {
     width: 60,
