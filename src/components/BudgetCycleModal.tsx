@@ -14,6 +14,8 @@ import { BudgetCycle, CycleMode, CycleBalanceMode, CycleTargetMode } from '../ty
 import { useBudget } from '../context/BudgetContext';
 import { M3Shape, M3Elevation } from '../theme';
 import { getRegularCycleDates, formatCycleDateRange } from '../utils/format';
+import { DateRangePickerModal } from './DateRangePickerModal';
+import { CycleStartDayCalendar } from './CycleStartDayCalendar';
 
 interface BudgetCycleModalProps {
   visible: boolean;
@@ -62,6 +64,7 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
   const [customTargetMode, setCustomTargetMode] = useState<'inherit' | 'custom'>('custom');
   const [customBudget, setCustomBudget] = useState<string>('');
   const [customIncome, setCustomIncome] = useState<string>('');
+  const [isRangePickerOpen, setIsRangePickerOpen] = useState<boolean>(false);
 
   // Synchronize state when modal opens
   useEffect(() => {
@@ -159,6 +162,7 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
     setCustomEnd(todayStr);
     setCustomBudget(settings.cycle_default_budget ? settings.cycle_default_budget.toString() : '2000');
     setCustomIncome(settings.cycle_default_income ? settings.cycle_default_income.toString() : '2500');
+    setIsRangePickerOpen(true);
   };
 
   // Save Custom Period
@@ -220,10 +224,11 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
     );
   };
 
-  if (!visible) return null;
+  if (!visible && !isRangePickerOpen) return null;
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <>
+      <Modal visible={visible && !isRangePickerOpen} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
         <View style={[styles.modalBox, { backgroundColor: theme.surface }]}>
           {/* Header */}
@@ -435,31 +440,15 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
                 {/* 1C. Calendar Settings: Month Start Date */}
                 <View style={styles.groupCard}>
                   <Text style={[styles.groupTitle, { color: theme.onSurface }]}>Calendar Settings</Text>
-                  <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>
-                    Month Start Day (1 - 31)
+                  <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant, marginBottom: 8 }]}>
+                    Month Start Day (Select on Calendar)
                   </Text>
-                  <View style={styles.startDayRow}>
-                    <TextInput
-                      style={[styles.startDayInput, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
-                      placeholder="1"
-                      placeholderTextColor={theme.onSurfaceVariant}
-                      keyboardType="number-pad"
-                      maxLength={2}
-                      value={startDay}
-                      onChangeText={setStartDay}
-                    />
-                    <View style={styles.previewContainer}>
-                      <Text style={[styles.previewLabel, { color: theme.onSurfaceVariant }]}>
-                        Active Cycle Preview:
-                      </Text>
-                      <Text style={[styles.previewValue, { color: theme.primary }]}>
-                        {regularPreview.name}
-                      </Text>
-                      <Text style={[styles.previewSub, { color: theme.onSurfaceVariant }]}>
-                        ({regularPreview.startDate} to {regularPreview.endDate})
-                      </Text>
-                    </View>
-                  </View>
+                  <CycleStartDayCalendar
+                    selectedDay={parseInt(startDay, 10) || 1}
+                    onSelectDay={(day) => setStartDay(day.toString())}
+                    theme={theme}
+                    isDarkMode={isDarkMode}
+                  />
                 </View>
               </View>
             )}
@@ -528,43 +517,39 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
                     onChangeText={setCustomName}
                   />
 
-                  <View style={styles.inputsRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>Start Date</Text>
-                      <TextInput
-                        style={[styles.input, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
-                        placeholder="YYYY-MM-DD"
-                        placeholderTextColor={theme.onSurfaceVariant}
-                        value={customStart}
-                        onChangeText={setCustomStart}
-                      />
+                  <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant, marginTop: 8 }]}>
+                    PERIOD DATES (CALENDAR RANGE)
+                  </Text>
+                  <TouchableOpacity
+                    style={[
+                      styles.dateRangeCard,
+                      {
+                        backgroundColor: theme.pillBg,
+                        borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.12)' : theme.divider,
+                      },
+                    ]}
+                    onPress={() => setIsRangePickerOpen(true)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.dateRangeLeft}>
+                      <View style={[styles.dateRangeIconWrap, { backgroundColor: theme.primaryContainer }]}>
+                        <MaterialCommunityIcons name="calendar-range" size={20} color={theme.primary} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.dateRangeRangeText, { color: theme.onSurface }]}>
+                          {customStart && customEnd ? formatCycleDateRange(customStart, customEnd) : 'Tap to select date range'}
+                        </Text>
+                        <Text style={[styles.dateRangeSubText, { color: theme.onSurfaceVariant }]}>
+                          {customStart && customEnd ? `${customStart} to ${customEnd}` : 'Select start and end dates on calendar'}
+                        </Text>
+                      </View>
                     </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>End Date</Text>
-                      <TextInput
-                        style={[styles.input, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
-                        placeholder="YYYY-MM-DD"
-                        placeholderTextColor={theme.onSurfaceVariant}
-                        value={customEnd}
-                        onChangeText={setCustomEnd}
-                      />
-                    </View>
-                  </View>
-
-                  {onOpenDateRangePicker && (
-                    <TouchableOpacity
-                      style={[styles.rangePickerBtn, { backgroundColor: theme.primaryContainer }]}
-                      onPress={() => {
-                        onClose();
-                        onOpenDateRangePicker();
-                      }}
-                    >
-                      <MaterialCommunityIcons name="calendar-range" size={16} color={theme.primary} />
-                      <Text style={[styles.rangePickerBtnText, { color: theme.onPrimaryContainer }]}>
-                        Pick Dates On Range Calendar
+                    <View style={[styles.changeDatesBadge, { backgroundColor: theme.primaryContainer }]}>
+                      <Text style={[styles.changeDatesBadgeText, { color: theme.onPrimaryContainer }]}>
+                        Pick Dates
                       </Text>
-                    </TouchableOpacity>
-                  )}
+                    </View>
+                  </TouchableOpacity>
 
                   {/* Budget & Target: Inherit vs Custom */}
                   <Text style={[styles.groupTitle, { color: theme.onSurface, marginTop: 10 }]}>
@@ -665,6 +650,22 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
         </View>
       </View>
     </Modal>
+
+    <DateRangePickerModal
+      visible={isRangePickerOpen}
+      initialStartDate={customStart}
+      initialEndDate={customEnd}
+      onClose={() => setIsRangePickerOpen(false)}
+      onSave={(newStart, newEnd) => {
+        setCustomStart(newStart);
+        setCustomEnd(newEnd);
+        if (!customName || customName === 'New Custom Period' || customName.includes('–')) {
+          setCustomName(formatCycleDateRange(newStart, newEnd));
+        }
+        setIsRangePickerOpen(false);
+      }}
+    />
+  </>
   );
 };
 
@@ -874,6 +875,46 @@ const styles = StyleSheet.create({
   },
   btnText: {
     fontSize: 13,
+    fontWeight: '700',
+  },
+  dateRangeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    borderRadius: M3Shape.medium,
+    borderWidth: 1,
+    marginTop: 4,
+  },
+  dateRangeLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  dateRangeIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dateRangeRangeText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  dateRangeSubText: {
+    fontSize: 11,
+    marginTop: 1,
+  },
+  changeDatesBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: M3Shape.full,
+    marginLeft: 8,
+  },
+  changeDatesBadgeText: {
+    fontSize: 11,
     fontWeight: '700',
   },
 });

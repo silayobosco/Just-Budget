@@ -16,6 +16,8 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
 import { getRegularCycleDates, formatCycleDateRange } from '../utils/format';
+import { DateRangePickerModal } from './DateRangePickerModal';
+import { CycleStartDayCalendar } from './CycleStartDayCalendar';
 
 const CURRENCIES = [
   { code: 'USD', symbol: '$', name: 'US Dollar' },
@@ -81,6 +83,7 @@ export const OnboardingModal: React.FC = () => {
   const [customCycleName, setCustomCycleName] = useState<string>('Pay Period 1');
   const [customStartDate, setCustomStartDate] = useState<string>(todayStr);
   const [customEndDate, setCustomEndDate] = useState<string>(oneMonthLaterStr);
+  const [isRangePickerOpen, setIsRangePickerOpen] = useState<boolean>(false);
 
   // Step 3: Targets
   const [budgetCap, setBudgetCap] = useState<string>('');
@@ -168,12 +171,13 @@ export const OnboardingModal: React.FC = () => {
     }
   };
 
-  if (!isVisible) return null;
+  if (!isVisible && !isRangePickerOpen) return null;
 
   const currentCurrencyObj = CURRENCIES.find((c) => c.code === selectedCurrency) || CURRENCIES[0];
 
   return (
-    <Modal visible={isVisible} animationType="slide" transparent={false}>
+    <>
+      <Modal visible={isVisible && !isRangePickerOpen} animationType="slide" transparent={false}>
       <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -519,58 +523,18 @@ export const OnboardingModal: React.FC = () => {
                 {cycleMode === 'regular' && (
                   <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }, M3Elevation.level1]}>
                     <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>
-                      MONTH START DAY
+                      MONTH START DAY (SELECT ON CALENDAR)
                     </Text>
                     <Text style={[styles.fieldHint, { color: theme.onSurfaceVariant, marginBottom: 10 }]}>
-                      Choose when your cycle begins (e.g. 1st of month, or on pay day).
+                      Choose when your cycle begins by tapping any date on the calendar below.
                     </Text>
 
-                    {/* Quick Presets for Start Day */}
-                    <View style={styles.startDayChipsRow}>
-                      {START_DAY_PRESETS.map((p) => {
-                        const isPicked = cycleStartDayStr === p.day.toString();
-                        return (
-                          <TouchableOpacity
-                            key={p.day}
-                            style={[
-                              styles.startDayChip,
-                              {
-                                backgroundColor: isPicked ? theme.primaryContainer : theme.pillBg,
-                                borderColor: isPicked ? theme.primary : 'transparent',
-                              },
-                            ]}
-                            onPress={() => setCycleStartDayStr(p.day.toString())}
-                            activeOpacity={0.7}
-                          >
-                            <Text
-                              style={[
-                                styles.startDayChipText,
-                                {
-                                  color: isPicked ? theme.onPrimaryContainer : theme.onSurface,
-                                  fontWeight: isPicked ? '700' : '500',
-                                },
-                              ]}
-                            >
-                              {p.label}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-
-                    {/* Custom Day Input */}
-                    <View style={[styles.balanceInputWrap, { backgroundColor: theme.pillBg, marginTop: 4 }]}>
-                      <MaterialCommunityIcons name="calendar-edit" size={18} color={theme.onSurfaceVariant} style={{ marginRight: 8 }} />
-                      <TextInput
-                        style={[styles.balanceInput, { color: theme.onSurface }]}
-                        placeholder="Custom day (1 - 31)"
-                        placeholderTextColor={theme.onSurfaceVariant}
-                        keyboardType="number-pad"
-                        value={cycleStartDayStr}
-                        onChangeText={setCycleStartDayStr}
-                        maxLength={2}
-                      />
-                    </View>
+                    <CycleStartDayCalendar
+                      selectedDay={parseInt(cycleStartDayStr, 10) || 1}
+                      onSelectDay={(day) => setCycleStartDayStr(day.toString())}
+                      theme={theme}
+                      isDarkMode={isDarkMode}
+                    />
 
                     <View style={[styles.fieldDivider, { backgroundColor: theme.divider }]} />
 
@@ -665,28 +629,43 @@ export const OnboardingModal: React.FC = () => {
                       />
                     </View>
 
-                    <View style={styles.inputsRow}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>START DATE (YYYY-MM-DD)</Text>
-                        <TextInput
-                          style={[styles.input, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
-                          placeholder="2026-11-01"
-                          placeholderTextColor={theme.onSurfaceVariant}
-                          value={customStartDate}
-                          onChangeText={setCustomStartDate}
-                        />
+                    <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant, marginTop: 4 }]}>
+                      PERIOD DATES (CALENDAR RANGE)
+                    </Text>
+                    <TouchableOpacity
+                      style={[
+                        styles.dateRangePickerCard,
+                        {
+                          backgroundColor: theme.pillBg,
+                          borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.12)' : theme.divider,
+                        },
+                      ]}
+                      onPress={() => setIsRangePickerOpen(true)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.dateRangePickerLeft}>
+                        <View style={[styles.dateRangeIconWrap, { backgroundColor: theme.primaryContainer }]}>
+                          <MaterialCommunityIcons name="calendar-range" size={20} color={theme.primary} />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.dateRangePickerRangeText, { color: theme.onSurface }]}>
+                            {customStartDate && customEndDate
+                              ? formatCycleDateRange(customStartDate, customEndDate)
+                              : 'Tap to select date range'}
+                          </Text>
+                          <Text style={[styles.dateRangePickerSubText, { color: theme.onSurfaceVariant }]}>
+                            {customStartDate && customEndDate
+                              ? `${customStartDate} to ${customEndDate}`
+                              : 'Select start and end dates on calendar'}
+                          </Text>
+                        </View>
                       </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>END DATE (YYYY-MM-DD)</Text>
-                        <TextInput
-                          style={[styles.input, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
-                          placeholder="2026-11-30"
-                          placeholderTextColor={theme.onSurfaceVariant}
-                          value={customEndDate}
-                          onChangeText={setCustomEndDate}
-                        />
+                      <View style={[styles.changeDatesBadge, { backgroundColor: theme.primaryContainer }]}>
+                        <Text style={[styles.changeDatesBadgeText, { color: theme.onPrimaryContainer }]}>
+                          Pick Dates
+                        </Text>
                       </View>
-                    </View>
+                    </TouchableOpacity>
                   </View>
                 )}
               </View>
@@ -825,6 +804,22 @@ export const OnboardingModal: React.FC = () => {
         </KeyboardAvoidingView>
       </SafeAreaView>
     </Modal>
+
+    <DateRangePickerModal
+      visible={isRangePickerOpen}
+      initialStartDate={customStartDate}
+      initialEndDate={customEndDate}
+      onClose={() => setIsRangePickerOpen(false)}
+      onSave={(newStart, newEnd) => {
+        setCustomStartDate(newStart);
+        setCustomEndDate(newEnd);
+        if (!customCycleName || customCycleName === 'Pay Period 1' || customCycleName.includes('–')) {
+          setCustomCycleName(formatCycleDateRange(newStart, newEnd));
+        }
+        setIsRangePickerOpen(false);
+      }}
+    />
+  </>
   );
 };
 
@@ -1219,5 +1214,45 @@ const styles = StyleSheet.create({
   skipSecondaryBtnText: {
     fontSize: 13,
     fontWeight: '600',
+  },
+  dateRangePickerCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    borderRadius: M3Shape.medium,
+    borderWidth: 1,
+    marginTop: 6,
+  },
+  dateRangePickerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  dateRangeIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dateRangePickerRangeText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  dateRangePickerSubText: {
+    fontSize: 11,
+    marginTop: 1,
+  },
+  changeDatesBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: M3Shape.full,
+    marginLeft: 8,
+  },
+  changeDatesBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
   },
 });
