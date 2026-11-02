@@ -3,20 +3,53 @@ import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape } from '../theme';
-import { formatCycleDateRange } from '../utils/format';
+import { formatCycleDateRange, formatCurrency } from '../utils/format';
+import { TabType } from './BottomTabs';
+import { CycleMode } from '../types';
 
 interface HeaderProps {
+  currentTab?: TabType;
   onOpenCategories?: () => void;
   onOpenSettings?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
+  currentTab,
   onOpenCategories,
   onOpenSettings,
 }) => {
-  const { settings, currentCycle, dailyAllowanceStats, openCycleModal } = useBudget();
+  const {
+    settings,
+    currentCycle,
+    dailyAllowanceStats,
+    openCycleModal,
+    allCycles,
+    updateSettings,
+    setActiveBudgetCycle,
+    totalConvertedBalance,
+  } = useBudget();
   const isDarkMode = settings.theme_mode === 'dark';
   const theme = isDarkMode ? darkTheme : lightTheme;
+
+  const isCalendarTab = currentTab === 'calendar';
+  const isRegularMode = settings.cycle_mode === 'regular';
+
+  // Toggle cycle mode between regular and custom when tapped in calendar page
+  const handleToggleCycleMode = async () => {
+    const newMode: CycleMode = isRegularMode ? 'custom' : 'regular';
+    await updateSettings({ cycle_mode: newMode });
+    if (newMode === 'regular') {
+      const regCycle = allCycles.find((c) => c.id.startsWith('cycle-reg-')) || allCycles[0];
+      if (regCycle) {
+        await setActiveBudgetCycle(regCycle.id);
+      }
+    } else {
+      const customCycle = allCycles.find((c) => !c.id.startsWith('cycle-reg-')) || allCycles[0];
+      if (customCycle) {
+        await setActiveBudgetCycle(customCycle.id);
+      }
+    }
+  };
 
   const cycleDisplayRange = currentCycle?.start_date && currentCycle?.end_date
     ? formatCycleDateRange(currentCycle.start_date, currentCycle.end_date)
@@ -33,7 +66,31 @@ export const Header: React.FC<HeaderProps> = ({
           />
           <View>
             <Text style={[styles.title, { color: theme.onSurface }]}>just budget</Text>
-            {currentCycle ? (
+            {isCalendarTab ? (
+              <TouchableOpacity
+                onPress={handleToggleCycleMode}
+                activeOpacity={0.7}
+                style={styles.subtitleTouch}
+                accessibilityLabel="Switch Cycle Type"
+              >
+                <MaterialCommunityIcons
+                  name={isRegularMode ? 'calendar-month' : 'calendar-range'}
+                  size={13}
+                  color={theme.primary}
+                  style={{ marginRight: 3 }}
+                />
+                <Text style={[styles.subtitle, { color: theme.primary, fontWeight: '700' }]}>
+                  {isRegularMode ? 'Regular Calendar' : 'Custom Periods'}
+                </Text>
+                <View style={[styles.switchBadge, { backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.2)' : theme.primaryContainer }]}>
+                  <MaterialCommunityIcons
+                    name="swap-horizontal"
+                    size={12}
+                    color={theme.primary}
+                  />
+                </View>
+              </TouchableOpacity>
+            ) : currentCycle ? (
               <TouchableOpacity onPress={openCycleModal} activeOpacity={0.7} style={styles.subtitleTouch}>
                 <Text style={[styles.subtitle, { color: theme.onSurfaceVariant }]}>
                   {cycleDisplayRange}
@@ -51,8 +108,34 @@ export const Header: React.FC<HeaderProps> = ({
           </View>
         </View>
 
-        {/* Remaining Days in Cycle Badge OR Invite to Create Cycle */}
-        {currentCycle ? (
+        {/* Right Chip: Total Wallets Balance on Calendar page, Remaining Days on other pages */}
+        {isCalendarTab ? (
+          <View
+            style={[
+              styles.daysBadge,
+              {
+                backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.16)' : theme.primaryContainer,
+                borderColor: isDarkMode ? 'rgba(129, 140, 248, 0.32)' : 'rgba(0, 0, 0, 0.08)',
+              },
+            ]}
+          >
+            <MaterialCommunityIcons
+              name="wallet-outline"
+              size={14}
+              color={isDarkMode ? '#A5B4FC' : theme.primary}
+              style={{ marginRight: 4 }}
+            />
+            <Text
+              style={[
+                styles.daysBadgeText,
+                { color: isDarkMode ? '#E0E7FF' : theme.onPrimaryContainer, fontWeight: '800' },
+              ]}
+              numberOfLines={1}
+            >
+              {formatCurrency(totalConvertedBalance, settings.base_currency)}
+            </Text>
+          </View>
+        ) : currentCycle ? (
           <TouchableOpacity
             style={[
               styles.daysBadge,
@@ -160,6 +243,14 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 12,
     fontWeight: '600',
+  },
+  switchBadge: {
+    marginLeft: 6,
+    paddingHorizontal: 4,
+    paddingVertical: 1.5,
+    borderRadius: M3Shape.full,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   daysBadge: {
     flexDirection: 'row',
