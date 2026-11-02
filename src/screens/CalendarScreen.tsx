@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,7 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
-import { formatCurrency } from '../utils/format';
+import { formatCurrency, formatCycleDateRange } from '../utils/format';
 import { DateRangePickerModal } from '../components/DateRangePickerModal';
 import { TransactionDetailModal } from '../components/TransactionDetailModal';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
@@ -21,7 +21,11 @@ export const CalendarScreen: React.FC = () => {
   const {
     settings,
     currentCycle,
+    allCycles,
     updateBudgetCycle,
+    setActiveBudgetCycle,
+    updateSettings,
+    openCycleModal,
     transactions,
     categories,
     wallets,
@@ -37,7 +41,8 @@ export const CalendarScreen: React.FC = () => {
     addSubcategory,
   } = useBudget();
 
-  const theme = settings.theme_mode === 'dark' ? darkTheme : lightTheme;
+  const isDarkMode = settings.theme_mode === 'dark';
+  const theme = isDarkMode ? darkTheme : lightTheme;
 
   // Selected date on calendar (bound to global calendar date)
   const selectedDate = selectedCalendarDate;
@@ -132,39 +137,35 @@ export const CalendarScreen: React.FC = () => {
     });
   };
 
-  // Edit Cycle Modal State
-  const [cycleModalVisible, setCycleModalVisible] = useState<boolean>(false);
-  const [cycleName, setCycleName] = useState<string>('');
-  const [cycleStart, setCycleStart] = useState<string>('');
-  const [cycleEnd, setCycleEnd] = useState<string>('');
-  const [cycleBudget, setCycleBudget] = useState<string>('');
-  const [cycleIncomeGoal, setCycleIncomeGoal] = useState<string>('');
+  // Shift Mode Switcher Modal (Tap active chip: shift between regular and custom, no editing)
+  const [modeSwitcherVisible, setModeSwitcherVisible] = useState<boolean>(false);
 
-  const handleOpenCycleModal = () => {
-    if (currentCycle) {
-      setCycleName(currentCycle.name);
-      setCycleStart(currentCycle.start_date);
-      setCycleEnd(currentCycle.end_date);
-      setCycleBudget(currentCycle.target_budget ? currentCycle.target_budget.toString() : '');
-      setCycleIncomeGoal(currentCycle.target_income ? currentCycle.target_income.toString() : '');
+  // Horizontal list of cycles
+  const cycleList = useMemo(() => {
+    if (allCycles && allCycles.length > 0) {
+      const sorted = [...allCycles].sort((a, b) => b.start_date.localeCompare(a.start_date));
+      if (currentCycle && !sorted.some((c) => c.id === currentCycle.id)) {
+        sorted.unshift(currentCycle);
+      }
+      return sorted;
     }
-    setCycleModalVisible(true);
-  };
+    if (currentCycle) return [currentCycle];
+    return [];
+  }, [allCycles, currentCycle]);
 
-  const handleSaveCycle = async () => {
-    if (!cycleName || !cycleStart || !cycleEnd) return;
-    const numBudget = parseFloat(cycleBudget);
-    const numIncome = parseFloat(cycleIncomeGoal);
-    await updateBudgetCycle({
-      id: currentCycle?.id,
-      name: cycleName,
-      start_date: cycleStart,
-      end_date: cycleEnd,
-      target_budget: !isNaN(numBudget) ? numBudget : undefined,
-      target_income: !isNaN(numIncome) ? numIncome : undefined,
-    });
-    setCycleModalVisible(false);
-  };
+  const cycleScrollRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (cycleList.length > 1 && currentCycle) {
+      const idx = cycleList.findIndex((c) => c.id === currentCycle.id || c.is_active);
+      if (idx >= 0) {
+        const targetX = Math.max(0, idx * 140 - 50);
+        setTimeout(() => {
+          cycleScrollRef.current?.scrollTo({ x: targetX, animated: true });
+        }, 120);
+      }
+    }
+  }, [cycleList, currentCycle]);
 
   // Generate days in the active month or cycle
   const currentMonthDate = useMemo(() => {
@@ -219,63 +220,142 @@ export const CalendarScreen: React.FC = () => {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        {/* CYCLE BANNER & START / END DATES */}
-        <View style={[styles.cycleCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
-          <View style={styles.cycleTopRow}>
-            <TouchableOpacity
-              style={{ flex: 1 }}
-              onPress={handleOpenCycleModal}
-              activeOpacity={0.7}
-            >
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={[styles.cycleTitle, { color: theme.onSurface }]}>
-                  {currentCycle ? currentCycle.name : 'Budget Cycle'}
-                </Text>
-                <MaterialCommunityIcons name="pencil-outline" size={14} color={theme.onSurfaceVariant} />
-              </View>
-              <Text style={[styles.cycleRange, { color: theme.onSurfaceVariant }]}>
-                {currentCycle?.start_date ? `${currentCycle.start_date} ➔ ${currentCycle.end_date}` : 'Tap to set up budget cycle'}
-              </Text>
-            </TouchableOpacity>
+      {/* 1. DOCKED TOP BANNER (MERGED WITH TOP BAR) */}
+      <View
+        style={[
+          styles.dockedTopBanner,
+          {
+            backgroundColor: theme.surface,
+            borderBottomColor: theme.divider,
+          },
+          M3Elevation.level1,
+        ]}
+      >
+        {/* Horizontal List of Cycles with Current Centered on a Chip */}
+        <View style={styles.cycleChipsWrapper}>
+          <ScrollView
+            ref={cycleScrollRef}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={[
+              styles.cycleChipsScroll,
+              cycleList.length <= 2 && { justifyContent: 'center', minWidth: '100%' },
+            ]}
+          >
+            {cycleList.map((c) => {
+              const isActive = c.is_active || (currentCycle && c.id === currentCycle.id);
+              const displayName = c.name || formatCycleDateRange(c.start_date, c.end_date);
+              const dateSub = formatCycleDateRange(c.start_date, c.end_date);
 
-            <TouchableOpacity
-              style={[styles.editCycleBtn, { backgroundColor: theme.primaryContainer }]}
-              onPress={() => setDateRangePickerVisible(true)}
-            >
-              <MaterialCommunityIcons name="calendar-range" size={18} color={theme.onPrimaryContainer} />
-              <Text style={[styles.editCycleText, { color: theme.onPrimaryContainer }]}>Edit Dates</Text>
-            </TouchableOpacity>
+              return (
+                <TouchableOpacity
+                  key={c.id}
+                  style={[
+                    styles.cycleChip,
+                    {
+                      backgroundColor: isActive
+                        ? (isDarkMode ? 'rgba(99, 102, 241, 0.25)' : theme.primaryContainer)
+                        : theme.pillBg,
+                      borderColor: isActive ? theme.primary : 'transparent',
+                    },
+                    isActive && M3Elevation.level1,
+                  ]}
+                  onPress={() => {
+                    if (isActive) {
+                      // Tap active chip: open cycle manager to shift between regular and custom, no editing
+                      setModeSwitcherVisible(true);
+                    } else {
+                      // Tap inactive chip: switch to this cycle
+                      setActiveBudgetCycle(c.id);
+                    }
+                  }}
+                  onLongPress={() => {
+                    // Hold any cycle chip: open full editor/manager
+                    openCycleModal();
+                  }}
+                  delayLongPress={350}
+                  activeOpacity={0.75}
+                >
+                  <MaterialCommunityIcons
+                    name={isActive ? 'calendar-check' : 'calendar-outline'}
+                    size={15}
+                    color={isActive ? (isDarkMode ? '#A5B4FC' : theme.primary) : theme.onSurfaceVariant}
+                  />
+                  <View style={styles.chipTextCol}>
+                    <Text
+                      style={[
+                        styles.cycleChipText,
+                        {
+                          color: isActive ? (isDarkMode ? '#E0E7FF' : theme.onPrimaryContainer) : theme.onSurface,
+                          fontWeight: isActive ? '800' : '600',
+                        },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {displayName}
+                    </Text>
+                    {c.name && c.name !== dateSub && (
+                      <Text
+                        style={[
+                          styles.cycleChipSubText,
+                          {
+                            color: isActive ? (isDarkMode ? '#C7D2FE' : theme.primary) : theme.onSurfaceVariant,
+                          },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {dateSub}
+                      </Text>
+                    )}
+                  </View>
+                  {isActive && (
+                    <View
+                      style={[
+                        styles.activeBadgePill,
+                        { backgroundColor: isDarkMode ? '#818CF8' : theme.primary },
+                      ]}
+                    >
+                      <Text style={[styles.activeBadgeText, { color: isDarkMode ? '#0F172A' : theme.onPrimary }]}>
+                        Active
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+
+        {/* Docked Balance Breakdown */}
+        <View style={[styles.dockedBalanceRow, { borderTopColor: isDarkMode ? 'rgba(255, 255, 255, 0.08)' : theme.divider }]}>
+          <View style={styles.balanceCol}>
+            <Text style={[styles.balanceColLabel, { color: theme.onSurfaceVariant }]}>STARTING TARGET</Text>
+            <Text style={[styles.balanceColVal, { color: theme.onSurface }]}>
+              {formatCurrency(currentCycle?.target_budget || totalConvertedBalance, settings.base_currency)}
+            </Text>
           </View>
 
-          {/* Balance breakdown on calendar */}
-          <View style={styles.cycleBalanceRow}>
-            <View style={styles.balanceCol}>
-              <Text style={[styles.balanceColLabel, { color: theme.onSurfaceVariant }]}>STARTING TARGET</Text>
-              <Text style={[styles.balanceColVal, { color: theme.onSurface }]}>
-                {formatCurrency(currentCycle?.target_budget || totalConvertedBalance, settings.base_currency)}
-              </Text>
-            </View>
+          <View style={[styles.balanceDivider, { backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.08)' : theme.divider }]} />
 
-            <View style={[styles.balanceDivider, { backgroundColor: theme.divider }]} />
+          <View style={styles.balanceCol}>
+            <Text style={[styles.balanceColLabel, { color: theme.error }]}>TOTAL SPENT</Text>
+            <Text style={[styles.balanceColVal, { color: theme.error }]}>
+              {formatCurrency(spentInCycle, settings.base_currency)}
+            </Text>
+          </View>
 
-            <View style={styles.balanceCol}>
-              <Text style={[styles.balanceColLabel, { color: theme.error }]}>TOTAL SPENT</Text>
-              <Text style={[styles.balanceColVal, { color: theme.error }]}>
-                {formatCurrency(spentInCycle, settings.base_currency)}
-              </Text>
-            </View>
+          <View style={[styles.balanceDivider, { backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.08)' : theme.divider }]} />
 
-            <View style={[styles.balanceDivider, { backgroundColor: theme.divider }]} />
-
-            <View style={styles.balanceCol}>
-              <Text style={[styles.balanceColLabel, { color: theme.success }]}>REMAINING</Text>
-              <Text style={[styles.balanceColVal, { color: theme.success }]}>
-                {formatCurrency(remainingCycleBalance, settings.base_currency)}
-              </Text>
-            </View>
+          <View style={styles.balanceCol}>
+            <Text style={[styles.balanceColLabel, { color: theme.success }]}>REMAINING</Text>
+            <Text style={[styles.balanceColVal, { color: theme.success }]}>
+              {formatCurrency(remainingCycleBalance, settings.base_currency)}
+            </Text>
           </View>
         </View>
+      </View>
+
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
 
         {/* CALENDAR MONTH HEADER */}
         <View style={styles.monthHeaderRow}>
@@ -421,97 +501,145 @@ export const CalendarScreen: React.FC = () => {
         </View>
       </ScrollView>
 
-      {/* EDIT BUDGET CYCLE MODAL */}
-      <Modal visible={cycleModalVisible} transparent animationType="slide" onRequestClose={() => setCycleModalVisible(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalBox, { backgroundColor: theme.surface }]}>
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: theme.onSurface }]}>Custom Budget Cycle</Text>
-              <TouchableOpacity onPress={() => setCycleModalVisible(false)}>
-                <MaterialCommunityIcons name="close" size={22} color={theme.onSurface} />
-              </TouchableOpacity>
-            </View>
-
-            <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>Cycle Name</Text>
-            <TextInput
-              style={[styles.input, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
-              placeholder="e.g. November 2026 or Pay Period 1"
-              placeholderTextColor={theme.onSurfaceVariant}
-              value={cycleName}
-              onChangeText={setCycleName}
-            />
-
-            <View style={styles.dateRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>Start Date (YYYY-MM-DD)</Text>
-                <TextInput
-                  style={[styles.input, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
-                  placeholder="2026-11-01"
-                  placeholderTextColor={theme.onSurfaceVariant}
-                  value={cycleStart}
-                  onChangeText={setCycleStart}
-                />
+      {/* SHIFT CYCLE MODE MODAL (TAP ACTIVE CHIP: SHIFT BETWEEN REGULAR & CUSTOM, NO EDITING) */}
+      <Modal
+        visible={modeSwitcherVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setModeSwitcherVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setModeSwitcherVisible(false)}
+        >
+          <View
+            style={[styles.modeSwitcherBox, { backgroundColor: theme.surface }]}
+            onStartShouldSetResponder={() => true}
+          >
+            {/* Header */}
+            <View style={styles.modeSwitcherHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <MaterialCommunityIcons name="calendar-sync" size={22} color={theme.primary} />
+                <Text style={[styles.modeSwitcherTitle, { color: theme.onSurface }]}>Cycle Mode</Text>
               </View>
-
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>End Date (YYYY-MM-DD)</Text>
-                <TextInput
-                  style={[styles.input, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
-                  placeholder="2026-11-30"
-                  placeholderTextColor={theme.onSurfaceVariant}
-                  value={cycleEnd}
-                  onChangeText={setCycleEnd}
-                />
-              </View>
-            </View>
-
-            <View style={styles.dateRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>
-                  Target Budget ({settings.base_currency})
-                </Text>
-                <TextInput
-                  style={[styles.input, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
-                  placeholder="e.g. 2000"
-                  placeholderTextColor={theme.onSurfaceVariant}
-                  keyboardType="decimal-pad"
-                  value={cycleBudget}
-                  onChangeText={setCycleBudget}
-                />
-              </View>
-
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>
-                  Income Goal ({settings.base_currency})
-                </Text>
-                <TextInput
-                  style={[styles.input, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
-                  placeholder="e.g. 3000"
-                  placeholderTextColor={theme.onSurfaceVariant}
-                  keyboardType="decimal-pad"
-                  value={cycleIncomeGoal}
-                  onChangeText={setCycleIncomeGoal}
-                />
-              </View>
-            </View>
-
-            <View style={styles.modalBtnRow}>
               <TouchableOpacity
-                style={[styles.cancelBtn, { backgroundColor: theme.pillBg }]}
-                onPress={() => setCycleModalVisible(false)}
+                onPress={() => setModeSwitcherVisible(false)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <Text style={[styles.btnText, { color: theme.onSurface }]}>Cancel</Text>
+                <MaterialCommunityIcons name="close" size={20} color={theme.onSurfaceVariant} />
               </TouchableOpacity>
+            </View>
 
-              <TouchableOpacity
-                style={[styles.saveBtn, { backgroundColor: theme.primary }]}
-                onPress={handleSaveCycle}
-              >
-                <Text style={[styles.btnText, { color: theme.onPrimary }]}>Save Cycle</Text>
-              </TouchableOpacity>
+            <Text style={[styles.modeSwitcherSub, { color: theme.onSurfaceVariant }]}>
+              Shift between regular recurring calendar months and custom arbitrary periods.
+            </Text>
+
+            {/* Mode Option 1: Regular Calendar */}
+            <TouchableOpacity
+              style={[
+                styles.modeCard,
+                {
+                  backgroundColor: settings.cycle_mode === 'regular'
+                    ? (isDarkMode ? 'rgba(99, 102, 241, 0.22)' : theme.primaryContainer)
+                    : theme.pillBg,
+                  borderColor: settings.cycle_mode === 'regular' ? theme.primary : 'transparent',
+                },
+              ]}
+              onPress={async () => {
+                await updateSettings({ cycle_mode: 'regular' });
+                const regCycle = allCycles.find((c) => c.id.startsWith('cycle-reg-')) || allCycles[0];
+                if (regCycle) {
+                  await setActiveBudgetCycle(regCycle.id);
+                }
+                setModeSwitcherVisible(false);
+              }}
+              activeOpacity={0.75}
+            >
+              <View style={[styles.modeCardIconWrap, { backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.2)' : theme.primaryContainer }]}>
+                <MaterialCommunityIcons
+                  name="calendar-month"
+                  size={22}
+                  color={isDarkMode ? '#A5B4FC' : theme.primary}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={[styles.modeCardTitle, { color: theme.onSurface }]}>Regular Calendar</Text>
+                  {settings.cycle_mode === 'regular' && (
+                    <View style={[styles.modeActivePill, { backgroundColor: theme.primary }]}>
+                      <Text style={[styles.modeActivePillText, { color: theme.onPrimary }]}>Active</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={[styles.modeCardDesc, { color: theme.onSurfaceVariant }]}>
+                  Monthly cycle repeating on the {settings.cycle_month_start_day || 1}st of each month.
+                </Text>
+              </View>
+              <MaterialCommunityIcons
+                name={settings.cycle_mode === 'regular' ? 'radiobox-marked' : 'radiobox-blank'}
+                size={22}
+                color={settings.cycle_mode === 'regular' ? theme.primary : theme.outlineVariant}
+              />
+            </TouchableOpacity>
+
+            {/* Mode Option 2: Custom Periods */}
+            <TouchableOpacity
+              style={[
+                styles.modeCard,
+                {
+                  backgroundColor: settings.cycle_mode === 'custom'
+                    ? (isDarkMode ? 'rgba(99, 102, 241, 0.22)' : theme.primaryContainer)
+                    : theme.pillBg,
+                  borderColor: settings.cycle_mode === 'custom' ? theme.primary : 'transparent',
+                },
+              ]}
+              onPress={async () => {
+                await updateSettings({ cycle_mode: 'custom' });
+                const customCycle = allCycles.find((c) => !c.id.startsWith('cycle-reg-')) || allCycles[0];
+                if (customCycle) {
+                  await setActiveBudgetCycle(customCycle.id);
+                }
+                setModeSwitcherVisible(false);
+              }}
+              activeOpacity={0.75}
+            >
+              <View style={[styles.modeCardIconWrap, { backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.2)' : theme.primaryContainer }]}>
+                <MaterialCommunityIcons
+                  name="calendar-range"
+                  size={22}
+                  color={isDarkMode ? '#A5B4FC' : theme.primary}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={[styles.modeCardTitle, { color: theme.onSurface }]}>Custom Periods</Text>
+                  {settings.cycle_mode === 'custom' && (
+                    <View style={[styles.modeActivePill, { backgroundColor: theme.primary }]}>
+                      <Text style={[styles.modeActivePillText, { color: theme.onPrimary }]}>Active</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={[styles.modeCardDesc, { color: theme.onSurfaceVariant }]}>
+                  Arbitrary date ranges, pay periods, or custom multi-week intervals.
+                </Text>
+              </View>
+              <MaterialCommunityIcons
+                name={settings.cycle_mode === 'custom' ? 'radiobox-marked' : 'radiobox-blank'}
+                size={22}
+                color={settings.cycle_mode === 'custom' ? theme.primary : theme.outlineVariant}
+              />
+            </TouchableOpacity>
+
+            {/* Hint for editing */}
+            <View style={[styles.modeHintRow, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : theme.pillBg }]}>
+              <MaterialCommunityIcons name="gesture-tap-hold" size={16} color={theme.primary} />
+              <Text style={[styles.modeHintText, { color: theme.onSurfaceVariant }]}>
+                Hold any cycle chip on the calendar header to edit dates and budget targets.
+              </Text>
             </View>
           </View>
-        </View>
+        </TouchableOpacity>
       </Modal>
 
       {/* VISUAL DATE RANGE PICKER (CONNECTING POLYLINE / BAND RANGE PICKER) */}
@@ -572,48 +700,61 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  scrollContent: {
-    padding: 16,
-    paddingBottom: 40,
+  dockedTopBanner: {
+    borderBottomWidth: 1,
+    paddingTop: 6,
+    paddingBottom: 8,
   },
-  cycleCard: {
-    borderWidth: 1,
-    borderRadius: M3Shape.extraLarge,
-    padding: 16,
-    marginBottom: 16,
+  cycleChipsWrapper: {
+    paddingVertical: 2,
+    marginBottom: 4,
   },
-  cycleTopRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  cycleChipsScroll: {
+    paddingHorizontal: 12,
+    gap: 8,
     alignItems: 'center',
-    marginBottom: 14,
   },
-  cycleTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  cycleRange: {
-    fontSize: 12,
-    marginTop: 2,
-  },
-  editCycleBtn: {
+  cycleChip: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 6,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: M3Shape.full,
-    gap: 4,
+    borderWidth: 1.5,
   },
-  editCycleText: {
+  chipTextCol: {
+    justifyContent: 'center',
+  },
+  cycleChipText: {
     fontSize: 12,
-    fontWeight: '700',
   },
-  cycleBalanceRow: {
+  cycleChipSubText: {
+    fontSize: 9.5,
+    marginTop: 1,
+  },
+  activeBadgePill: {
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: M3Shape.full,
+    marginLeft: 2,
+  },
+  activeBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  dockedBalanceRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingTop: 10,
+    paddingTop: 8,
+    marginTop: 4,
     borderTopWidth: 1,
-    borderColor: '#E5E7EB20',
+    paddingHorizontal: 16,
+  },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 40,
   },
   balanceCol: {
     flex: 1,
@@ -741,58 +882,75 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.55)',
     justifyContent: 'center',
+    alignItems: 'center',
     padding: 20,
   },
-  modalBox: {
+  modeSwitcherBox: {
+    width: '100%',
+    maxWidth: 360,
     borderRadius: M3Shape.extraLarge,
     padding: 20,
+    gap: 12,
   },
-  modalHeader: {
+  modeSwitcherHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 14,
   },
-  modalTitle: {
+  modeSwitcherTitle: {
     fontSize: 18,
     fontWeight: '800',
   },
-  inputLabel: {
+  modeSwitcherSub: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  modeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: M3Shape.large,
+    borderWidth: 1.5,
+    gap: 12,
+  },
+  modeCardIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modeCardTitle: {
+    fontSize: 13.5,
+    fontWeight: '800',
+  },
+  modeCardDesc: {
     fontSize: 11,
-    fontWeight: '700',
-    marginTop: 10,
-    marginBottom: 4,
+    marginTop: 2,
+    lineHeight: 15,
   },
-  input: {
-    height: 44,
+  modeActivePill: {
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: M3Shape.full,
+  },
+  modeActivePillText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+  },
+  modeHintRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 10,
     borderRadius: M3Shape.medium,
-    paddingHorizontal: 12,
-    fontSize: 14,
+    marginTop: 4,
   },
-  dateRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  modalBtnRow: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 10,
-    marginTop: 18,
-  },
-  cancelBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: M3Shape.full,
-  },
-  saveBtn: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: M3Shape.full,
-  },
-  btnText: {
-    fontSize: 13,
-    fontWeight: '700',
+  modeHintText: {
+    fontSize: 11,
+    flex: 1,
+    lineHeight: 15,
   },
 });
