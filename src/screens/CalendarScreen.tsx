@@ -244,33 +244,150 @@ export const CalendarScreen: React.FC = () => {
     }
   };
 
-  // Generate days in the active month or cycle
-  const currentMonthDate = useMemo(() => {
-    return new Date(selectedDate);
-  }, [selectedDate]);
+  // Collapsible Calendar View state (Collapse to 1-week row to give more room for transactions)
+  const [isCalendarCollapsed, setIsCalendarCollapsed] = useState<boolean>(false);
 
-  const calendarDays = useMemo(() => {
-    const year = currentMonthDate.getFullYear();
-    const month = currentMonthDate.getMonth();
-    const firstDay = new Date(year, month, 1).getDay(); // 0 is Sunday
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
+  // Active cycle date boundaries (for showing the WHOLE active cycle in the calendar)
+  const activeCycleRange = useMemo(() => {
+    if (currentCycle?.start_date && currentCycle?.end_date) {
+      return {
+        startDate: currentCycle.start_date,
+        endDate: currentCycle.end_date,
+        name: currentCycle.name || formatCycleDateRange(currentCycle.start_date, currentCycle.end_date),
+      };
+    }
+    const reg = getRegularCycleDates(settings.cycle_month_start_day || 1);
+    return {
+      startDate: reg.startDate,
+      endDate: reg.endDate,
+      name: reg.name,
+    };
+  }, [currentCycle, settings.cycle_month_start_day]);
 
-    const days: { dateStr: string; dayNumber: number; inCurrentMonth: boolean }[] = [];
+  // Keep selectedDate within cycle if cycle changes
+  useEffect(() => {
+    if (activeCycleRange.startDate && activeCycleRange.endDate) {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const isTodayInCycle = todayStr >= activeCycleRange.startDate && todayStr <= activeCycleRange.endDate;
+      const isSelectedInCycle = selectedDate >= activeCycleRange.startDate && selectedDate <= activeCycleRange.endDate;
 
-    // Pad beginning with empty / previous month
-    for (let i = 0; i < firstDay; i++) {
-      days.push({ dateStr: '', dayNumber: 0, inCurrentMonth: false });
+      if (!isSelectedInCycle) {
+        setSelectedDate(isTodayInCycle ? todayStr : activeCycleRange.startDate);
+      }
+    }
+  }, [activeCycleRange, selectedDate, setSelectedDate]);
+
+  // Generate ALL days in the whole active cycle (with weekday alignment)
+  const cycleCalendarDays = useMemo(() => {
+    const { startDate, endDate } = activeCycleRange;
+    if (!startDate || !endDate) return [];
+
+    const [sy, sm, sd] = startDate.split('-').map(Number);
+    const [ey, em, ed] = endDate.split('-').map(Number);
+
+    const startObj = new Date(sy, sm - 1, sd, 12, 0, 0);
+    const endObj = new Date(ey, em - 1, ed, 12, 0, 0);
+
+    const startDayOfWeek = startObj.getDay(); // 0 is Sunday
+
+    const shortMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    const days: {
+      dateStr: string;
+      dayNumber: number;
+      monthShort: string;
+      showMonthLabel: boolean;
+      inCycle: boolean;
+      weekIndex: number;
+    }[] = [];
+
+    // Leading padding cells so cycle start aligns on its weekday column
+    for (let i = 0; i < startDayOfWeek; i++) {
+      days.push({
+        dateStr: '',
+        dayNumber: 0,
+        monthShort: '',
+        showMonthLabel: false,
+        inCycle: false,
+        weekIndex: 0,
+      });
     }
 
-    for (let d = 1; d <= daysInMonth; d++) {
-      const monthPadded = String(month + 1).padStart(2, '0');
-      const dayPadded = String(d).padStart(2, '0');
-      const dateStr = `${year}-${monthPadded}-${dayPadded}`;
-      days.push({ dateStr, dayNumber: d, inCurrentMonth: true });
+    const cur = new Date(startObj);
+    let cellCount = startDayOfWeek;
+
+    while (cur <= endObj) {
+      const y = cur.getFullYear();
+      const m = String(cur.getMonth() + 1).padStart(2, '0');
+      const d = String(cur.getDate()).padStart(2, '0');
+      const dateStr = `${y}-${m}-${d}`;
+      const dayNumber = cur.getDate();
+      const monthShort = shortMonths[cur.getMonth()];
+      const weekIndex = Math.floor(cellCount / 7);
+
+      const isCycleStart = cur.getTime() === startObj.getTime();
+      const isFirstOfMonth = dayNumber === 1;
+      const showMonthLabel = isCycleStart || isFirstOfMonth;
+
+      days.push({
+        dateStr,
+        dayNumber,
+        monthShort,
+        showMonthLabel,
+        inCycle: true,
+        weekIndex,
+      });
+
+      cellCount++;
+      cur.setDate(cur.getDate() + 1);
+    }
+
+    // Trailing padding cells to complete final week
+    const remainder = cellCount % 7;
+    if (remainder !== 0) {
+      const needed = 7 - remainder;
+      const lastWeekIndex = Math.floor((cellCount - 1) / 7);
+      for (let i = 0; i < needed; i++) {
+        days.push({
+          dateStr: '',
+          dayNumber: 0,
+          monthShort: '',
+          showMonthLabel: false,
+          inCycle: false,
+          weekIndex: lastWeekIndex,
+        });
+      }
     }
 
     return days;
-  }, [currentMonthDate]);
+  }, [activeCycleRange]);
+
+  // Displayed calendar days: all cycle days when expanded, or 1-week row of selected date when collapsed
+  const displayedCalendarDays = useMemo(() => {
+    if (!isCalendarCollapsed) {
+      return cycleCalendarDays;
+    }
+    const selectedCell = cycleCalendarDays.find((cell) => cell.dateStr === selectedDate);
+    const activeWeekIndex = selectedCell?.weekIndex ?? 0;
+    return cycleCalendarDays.filter((cell) => cell.weekIndex === activeWeekIndex);
+  }, [cycleCalendarDays, isCalendarCollapsed, selectedDate]);
+
+  // Format date header nicely: e.g. "Today • Saturday, 31 Oct"
+  const formatSelectedDateHeader = (dateStr: string) => {
+    if (!dateStr) return '';
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().slice(0, 10);
+
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dateObj = new Date(y, m - 1, d, 12, 0, 0);
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    const prefix = dateStr === todayStr ? 'Today • ' : dateStr === yesterdayStr ? 'Yesterday • ' : '';
+    return `${prefix}${dayNames[dateObj.getDay()]}, ${d} ${monthNames[m - 1]} ${y}`;
+  };
 
   // Aggregate spending per day
   const dailySpendMap = useMemo(() => {
@@ -289,11 +406,6 @@ export const CalendarScreen: React.FC = () => {
   }, [transactions, selectedDate]);
 
   const selectedDayTotalSpend = dailySpendMap[selectedDate] || 0;
-
-  const monthNames = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
-  ];
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -461,17 +573,60 @@ export const CalendarScreen: React.FC = () => {
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
 
-        {/* CALENDAR MONTH HEADER */}
+        {/* CALENDAR CYCLE HEADER */}
         <View style={styles.monthHeaderRow}>
-          <Text style={[styles.monthTitle, { color: theme.onSurface }]}>
-            {monthNames[currentMonthDate.getMonth()]} {currentMonthDate.getFullYear()}
-          </Text>
-          <TouchableOpacity
-            style={[styles.todayBtn, { backgroundColor: theme.pillBg }]}
-            onPress={() => setSelectedDate(new Date().toISOString().slice(0, 10))}
-          >
-            <Text style={[styles.todayBtnText, { color: theme.primary }]}>Today</Text>
-          </TouchableOpacity>
+          <View style={{ flex: 1, marginRight: 8 }}>
+            <Text style={[styles.monthTitle, { color: theme.onSurface }]} numberOfLines={1}>
+              {activeCycleRange.name}
+            </Text>
+            <Text style={[styles.cycleViewModeSub, { color: theme.onSurfaceVariant }]}>
+              {isCalendarCollapsed ? 'Week View • Tap to expand' : 'Full Cycle View • Tap to collapse'}
+            </Text>
+          </View>
+
+          <View style={styles.calendarHeaderRightActions}>
+            <TouchableOpacity
+              style={[styles.todayBtn, { backgroundColor: theme.pillBg }]}
+              onPress={() => {
+                const todayStr = new Date().toISOString().slice(0, 10);
+                setSelectedDate(todayStr);
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.todayBtnText, { color: theme.primary }]}>Today</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.collapseToggleBtn,
+                {
+                  backgroundColor: isCalendarCollapsed
+                    ? (isDarkMode ? 'rgba(99, 102, 241, 0.22)' : theme.primaryContainer)
+                    : theme.pillBg,
+                },
+              ]}
+              onPress={() => setIsCalendarCollapsed(!isCalendarCollapsed)}
+              activeOpacity={0.7}
+              accessibilityLabel={isCalendarCollapsed ? 'Expand Calendar to Full Cycle' : 'Collapse Calendar to Week View'}
+            >
+              <MaterialCommunityIcons
+                name={isCalendarCollapsed ? 'calendar-expand-horizontal' : 'calendar-collapse-horizontal'}
+                size={14}
+                color={isCalendarCollapsed ? (isDarkMode ? '#A5B4FC' : theme.primary) : theme.onSurfaceVariant}
+              />
+              <Text
+                style={[
+                  styles.collapseToggleText,
+                  {
+                    color: isCalendarCollapsed ? (isDarkMode ? '#E0E7FF' : theme.onPrimaryContainer) : theme.onSurfaceVariant,
+                    fontWeight: isCalendarCollapsed ? '800' : '600',
+                  },
+                ]}
+              >
+                {isCalendarCollapsed ? 'Expand' : 'Collapse'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* WEEKDAYS ROW */}
@@ -483,10 +638,10 @@ export const CalendarScreen: React.FC = () => {
           ))}
         </View>
 
-        {/* CALENDAR GRID */}
+        {/* CALENDAR GRID (FULL CYCLE OR 1-WEEK ROW) */}
         <View style={styles.gridContainer}>
-          {calendarDays.map((cell, idx) => {
-            if (!cell.inCurrentMonth) {
+          {displayedCalendarDays.map((cell, idx) => {
+            if (!cell.inCycle) {
               return <View key={idx} style={styles.emptyCell} />;
             }
 
@@ -504,16 +659,30 @@ export const CalendarScreen: React.FC = () => {
                     backgroundColor: isSelected ? theme.primaryContainer : theme.cardBg,
                     borderColor: isSelected ? theme.primary : isToday ? theme.secondary : theme.divider,
                   },
+                  isSelected && M3Elevation.level1,
                 ]}
                 onPress={() => setSelectedDate(cell.dateStr)}
                 activeOpacity={0.7}
               >
+                {cell.showMonthLabel && (
+                  <Text
+                    style={[
+                      styles.cellMonthLabel,
+                      {
+                        color: isSelected ? (isDarkMode ? '#C7D2FE' : theme.primary) : theme.primary,
+                      },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {cell.monthShort}
+                  </Text>
+                )}
                 <Text
                   style={[
                     styles.cellDayNum,
                     {
                       color: isSelected ? theme.onPrimaryContainer : theme.onSurface,
-                      fontWeight: isSelected || isToday ? '700' : '500',
+                      fontWeight: isSelected || isToday ? '800' : '500',
                     },
                   ]}
                 >
@@ -528,13 +697,31 @@ export const CalendarScreen: React.FC = () => {
           })}
         </View>
 
+        {/* COLLAPSE / EXPAND HANDLE BAR (ALLOWS QUICK TOGGLE FOR MORE TRANSACTION ROOM) */}
+        <TouchableOpacity
+          style={styles.collapseHandleBar}
+          onPress={() => setIsCalendarCollapsed(!isCalendarCollapsed)}
+          activeOpacity={0.7}
+        >
+          <View style={[styles.collapseHandlePill, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.18)' : theme.divider }]} />
+          <View style={styles.collapseHintRow}>
+            <MaterialCommunityIcons
+              name={isCalendarCollapsed ? 'chevron-down' : 'chevron-up'}
+              size={14}
+              color={theme.onSurfaceVariant}
+            />
+            <Text style={[styles.collapseHintText, { color: theme.onSurfaceVariant }]}>
+              {isCalendarCollapsed ? 'Show Full Cycle Calendar' : 'Collapse to Week View for More Room'}
+            </Text>
+          </View>
+        </TouchableOpacity>
+
         {/* SELECTED DAY DETAILS */}
         <View style={styles.dayDetailsCard}>
           <View style={styles.dayDetailsHeader}>
             <View>
               <Text style={[styles.dayDetailsTitle, { color: theme.onSurface }]}>
-                {selectedDate === new Date().toISOString().slice(0, 10) ? 'Today, ' : ''}
-                {selectedDate}
+                {formatSelectedDateHeader(selectedDate)}
               </Text>
               <Text style={[styles.dayDetailsSub, { color: theme.onSurfaceVariant }]}>
                 Total Spent:{' '}
@@ -890,6 +1077,15 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '800',
   },
+  cycleViewModeSub: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  calendarHeaderRightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   todayBtn: {
     paddingHorizontal: 12,
     paddingVertical: 5,
@@ -898,6 +1094,17 @@ const styles = StyleSheet.create({
   todayBtnText: {
     fontSize: 12,
     fontWeight: '700',
+  },
+  collapseToggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: M3Shape.full,
+  },
+  collapseToggleText: {
+    fontSize: 11,
   },
   weekdaysRow: {
     flexDirection: 'row',
@@ -913,7 +1120,7 @@ const styles = StyleSheet.create({
   gridContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginBottom: 16,
+    marginBottom: 8,
   },
   calendarCell: {
     width: `${100 / 7}%`,
@@ -923,6 +1130,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 4,
+  },
+  cellMonthLabel: {
+    fontSize: 8,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    marginBottom: -1,
   },
   emptyCell: {
     width: `${100 / 7}%`,
@@ -936,6 +1149,28 @@ const styles = StyleSheet.create({
     height: 5,
     borderRadius: 2.5,
     marginTop: 2,
+  },
+  collapseHandleBar: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+    marginTop: -4,
+    marginBottom: 8,
+  },
+  collapseHandlePill: {
+    width: 32,
+    height: 3.5,
+    borderRadius: 2,
+    marginBottom: 4,
+  },
+  collapseHintRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  collapseHintText: {
+    fontSize: 10.5,
+    fontWeight: '600',
   },
   dayDetailsCard: {
     marginTop: 8,
