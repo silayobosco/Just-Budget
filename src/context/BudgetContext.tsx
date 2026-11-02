@@ -258,35 +258,25 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         cycle = db.getFirstSync<BudgetCycle>(`SELECT * FROM budget_cycles ORDER BY start_date DESC LIMIT 1`);
       }
 
-      // If in regular calendar mode, align active cycle with the regular cycle dates
-      if (newSettings.cycle_mode === 'regular') {
+      // If no active cycle exists and onboarding completed, initialize with regular cycle dates
+      if (!cycle && newSettings.onboarding_completed) {
         const reg = getRegularCycleDates(newSettings.cycle_month_start_day || 1);
-        if (cycle) {
-          if (cycle.start_date !== reg.startDate || cycle.end_date !== reg.endDate) {
-            db.runSync(
-              `UPDATE budget_cycles SET name = ?, start_date = ?, end_date = ? WHERE id = ?`,
-              [reg.name, reg.startDate, reg.endDate, cycle.id]
-            );
-            cycle = { ...cycle, name: reg.name, start_date: reg.startDate, end_date: reg.endDate };
-          }
-        } else if (newSettings.onboarding_completed) {
-          const regId = `cycle-reg-${reg.startDate}`;
-          const bVal = newSettings.cycle_default_budget ?? null;
-          const iVal = newSettings.cycle_default_income ?? null;
-          db.runSync(
-            `INSERT INTO budget_cycles (id, name, start_date, end_date, target_budget, target_income, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)`,
-            [regId, reg.name, reg.startDate, reg.endDate, bVal, iVal]
-          );
-          cycle = {
-            id: regId,
-            name: reg.name,
-            start_date: reg.startDate,
-            end_date: reg.endDate,
-            target_budget: bVal ?? undefined,
-            target_income: iVal ?? undefined,
-            is_active: true,
-          };
-        }
+        const regId = `cycle-reg-${reg.startDate}`;
+        const bVal = newSettings.cycle_default_budget ?? null;
+        const iVal = newSettings.cycle_default_income ?? null;
+        db.runSync(
+          `INSERT INTO budget_cycles (id, name, start_date, end_date, target_budget, target_income, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+          [regId, reg.name, reg.startDate, reg.endDate, bVal, iVal]
+        );
+        cycle = {
+          id: regId,
+          name: reg.name,
+          start_date: reg.startDate,
+          end_date: reg.endDate,
+          target_budget: bVal ?? undefined,
+          target_income: iVal ?? undefined,
+          is_active: true,
+        };
       }
 
       // If Inherit mode is active and default targets exist, ensure cycle reflects defaults
@@ -1075,10 +1065,19 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }) => {
     const db = getDB();
     if (params.id) {
-      db.runSync(
-        `UPDATE budget_cycles SET name = ?, start_date = ?, end_date = ?, target_budget = ?, target_income = ? WHERE id = ?`,
-        [params.name, params.start_date, params.end_date, params.target_budget ?? null, params.target_income ?? null, params.id]
-      );
+      const existing = db.getFirstSync<{ id: string }>(`SELECT id FROM budget_cycles WHERE id = ?`, [params.id]);
+      if (existing) {
+        db.runSync(
+          `UPDATE budget_cycles SET name = ?, start_date = ?, end_date = ?, target_budget = ?, target_income = ? WHERE id = ?`,
+          [params.name, params.start_date, params.end_date, params.target_budget ?? null, params.target_income ?? null, params.id]
+        );
+      } else {
+        db.runSync(`UPDATE budget_cycles SET is_active = 0`);
+        db.runSync(
+          `INSERT INTO budget_cycles (id, name, start_date, end_date, target_budget, target_income, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+          [params.id, params.name, params.start_date, params.end_date, params.target_budget ?? null, params.target_income ?? null]
+        );
+      }
     } else {
       const id = `cycle-${Date.now()}`;
       db.runSync(`UPDATE budget_cycles SET is_active = 0`);

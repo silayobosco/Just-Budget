@@ -13,7 +13,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { BudgetCycle, CycleMode, CycleBalanceMode, CycleTargetMode } from '../types';
 import { useBudget } from '../context/BudgetContext';
 import { M3Shape, M3Elevation } from '../theme';
-import { getRegularCycleDates, formatCycleDateRange } from '../utils/format';
+import { getRegularCycleDates, formatCycleDateRange, formatCurrency } from '../utils/format';
 import { DateRangePickerModal } from './DateRangePickerModal';
 import { CycleStartDayCalendar } from './CycleStartDayCalendar';
 
@@ -39,6 +39,7 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
     updateSettings,
     deleteBudgetCycle,
     setActiveBudgetCycle,
+    setSelectedCalendarDate,
   } = useBudget();
 
   const isDarkMode = settings.theme_mode === 'dark';
@@ -101,6 +102,69 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
     return allCycles.filter((c) => !c.id.startsWith('cycle-reg-'));
   }, [allCycles]);
 
+  // Generate list of regular cycle months (-6 to +12 months) based on startDay
+  const regularCyclesList = useMemo(() => {
+    const list: BudgetCycle[] = [];
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+    const dayNum = parseInt(startDay, 10);
+    const validDay = isNaN(dayNum) ? (settings.cycle_month_start_day || 1) : Math.min(31, Math.max(1, dayNum));
+
+    for (let offset = -6; offset <= 12; offset++) {
+      const d = new Date(currentYear, currentMonth + offset, validDay);
+      const reg = getRegularCycleDates(validDay, d);
+      const regId = `cycle-reg-${reg.startDate}`;
+
+      const existing = allCycles.find(
+        (c) => c.id === regId || (c.start_date === reg.startDate && c.end_date === reg.endDate)
+      );
+
+      const isActive = currentCycle
+        ? (currentCycle.start_date === reg.startDate)
+        : (now >= new Date(reg.startDate) && now <= new Date(reg.endDate));
+
+      list.push({
+        id: existing?.id || regId,
+        name: existing?.name || reg.name,
+        start_date: reg.startDate,
+        end_date: reg.endDate,
+        target_budget: existing?.target_budget ?? (settings.cycle_default_budget !== undefined ? Number(settings.cycle_default_budget) : undefined),
+        target_income: existing?.target_income ?? (settings.cycle_default_income !== undefined ? Number(settings.cycle_default_income) : undefined),
+        is_active: isActive,
+      });
+    }
+
+    return list;
+  }, [
+    startDay,
+    settings.cycle_month_start_day,
+    settings.cycle_default_budget,
+    settings.cycle_default_income,
+    allCycles,
+    currentCycle,
+  ]);
+
+  const handleSelectRegularCycle = async (c: BudgetCycle) => {
+    await updateSettings({ cycle_mode: 'regular' });
+    const existing = allCycles.find((item) => item.id === c.id || item.start_date === c.start_date);
+    if (existing) {
+      await setActiveBudgetCycle(existing.id);
+    } else {
+      await updateBudgetCycle({
+        id: c.id,
+        name: c.name,
+        start_date: c.start_date,
+        end_date: c.end_date,
+        target_budget: c.target_budget,
+        target_income: c.target_income,
+      });
+      await setActiveBudgetCycle(c.id);
+    }
+    setSelectedCalendarDate(c.start_date);
+    onClose();
+  };
+
   // Save Regular Calendar Settings
   const handleSaveRegular = async () => {
     const dayNum = parseInt(startDay, 10);
@@ -129,8 +193,13 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
       cycle_default_income: !isNaN(defIncomeNum) ? defIncomeNum : undefined,
     });
 
-    // Update active cycle to match regular calculated dates
-    const regDates = getRegularCycleDates(validDay);
+    // Update active cycle to match regular calculated dates preserving active month
+    let refD: Date | undefined;
+    if (currentCycle?.start_date) {
+      const [cy, cm] = currentCycle.start_date.split('-').map(Number);
+      refD = new Date(cy, cm - 1, validDay);
+    }
+    const regDates = getRegularCycleDates(validDay, refD);
     await updateBudgetCycle({
       id: currentCycle?.id,
       name: regDates.name,
@@ -454,6 +523,98 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
                     theme={theme}
                     isDarkMode={isDarkMode}
                   />
+                </View>
+
+                {/* 1D. Regular Cycles Vertical List (Navigate & Activate Any Month) */}
+                <View style={styles.groupCard}>
+                  <View style={styles.rowBetween}>
+                    <Text style={[styles.groupTitle, { color: theme.onSurface }]}>Regular Cycle Months</Text>
+                    <Text style={[styles.subHint, { color: theme.primary, fontWeight: '700' }]}>
+                      Tap to switch
+                    </Text>
+                  </View>
+                  <Text style={[styles.subHint, { color: theme.onSurfaceVariant, marginBottom: 10 }]}>
+                    All regular cycles repeating on day {startDay || 1}. Tap any month below to navigate to it.
+                  </Text>
+
+                  <View style={styles.regularCyclesContainer}>
+                    {regularCyclesList.map((c) => {
+                      const isActive = Boolean(
+                        c.is_active || (currentCycle && c.start_date === currentCycle.start_date)
+                      );
+                      const dateRangeLabel = formatCycleDateRange(c.start_date, c.end_date);
+                      return (
+                        <TouchableOpacity
+                          key={c.id}
+                          style={[
+                            styles.regularCycleRow,
+                            {
+                              backgroundColor: isActive
+                                ? (isDarkMode ? 'rgba(99, 102, 241, 0.22)' : theme.primaryContainer)
+                                : (isDarkMode ? 'rgba(255, 255, 255, 0.04)' : theme.pillBg),
+                              borderColor: isActive ? theme.primary : 'transparent',
+                            },
+                            isActive && M3Elevation.level1,
+                          ]}
+                          onPress={() => handleSelectRegularCycle(c)}
+                          activeOpacity={0.75}
+                        >
+                          <View style={styles.regularCycleRowLeft}>
+                            <MaterialCommunityIcons
+                              name={isActive ? 'calendar-check' : 'calendar-month-outline'}
+                              size={20}
+                              color={isActive ? (isDarkMode ? '#A5B4FC' : theme.primary) : theme.onSurfaceVariant}
+                            />
+                            <View style={{ marginLeft: 10, flex: 1 }}>
+                              <Text
+                                style={[
+                                  styles.regularCycleRowTitle,
+                                  {
+                                    color: isActive
+                                      ? (isDarkMode ? '#E0E7FF' : theme.onPrimaryContainer)
+                                      : theme.onSurface,
+                                    fontWeight: isActive ? '800' : '600',
+                                  },
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {dateRangeLabel}
+                              </Text>
+                              <Text style={[styles.regularCycleRowSub, { color: theme.onSurfaceVariant }]}>
+                                {c.target_budget
+                                  ? `Budget: ${formatCurrency(c.target_budget, curr)}`
+                                  : 'Standard default budget'}
+                              </Text>
+                            </View>
+                          </View>
+
+                          {isActive ? (
+                            <View
+                              style={[
+                                styles.activeBadgePill,
+                                { backgroundColor: isDarkMode ? '#818CF8' : theme.primary },
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.activeBadgeText,
+                                  { color: isDarkMode ? '#0F172A' : theme.onPrimary },
+                                ]}
+                              >
+                                Active
+                              </Text>
+                            </View>
+                          ) : (
+                            <MaterialCommunityIcons
+                              name="chevron-right"
+                              size={18}
+                              color={theme.onSurfaceVariant}
+                            />
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
                 </View>
               </View>
             )}
@@ -927,5 +1088,40 @@ const styles = StyleSheet.create({
   changeDatesBadgeText: {
     fontSize: 11,
     fontWeight: '700',
+  },
+  regularCyclesContainer: {
+    gap: 8,
+    marginTop: 4,
+  },
+  regularCycleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: M3Shape.large,
+    borderWidth: 1.5,
+  },
+  regularCycleRowLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 8,
+  },
+  regularCycleRowTitle: {
+    fontSize: 13,
+  },
+  regularCycleRowSub: {
+    fontSize: 10.5,
+    marginTop: 2,
+  },
+  activeBadgePill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: M3Shape.full,
+  },
+  activeBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
   },
 });
