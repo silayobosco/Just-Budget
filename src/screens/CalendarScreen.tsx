@@ -7,6 +7,9 @@ import {
   TouchableOpacity,
   TextInput,
   Modal,
+  PanResponder,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
@@ -244,8 +247,8 @@ export const CalendarScreen: React.FC = () => {
     }
   };
 
-  // Collapsible Calendar View state (Collapse to 1-week row to give more room for transactions)
-  const [isCalendarCollapsed, setIsCalendarCollapsed] = useState<boolean>(false);
+  // Collapsible Calendar View state: Collapsed to 1-week row by default for maximum transaction list space
+  const [isCalendarCollapsed, setIsCalendarCollapsed] = useState<boolean>(true);
 
   // Active cycle date boundaries (for showing the WHOLE active cycle in the calendar)
   const activeCycleRange = useMemo(() => {
@@ -263,6 +266,44 @@ export const CalendarScreen: React.FC = () => {
       name: reg.name,
     };
   }, [currentCycle, settings.cycle_month_start_day]);
+
+  // Navigate to previous cycle (moving calendar left)
+  const goToPreviousCycle = () => {
+    const currentStart = currentCycle?.start_date || activeCycleRange.startDate;
+    const activeIdx = cycleList.findIndex((c) => c.start_date === currentStart);
+    if (activeIdx > 0) {
+      const prev = cycleList[activeIdx - 1];
+      handlePressCycleChip(prev, false);
+    }
+  };
+
+  // Navigate to next cycle (moving calendar right)
+  const goToNextCycle = () => {
+    const currentStart = currentCycle?.start_date || activeCycleRange.startDate;
+    const activeIdx = cycleList.findIndex((c) => c.start_date === currentStart);
+    if (activeIdx >= 0 && activeIdx < cycleList.length - 1) {
+      const next = cycleList[activeIdx + 1];
+      handlePressCycleChip(next, false);
+    }
+  };
+
+  // Calendar horizontal swipe gesture listener (moving calendar left for previous, right for next)
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gestureState) => {
+          return Math.abs(gestureState.dx) > 20 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.5;
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (gestureState.dx < -40) {
+            goToPreviousCycle();
+          } else if (gestureState.dx > 40) {
+            goToNextCycle();
+          }
+        },
+      }),
+    [cycleList, currentCycle, activeCycleRange]
+  );
 
   // Keep selectedDate within cycle if cycle changes
   useEffect(() => {
@@ -389,6 +430,18 @@ export const CalendarScreen: React.FC = () => {
     return `${prefix}${dayNames[dateObj.getDay()]}, ${d} ${monthNames[m - 1]} ${y}`;
   };
 
+  // Group transactions by date
+  const transactionsByDate = useMemo(() => {
+    const map: Record<string, Transaction[]> = {};
+    transactions.forEach((tx) => {
+      if (!map[tx.date]) {
+        map[tx.date] = [];
+      }
+      map[tx.date].push(tx);
+    });
+    return map;
+  }, [transactions]);
+
   // Aggregate spending per day
   const dailySpendMap = useMemo(() => {
     const map: Record<string, number> = {};
@@ -400,12 +453,114 @@ export const CalendarScreen: React.FC = () => {
     return map;
   }, [transactions]);
 
-  // Selected date transactions
-  const selectedDayTransactions = useMemo(() => {
-    return transactions.filter((t) => t.date === selectedDate);
-  }, [transactions, selectedDate]);
+  // Generate continuous feed days: includes previous cycle, current cycle, and next cycle
+  const feedDays = useMemo(() => {
+    const dates: string[] = [];
+    const dateSet = new Set<string>();
 
-  const selectedDayTotalSpend = dailySpendMap[selectedDate] || 0;
+    const addRange = (start?: string, end?: string) => {
+      if (!start || !end) return;
+      const [sy, sm, sd] = start.split('-').map(Number);
+      const [ey, em, ed] = end.split('-').map(Number);
+      const cur = new Date(sy, sm - 1, sd, 12, 0, 0);
+      const endD = new Date(ey, em - 1, ed, 12, 0, 0);
+
+      while (cur <= endD) {
+        const y = cur.getFullYear();
+        const m = String(cur.getMonth() + 1).padStart(2, '0');
+        const d = String(cur.getDate()).padStart(2, '0');
+        const str = `${y}-${m}-${d}`;
+        if (!dateSet.has(str)) {
+          dateSet.add(str);
+          dates.push(str);
+        }
+        cur.setDate(cur.getDate() + 1);
+      }
+    };
+
+    const activeIdx = cycleList.findIndex(
+      (c) => c.is_active || (currentCycle && c.start_date === currentCycle.start_date)
+    );
+
+    if (activeIdx > 0) {
+      addRange(cycleList[activeIdx - 1].start_date, cycleList[activeIdx - 1].end_date);
+    }
+
+    addRange(activeCycleRange.startDate, activeCycleRange.endDate);
+
+    if (activeIdx >= 0 && activeIdx < cycleList.length - 1) {
+      addRange(cycleList[activeIdx + 1].start_date, cycleList[activeIdx + 1].end_date);
+    }
+
+    // Sort chronologically: e.g. 27 Oct, 28 Oct ... 26 Nov
+    dates.sort();
+    return dates;
+  }, [activeCycleRange, cycleList, currentCycle]);
+
+  // References for continuous transactions scrolling
+  const transactionsScrollRef = useRef<any>(null);
+  const dayLayoutsRef = useRef<Record<string, number>>({});
+  const isProgrammaticScrollRef = useRef<boolean>(false);
+
+  // Tapping a date on the calendar scrolls transactions to that date
+  const handleSelectDateFromCalendar = (dateStr: string) => {
+    setSelectedDate(dateStr);
+    const targetY = dayLayoutsRef.current[dateStr];
+    if (targetY !== undefined && transactionsScrollRef.current) {
+      isProgrammaticScrollRef.current = true;
+      transactionsScrollRef.current.scrollTo({ y: Math.max(0, targetY - 8), animated: true });
+      setTimeout(() => {
+        isProgrammaticScrollRef.current = false;
+      }, 450);
+    }
+  };
+
+  // Scrolling transactions updates the selected date and shifts cycle if crossing boundaries
+  const handleTransactionsScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (isProgrammaticScrollRef.current) return;
+
+    const scrollY = e.nativeEvent.contentOffset.y;
+    let closestDate = selectedDate;
+    let minDiff = Infinity;
+
+    for (const [dStr, yPos] of Object.entries(dayLayoutsRef.current)) {
+      const diff = Math.abs(yPos - (scrollY + 12));
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestDate = dStr;
+      }
+    }
+
+    if (closestDate && closestDate !== selectedDate) {
+      setSelectedDate(closestDate);
+
+      // Check if scroll crossed into an adjacent cycle
+      if (closestDate < activeCycleRange.startDate || closestDate > activeCycleRange.endDate) {
+        const targetCycle = cycleList.find(
+          (c) => closestDate >= c.start_date && closestDate <= c.end_date
+        );
+        if (targetCycle && targetCycle.id !== currentCycle?.id) {
+          handlePressCycleChip(targetCycle, false);
+        }
+      }
+    }
+  };
+
+  // Initial scroll to selected date or today
+  const hasInitiallyScrolledRef = useRef(false);
+  useEffect(() => {
+    if (!hasInitiallyScrolledRef.current && feedDays.length > 0) {
+      const targetDate = selectedDate || new Date().toISOString().slice(0, 10);
+      const timer = setTimeout(() => {
+        const targetY = dayLayoutsRef.current[targetDate];
+        if (targetY !== undefined && transactionsScrollRef.current) {
+          transactionsScrollRef.current.scrollTo({ y: Math.max(0, targetY - 8), animated: false });
+          hasInitiallyScrolledRef.current = true;
+        }
+      }, 350);
+      return () => clearTimeout(timer);
+    }
+  }, [feedDays, selectedDate]);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -571,11 +726,29 @@ export const CalendarScreen: React.FC = () => {
         </View>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-
-        {/* CALENDAR CYCLE HEADER */}
+      {/* 2. DOCKED CALENDAR SECTION (COLLAPSIBLE, SWIPEABLE FOR PREV/NEXT CYCLE) */}
+      <View
+        style={[
+          styles.dockedCalendarContainer,
+          {
+            backgroundColor: theme.surface,
+            borderBottomColor: theme.divider,
+          },
+        ]}
+        {...panResponder.panHandlers}
+      >
+        {/* CALENDAR CYCLE HEADER WITH PREV / NEXT CYCLE BUTTONS */}
         <View style={styles.monthHeaderRow}>
-          <View style={{ flex: 1, marginRight: 8 }}>
+          <TouchableOpacity
+            style={styles.cycleNavArrowBtn}
+            onPress={goToPreviousCycle}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityLabel="Previous Cycle"
+          >
+            <MaterialCommunityIcons name="chevron-left" size={24} color={theme.onSurface} />
+          </TouchableOpacity>
+
+          <View style={{ flex: 1, marginHorizontal: 4 }}>
             <Text style={[styles.monthTitle, { color: theme.onSurface }]} numberOfLines={1}>
               {activeCycleRange.name}
             </Text>
@@ -584,12 +757,21 @@ export const CalendarScreen: React.FC = () => {
             </Text>
           </View>
 
+          <TouchableOpacity
+            style={styles.cycleNavArrowBtn}
+            onPress={goToNextCycle}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityLabel="Next Cycle"
+          >
+            <MaterialCommunityIcons name="chevron-right" size={24} color={theme.onSurface} />
+          </TouchableOpacity>
+
           <View style={styles.calendarHeaderRightActions}>
             <TouchableOpacity
               style={[styles.todayBtn, { backgroundColor: theme.pillBg }]}
               onPress={() => {
                 const todayStr = new Date().toISOString().slice(0, 10);
-                setSelectedDate(todayStr);
+                handleSelectDateFromCalendar(todayStr);
               }}
               activeOpacity={0.7}
             >
@@ -661,7 +843,7 @@ export const CalendarScreen: React.FC = () => {
                   },
                   isSelected && M3Elevation.level1,
                 ]}
-                onPress={() => setSelectedDate(cell.dateStr)}
+                onPress={() => handleSelectDateFromCalendar(cell.dateStr)}
                 activeOpacity={0.7}
               >
                 {cell.showMonthLabel && (
@@ -715,81 +897,168 @@ export const CalendarScreen: React.FC = () => {
             </Text>
           </View>
         </TouchableOpacity>
+      </View>
 
-        {/* SELECTED DAY DETAILS */}
-        <View style={styles.dayDetailsCard}>
-          <View style={styles.dayDetailsHeader}>
-            <View>
-              <Text style={[styles.dayDetailsTitle, { color: theme.onSurface }]}>
-                {formatSelectedDateHeader(selectedDate)}
-              </Text>
-              <Text style={[styles.dayDetailsSub, { color: theme.onSurfaceVariant }]}>
-                Total Spent:{' '}
-                <Text style={{ color: theme.error, fontWeight: '700' }}>
-                  {formatCurrency(selectedDayTotalSpend, settings.base_currency)}
-                </Text>
-              </Text>
-            </View>
-          </View>
+      {/* 3. CONTINUOUS DAY-BY-DAY TRANSACTIONS SCROLL LIST */}
+      <ScrollView
+        ref={transactionsScrollRef}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.transactionsScrollContent}
+        onScroll={handleTransactionsScroll}
+        scrollEventThrottle={16}
+      >
+        {feedDays.map((dateStr) => {
+          const dayTxs = transactionsByDate[dateStr] || [];
+          const spend = dailySpendMap[dateStr] || 0;
+          const isSelected = dateStr === selectedDate;
+          const isToday = dateStr === new Date().toISOString().slice(0, 10);
+          const isCycleStart = dateStr === activeCycleRange.startDate;
 
-          {selectedDayTransactions.length === 0 ? (
-            <View style={[styles.emptyDayBox, { backgroundColor: theme.pillBg }]}>
-              <Text style={[styles.emptyDayText, { color: theme.onSurfaceVariant }]}>
-                No expenses or income logged on this date.
-              </Text>
-            </View>
-          ) : (
-            selectedDayTransactions.map((tx) => {
-              const cat = categories.find((c) => c.id === tx.category_id);
-              const sub = cat?.subcategories?.find((s) => s.id === tx.subcategory_id);
-              const wallet = wallets.find((w) => w.id === tx.wallet_id);
-              const isExpense = tx.type === 'expense';
-              const isTransfer = tx.type === 'transfer';
-
-              const mainTitle = isTransfer
-                ? 'Transfer'
-                : sub?.name || cat?.name || 'Activity';
-
-              const subMeta = [
-                sub ? cat?.name : null,
-                wallet?.name,
-                tx.note || null,
-              ]
-                .filter(Boolean)
-                .join(' • ');
-
-              return (
-                <TouchableOpacity
-                  key={tx.id}
-                  style={[styles.dayTxItem, { backgroundColor: theme.cardBg, borderColor: theme.divider }]}
-                  onPress={() => setViewingTransaction(tx)}
-                  activeOpacity={0.7}
+          return (
+            <View
+              key={dateStr}
+              onLayout={(e) => {
+                dayLayoutsRef.current[dateStr] = e.nativeEvent.layout.y;
+              }}
+              style={[
+                styles.daySectionCard,
+                isSelected && {
+                  borderLeftColor: theme.primary,
+                  borderLeftWidth: 3,
+                  paddingLeft: 8,
+                },
+              ]}
+            >
+              {isCycleStart && (
+                <View
+                  style={[
+                    styles.cycleBoundaryBadge,
+                    { backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.2)' : theme.primaryContainer },
+                  ]}
                 >
-                  <View style={[styles.catDot, { backgroundColor: isTransfer ? theme.tertiary : cat?.color || theme.primary }]} />
-                  <View style={{ flex: 1, marginLeft: 10 }}>
-                    <Text style={[styles.dayTxTitle, { color: theme.onSurface }]}>{mainTitle}</Text>
-                    <Text style={[styles.dayTxMeta, { color: theme.onSurfaceVariant }]}>{subMeta}</Text>
-                  </View>
+                  <MaterialCommunityIcons name="calendar-sync" size={13} color={theme.primary} />
+                  <Text style={[styles.cycleBoundaryText, { color: theme.primary }]}>
+                    Cycle: {activeCycleRange.name}
+                  </Text>
+                </View>
+              )}
+
+              {/* Day Header */}
+              <View style={styles.daySectionHeader}>
+                <View style={{ flex: 1 }}>
                   <Text
                     style={[
-                      styles.dayTxAmount,
-                      { color: isExpense ? theme.error : isTransfer ? theme.tertiary : theme.success },
+                      styles.daySectionTitle,
+                      {
+                        color: isSelected
+                          ? theme.primary
+                          : isToday
+                          ? (isDarkMode ? '#A5B4FC' : theme.primary)
+                          : theme.onSurface,
+                        fontWeight: isSelected || isToday ? '800' : '600',
+                      },
                     ]}
                   >
-                    {isExpense ? '-' : isTransfer ? '' : '+'}
-                    {formatCurrency(tx.amount, tx.currency || settings.base_currency)}
+                    {formatSelectedDateHeader(dateStr)}
                   </Text>
-                  <MaterialCommunityIcons
-                    name="chevron-right"
-                    size={18}
-                    color={theme.onSurfaceVariant}
-                    style={{ marginLeft: 6 }}
+                </View>
+
+                {spend > 0 && (
+                  <Text style={[styles.daySectionSpend, { color: theme.error }]}>
+                    -{formatCurrency(spend, settings.base_currency)}
+                  </Text>
+                )}
+              </View>
+
+              {/* Transactions for this Day */}
+              {dayTxs.length === 0 ? (
+                <View style={styles.compactEmptyDayRow}>
+                  <View
+                    style={[
+                      styles.emptyDayDot,
+                      { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.18)' : theme.divider },
+                    ]}
                   />
-                </TouchableOpacity>
-              );
-            })
-          )}
-        </View>
+                  <Text style={[styles.compactEmptyDayText, { color: theme.onSurfaceVariant }]}>
+                    No transactions
+                  </Text>
+                </View>
+              ) : (
+                dayTxs.map((tx) => {
+                  const cat = categories.find((c) => c.id === tx.category_id);
+                  const sub = cat?.subcategories?.find((s) => s.id === tx.subcategory_id);
+                  const wallet = wallets.find((w) => w.id === tx.wallet_id);
+                  const isExpense = tx.type === 'expense';
+                  const isTransfer = tx.type === 'transfer';
+
+                  const mainTitle = isTransfer
+                    ? 'Transfer'
+                    : sub?.name || cat?.name || (isExpense ? 'Expense' : 'Income');
+
+                  const subMeta = [
+                    sub ? cat?.name : null,
+                    wallet?.name,
+                    tx.note || null,
+                  ]
+                    .filter(Boolean)
+                    .join(' • ');
+
+                  return (
+                    <TouchableOpacity
+                      key={tx.id}
+                      style={[
+                        styles.dayTxItem,
+                        { backgroundColor: theme.cardBg, borderColor: theme.divider },
+                      ]}
+                      onPress={() => setViewingTransaction(tx)}
+                      activeOpacity={0.7}
+                    >
+                      <View
+                        style={[
+                          styles.catDot,
+                          {
+                            backgroundColor: isTransfer
+                              ? theme.tertiary
+                              : cat?.color || (isExpense ? theme.error : theme.success),
+                          },
+                        ]}
+                      />
+                      <View style={{ flex: 1, marginLeft: 10 }}>
+                        <Text style={[styles.dayTxTitle, { color: theme.onSurface }]}>
+                          {mainTitle}
+                        </Text>
+                        <Text style={[styles.dayTxMeta, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
+                          {subMeta}
+                        </Text>
+                      </View>
+                      <Text
+                        style={[
+                          styles.dayTxAmount,
+                          {
+                            color: isExpense
+                              ? theme.error
+                              : isTransfer
+                              ? theme.tertiary
+                              : theme.success,
+                          },
+                        ]}
+                      >
+                        {isExpense ? '-' : isTransfer ? '' : '+'}
+                        {formatCurrency(tx.amount, tx.currency || settings.base_currency)}
+                      </Text>
+                      <MaterialCommunityIcons
+                        name="chevron-right"
+                        size={18}
+                        color={theme.onSurfaceVariant}
+                        style={{ marginLeft: 6 }}
+                      />
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </View>
+          );
+        })}
       </ScrollView>
 
       {/* SHIFT CYCLE MODE MODAL (TAP ACTIVE CHIP: SHIFT BETWEEN REGULAR & CUSTOM, NO EDITING) */}
@@ -1042,10 +1311,70 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     paddingHorizontal: 16,
   },
-  scrollContent: {
+  dockedCalendarContainer: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    borderBottomWidth: 1,
+  },
+  cycleNavArrowBtn: {
+    padding: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  transactionsScrollContent: {
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 40,
+  },
+  daySectionCard: {
+    marginBottom: 14,
+    borderRadius: M3Shape.medium,
+    paddingVertical: 2,
+  },
+  cycleBoundaryBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: M3Shape.full,
+    alignSelf: 'flex-start',
+    marginBottom: 8,
+    marginTop: 4,
+  },
+  cycleBoundaryText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  daySectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+    paddingHorizontal: 2,
+  },
+  daySectionTitle: {
+    fontSize: 14,
+  },
+  daySectionSpend: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  compactEmptyDayRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    marginBottom: 4,
+  },
+  emptyDayDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  compactEmptyDayText: {
+    fontSize: 11.5,
   },
   balanceCol: {
     flex: 1,
