@@ -1,11 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape } from '../theme';
 import { formatCycleDateRange, formatCurrency } from '../utils/format';
 import { TabType } from './BottomTabs';
-import { CycleMode } from '../types';
+import { CycleModeSwitcherModal } from './CycleModeSwitcherModal';
 
 interface HeaderProps {
   currentTab?: TabType;
@@ -23,33 +23,15 @@ export const Header: React.FC<HeaderProps> = ({
     currentCycle,
     dailyAllowanceStats,
     openCycleModal,
-    allCycles,
-    updateSettings,
-    setActiveBudgetCycle,
     totalConvertedBalance,
   } = useBudget();
   const isDarkMode = settings.theme_mode === 'dark';
   const theme = isDarkMode ? darkTheme : lightTheme;
 
+  const [modeModalVisible, setModeModalVisible] = useState(false);
+
   const isCalendarTab = currentTab === 'calendar';
   const isRegularMode = settings.cycle_mode === 'regular';
-
-  // Toggle cycle mode between regular and custom when tapped in calendar page
-  const handleToggleCycleMode = async () => {
-    const newMode: CycleMode = isRegularMode ? 'custom' : 'regular';
-    await updateSettings({ cycle_mode: newMode });
-    if (newMode === 'regular') {
-      const regCycle = allCycles.find((c) => c.id.startsWith('cycle-reg-')) || allCycles[0];
-      if (regCycle) {
-        await setActiveBudgetCycle(regCycle.id);
-      }
-    } else {
-      const customCycle = allCycles.find((c) => !c.id.startsWith('cycle-reg-')) || allCycles[0];
-      if (customCycle) {
-        await setActiveBudgetCycle(customCycle.id);
-      }
-    }
-  };
 
   const cycleDisplayRange = currentCycle?.start_date && currentCycle?.end_date
     ? formatCycleDateRange(currentCycle.start_date, currentCycle.end_date)
@@ -68,7 +50,7 @@ export const Header: React.FC<HeaderProps> = ({
             <Text style={[styles.title, { color: theme.onSurface }]}>just budget</Text>
             {isCalendarTab ? (
               <TouchableOpacity
-                onPress={handleToggleCycleMode}
+                onPress={() => setModeModalVisible(true)}
                 activeOpacity={0.7}
                 style={styles.subtitleTouch}
                 accessibilityLabel="Switch Cycle Type"
@@ -82,13 +64,12 @@ export const Header: React.FC<HeaderProps> = ({
                 <Text style={[styles.subtitle, { color: theme.primary, fontWeight: '700' }]}>
                   {isRegularMode ? 'Regular Calendar' : 'Custom Periods'}
                 </Text>
-                <View style={[styles.switchBadge, { backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.2)' : theme.primaryContainer }]}>
-                  <MaterialCommunityIcons
-                    name="swap-horizontal"
-                    size={12}
-                    color={theme.primary}
-                  />
-                </View>
+                <MaterialCommunityIcons
+                  name="chevron-down"
+                  size={14}
+                  color={theme.primary}
+                  style={{ marginTop: 1, marginLeft: 2 }}
+                />
               </TouchableOpacity>
             ) : currentCycle ? (
               <TouchableOpacity onPress={openCycleModal} activeOpacity={0.7} style={styles.subtitleTouch}>
@@ -193,6 +174,12 @@ export const Header: React.FC<HeaderProps> = ({
           </TouchableOpacity>
         )}
       </View>
+
+      {/* Cycle Mode Switcher Modal (Opened when tapping cycle type in calendar page) */}
+      <CycleModeSwitcherModal
+        visible={modeModalVisible}
+        onClose={() => setModeModalVisible(false)}
+      />
     </View>
   );
 };
