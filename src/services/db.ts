@@ -141,6 +141,7 @@ export const initDatabase = async () => {
   } catch {}
 
   // Run migrations & ensure defaults
+  ensureDefaultExpenseCategories(db);
   ensureDefaultIncomeCategories(db);
   const currSetting = db.getFirstSync<{ value: string }>(`SELECT value FROM settings WHERE key = 'base_currency'`);
   ensureDefaultWallets(db, currSetting?.value || 'USD');
@@ -155,6 +156,84 @@ export const DEFAULT_WALLETS = [
   { id: 'w-mobile', name: 'Mobile Money', color: '#F59E0B', icon: 'cellphone', is_default: 0 },
   { id: 'w-savings', name: 'Savings', color: '#8B5CF6', icon: 'piggy-bank', is_default: 0 },
 ];
+
+export const DEFAULT_EXPENSE_CATEGORIES: {
+  id: string;
+  name: string;
+  type: 'expense';
+  icon: string;
+  color: string;
+  subs: string[];
+}[] = [
+  {
+    id: 'cat-food',
+    name: 'Food & Dining',
+    type: 'expense',
+    icon: 'silverware-fork-knife',
+    color: '#FF6F61',
+    subs: ['Groceries', 'Restaurants', 'Coffee & Tea', 'Snacks & Drinks', 'Delivery'],
+  },
+  {
+    id: 'cat-housing',
+    name: 'Housing & Bills',
+    type: 'expense',
+    icon: 'home-outline',
+    color: '#3B82F6',
+    subs: ['Rent / Mortgage', 'Electricity', 'Water', 'Internet / Wi-Fi', 'Repairs & Upkeep'],
+  },
+  {
+    id: 'cat-transport',
+    name: 'Transportation',
+    type: 'expense',
+    icon: 'car-outline',
+    color: '#F59E0B',
+    subs: ['Fuel & Gas', 'Public Transit', 'Taxi & Rideshare', 'Parking & Tolls', 'Vehicle Maintenance'],
+  },
+  {
+    id: 'cat-shopping',
+    name: 'Shopping & Goods',
+    type: 'expense',
+    icon: 'shopping-outline',
+    color: '#8B5CF6',
+    subs: ['Clothing & Shoes', 'Electronics', 'Home Goods', 'Personal Care', 'Gifts'],
+  },
+  {
+    id: 'cat-entertainment',
+    name: 'Fun & Leisure',
+    type: 'expense',
+    icon: 'gamepad-variant-outline',
+    color: '#EC4899',
+    subs: ['Subscriptions & Streaming', 'Cinema & Events', 'Hobbies', 'Travel & Outings'],
+  },
+  {
+    id: 'cat-health',
+    name: 'Health & Wellness',
+    type: 'expense',
+    icon: 'heart-pulse',
+    color: '#06B6D4',
+    subs: ['Doctor & Pharmacy', 'Fitness & Gym', 'Dental & Vision', 'Therapy'],
+  },
+];
+
+export const ensureDefaultExpenseCategories = (db: SQLite.SQLiteDatabase) => {
+  try {
+    for (const cat of DEFAULT_EXPENSE_CATEGORIES) {
+      db.runSync(
+        `INSERT OR IGNORE INTO categories (id, name, type, icon, color, is_default) VALUES (?, ?, ?, ?, ?, 1)`,
+        [cat.id, cat.name, cat.type, cat.icon, cat.color]
+      );
+      for (let i = 0; i < cat.subs.length; i++) {
+        const subId = `${cat.id}-sub-${i + 1}`;
+        db.runSync(
+          `INSERT OR IGNORE INTO subcategories (id, category_id, name) VALUES (?, ?, ?)`,
+          [subId, cat.id, cat.subs[i]]
+        );
+      }
+    }
+  } catch (err) {
+    console.error('Error ensuring default expense categories:', err);
+  }
+};
 
 export const DEFAULT_INCOME_CATEGORIES: {
   id: string;
@@ -259,6 +338,11 @@ export const ensureDefaultIncomeCategories = (db: SQLite.SQLiteDatabase) => {
   }
 };
 
+export const restoreAllDefaultCategories = (db: SQLite.SQLiteDatabase) => {
+  ensureDefaultExpenseCategories(db);
+  ensureDefaultIncomeCategories(db);
+};
+
 const seedInitialData = (db: SQLite.SQLiteDatabase) => {
   // Check if onboarding is completed
   const onboardingRow = db.getFirstSync<{ value: string }>(
@@ -285,6 +369,7 @@ const seedInitialData = (db: SQLite.SQLiteDatabase) => {
   // Restore default wallets with 0 balance
   const curr = db.getFirstSync<{ value: string }>(`SELECT value FROM settings WHERE key = 'base_currency'`)?.value || 'USD';
   ensureDefaultWallets(db, curr);
+  ensureDefaultExpenseCategories(db);
   ensureDefaultIncomeCategories(db);
 
   // Check categories (Seed standard categories taxonomy if empty, without monetary amounts)

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
-import { getDB, initDatabase, ensureDefaultWallets, ensureDefaultIncomeCategories } from '../services/db';
+import { getDB, initDatabase, ensureDefaultWallets, ensureDefaultExpenseCategories, ensureDefaultIncomeCategories, restoreAllDefaultCategories } from '../services/db';
 import { exportBackupData, importBackupData } from '../services/backup';
 import { formatCycleDateRange, getRegularCycleDates } from '../utils/format';
 import {
@@ -125,6 +125,7 @@ interface BudgetContextType {
   addSubcategory: (category_id: string, name: string, initial_limit?: number) => Promise<string>;
   updateSubcategory: (id: string, name: string) => Promise<void>;
   deleteSubcategory: (id: string) => Promise<void>;
+  restoreDefaultCategories: () => Promise<void>;
 
   addRecurringBill: (params: {
     name: string;
@@ -218,8 +219,9 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       };
       setSettings(newSettings);
 
-      // Ensure default wallets and income categories
+      // Ensure default wallets, expense categories, and income categories
       ensureDefaultWallets(db, newSettings.base_currency);
+      ensureDefaultExpenseCategories(db);
       ensureDefaultIncomeCategories(db);
 
       // Wallets (all aligned with the base currency)
@@ -941,6 +943,12 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     await loadData();
   };
 
+  const restoreDefaultCategories = async () => {
+    const db = getDB();
+    restoreAllDefaultCategories(db);
+    await loadData();
+  };
+
   const addRecurringBill = async (params: {
     name: string;
     amount: number;
@@ -1328,6 +1336,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         addSubcategory,
         updateSubcategory,
         deleteSubcategory,
+        restoreDefaultCategories,
         addRecurringBill,
         updateRecurringBill,
         deleteRecurringBill,

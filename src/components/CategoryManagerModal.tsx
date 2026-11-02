@@ -29,6 +29,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
     addSubcategory,
     updateSubcategory,
     deleteSubcategory,
+    restoreDefaultCategories,
     budgets,
     setBudgetLimit,
     deleteBudgetLimit,
@@ -353,6 +354,23 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
     setEditLimitVisible(false);
   };
 
+  const handleRestoreDefaults = () => {
+    Alert.alert(
+      'Restore Default Categories',
+      'This will restore all standard default expense categories (Food & Dining, Housing & Bills, Transportation, Shopping & Goods, Fun & Leisure, Health & Wellness) and income categories (Salary, Investment, Rewards, Gifts, Business). Your existing categories and transactions will not be deleted.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Restore',
+          style: 'default',
+          onPress: async () => {
+            await restoreDefaultCategories();
+          },
+        },
+      ]
+    );
+  };
+
   const filteredCategories = categories.filter((c) => c.type === filterType);
 
   return (
@@ -361,12 +379,20 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
         <View style={[styles.sheet, { backgroundColor: theme.surface }]}>
           {/* Header */}
           <View style={styles.header}>
-            <View>
+            <View style={{ flex: 1 }}>
               <Text style={[styles.headerTitle, { color: theme.onSurface }]}>Category & Budget Manager</Text>
               <Text style={[styles.headerSubtitle, { color: theme.onSurfaceVariant }]}>
                 Envelopes, categories & spending limits
               </Text>
             </View>
+            <TouchableOpacity
+              onPress={handleRestoreDefaults}
+              style={[styles.restoreBtn, { backgroundColor: theme.pillBg }]}
+              accessibilityLabel="Restore Default Categories"
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <MaterialCommunityIcons name="backup-restore" size={18} color={theme.primary} />
+            </TouchableOpacity>
             <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { backgroundColor: theme.pillBg }]}>
               <MaterialCommunityIcons name="close" size={20} color={theme.onSurface} />
             </TouchableOpacity>
@@ -629,7 +655,25 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
 
           {/* Category List */}
           <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
-            {filteredCategories.map((cat) => {
+            {filteredCategories.length === 0 ? (
+              <View style={[styles.emptyCategoryBox, { backgroundColor: theme.pillBg }]}>
+                <MaterialCommunityIcons name="folder-alert-outline" size={40} color={theme.outlineVariant} />
+                <Text style={[styles.emptyCategoryText, { color: theme.onSurfaceVariant }]}>
+                  No {filterType} categories available
+                </Text>
+                <TouchableOpacity
+                  style={[styles.emptyRestoreBtn, { backgroundColor: theme.primaryContainer }]}
+                  onPress={handleRestoreDefaults}
+                  activeOpacity={0.8}
+                >
+                  <MaterialCommunityIcons name="backup-restore" size={16} color={theme.onPrimaryContainer} />
+                  <Text style={[styles.emptyRestoreText, { color: theme.onPrimaryContainer }]}>
+                    Restore Default Categories
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              filteredCategories.map((cat) => {
               const catProgress = categoryBudgetProgressList.find((c) => c.id === cat.id);
               const hasLimit = catProgress && catProgress.limit > 0;
               const isExpanded = Boolean(expandedCatIds[cat.id]);
@@ -871,20 +915,34 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
                   )}
                 </View>
               );
-            })}
+            })
+          )}
           </ScrollView>
 
-          {/* Bottom Add New Category button */}
+          {/* Bottom Add New Category button & Restore Defaults */}
           {!isAddingNew && !editingCategory && (
-            <TouchableOpacity
-              style={[styles.addCategoryBtn, { backgroundColor: theme.primary }]}
-              onPress={handleStartAdd}
-            >
-              <MaterialCommunityIcons name="plus" size={20} color={theme.onPrimary} />
-              <Text style={[styles.addCategoryBtnText, { color: theme.onPrimary }]}>
-                Add New {filterType === 'expense' ? 'Expense' : 'Income'} Category
-              </Text>
-            </TouchableOpacity>
+            <View style={styles.bottomBarRow}>
+              <TouchableOpacity
+                style={[styles.addCategoryBtn, { backgroundColor: theme.primary, flex: 1 }]}
+                onPress={handleStartAdd}
+              >
+                <MaterialCommunityIcons name="plus" size={18} color={theme.onPrimary} />
+                <Text style={[styles.addCategoryBtnText, { color: theme.onPrimary }]}>
+                  Add Category
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.restoreFooterBtn, { borderColor: theme.outlineVariant, backgroundColor: theme.pillBg }]}
+                onPress={handleRestoreDefaults}
+                activeOpacity={0.7}
+              >
+                <MaterialCommunityIcons name="backup-restore" size={18} color={theme.primary} />
+                <Text style={[styles.restoreFooterBtnText, { color: theme.primary }]}>
+                  Restore Defaults
+                </Text>
+              </TouchableOpacity>
+            </View>
           )}
 
           {/* INLINE EDIT LIMIT DIALOG */}
@@ -1073,6 +1131,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     marginTop: 2,
+  },
+  restoreBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: M3Shape.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
   },
   closeBtn: {
     width: 36,
@@ -1480,6 +1546,51 @@ const styles = StyleSheet.create({
   },
   addCategoryBtnText: {
     fontSize: 14,
+    fontWeight: '700',
+  },
+  emptyCategoryBox: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    borderRadius: M3Shape.large,
+    marginVertical: 16,
+    gap: 10,
+  },
+  emptyCategoryText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  emptyRestoreBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: M3Shape.full,
+    marginTop: 4,
+  },
+  emptyRestoreText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  bottomBarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 10,
+  },
+  restoreFooterBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 48,
+    borderRadius: M3Shape.full,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    gap: 6,
+  },
+  restoreFooterBtnText: {
+    fontSize: 13,
     fontWeight: '700',
   },
   dialogOverlay: {
