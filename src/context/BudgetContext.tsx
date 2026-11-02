@@ -35,6 +35,12 @@ interface BudgetContextType {
     startingBalance?: number;
     budgetCap?: number;
     incomeGoal?: number;
+    cycleMode?: 'regular' | 'custom';
+    cycleMonthStartDay?: number;
+    cycleBalanceMode?: 'monthly' | 'accumulated';
+    customCycleStartDate?: string;
+    customCycleEndDate?: string;
+    customCycleName?: string;
   }) => Promise<void>;
 
   // Cycle Modal & Analytics Navigation State
@@ -1231,11 +1237,24 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     startingBalance?: number;
     budgetCap?: number;
     incomeGoal?: number;
+    cycleMode?: 'regular' | 'custom';
+    cycleMonthStartDay?: number;
+    cycleBalanceMode?: 'monthly' | 'accumulated';
+    customCycleStartDate?: string;
+    customCycleEndDate?: string;
+    customCycleName?: string;
   }) => {
     const db = getDB();
     const curr = params.currency || 'USD';
+    const cMode = params.cycleMode || 'regular';
+    const cBalMode = params.cycleBalanceMode || 'monthly';
+    const cStartDay = params.cycleMonthStartDay || 1;
+
     db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('base_currency', ?)`, [curr]);
     db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('onboarding_completed', '1')`);
+    db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('cycle_mode', ?)`, [cMode]);
+    db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('cycle_balance_mode', ?)`, [cBalMode]);
+    db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('cycle_month_start_day', ?)`, [cStartDay.toString()]);
 
     // Ensure default wallets and sync currency
     ensureDefaultWallets(db, curr);
@@ -1261,17 +1280,26 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       db.runSync(`UPDATE wallets SET starting_balance = ?, current_balance = ? WHERE id = 'w-cash'`, [params.startingBalance, params.startingBalance]);
     }
 
-    // Set up initial cycle if budget or income target provided
-    const reg = getRegularCycleDates(1);
-    const regId = `cycle-reg-${reg.startDate}`;
+    // Set up initial cycle
     const targetB = params.budgetCap !== undefined && params.budgetCap > 0 ? params.budgetCap : null;
     const targetI = params.incomeGoal !== undefined && params.incomeGoal > 0 ? params.incomeGoal : null;
-
     db.runSync(`UPDATE budget_cycles SET is_active = 0`);
-    db.runSync(
-      `INSERT INTO budget_cycles (id, name, start_date, end_date, target_budget, target_income, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)`,
-      [regId, reg.name, reg.startDate, reg.endDate, targetB, targetI]
-    );
+
+    if (cMode === 'custom' && params.customCycleStartDate && params.customCycleEndDate) {
+      const cId = `cycle-custom-${Date.now()}`;
+      const cName = params.customCycleName || formatCycleDateRange(params.customCycleStartDate, params.customCycleEndDate);
+      db.runSync(
+        `INSERT INTO budget_cycles (id, name, start_date, end_date, target_budget, target_income, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+        [cId, cName, params.customCycleStartDate, params.customCycleEndDate, targetB, targetI]
+      );
+    } else {
+      const reg = getRegularCycleDates(cStartDay);
+      const regId = `cycle-reg-${reg.startDate}`;
+      db.runSync(
+        `INSERT INTO budget_cycles (id, name, start_date, end_date, target_budget, target_income, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+        [regId, reg.name, reg.startDate, reg.endDate, targetB, targetI]
+      );
+    }
 
     if (targetB) {
       db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('cycle_default_budget', ?)`, [targetB.toString()]);

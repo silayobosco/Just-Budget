@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -15,6 +15,7 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
+import { getRegularCycleDates, formatCycleDateRange } from '../utils/format';
 
 const CURRENCIES = [
   { code: 'USD', symbol: '$', name: 'US Dollar' },
@@ -42,16 +43,46 @@ const WALLET_PRESETS = [
   { name: 'Savings', icon: 'piggy-bank', color: '#8B5CF6' },
 ];
 
+const START_DAY_PRESETS = [
+  { label: '1st of Month', day: 1 },
+  { label: '15th (Mid-Month)', day: 15 },
+  { label: '25th (Pay Day)', day: 25 },
+  { label: '28th (Month-End)', day: 28 },
+];
+
 export const OnboardingModal: React.FC = () => {
   const { settings, completeOnboarding } = useBudget();
   const isDarkMode = settings.theme_mode === 'dark';
   const theme = isDarkMode ? darkTheme : lightTheme;
 
+  // 4-step wizard: 0: Currency, 1: Wallet, 2: Cycle Calendar, 3: Cycle Targets
   const [currentStep, setCurrentStep] = useState<number>(0);
+
+  // Step 0: Currency
   const [selectedCurrency, setSelectedCurrency] = useState<string>('USD');
   const [currencySearch, setCurrencySearch] = useState<string>('');
+
+  // Step 1: Wallet
   const [walletName, setWalletName] = useState<string>('Cash');
   const [startingBalance, setStartingBalance] = useState<string>('');
+
+  // Step 2: Cycle Management
+  const [cycleMode, setCycleMode] = useState<'regular' | 'custom'>('regular');
+  const [cycleStartDayStr, setCycleStartDayStr] = useState<string>('1');
+  const [cycleBalanceMode, setCycleBalanceMode] = useState<'monthly' | 'accumulated'>('monthly');
+
+  // Custom cycle dates
+  const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const oneMonthLaterStr = useMemo(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() + 1);
+    return d.toISOString().slice(0, 10);
+  }, []);
+  const [customCycleName, setCustomCycleName] = useState<string>('Pay Period 1');
+  const [customStartDate, setCustomStartDate] = useState<string>(todayStr);
+  const [customEndDate, setCustomEndDate] = useState<string>(oneMonthLaterStr);
+
+  // Step 3: Targets
   const [budgetCap, setBudgetCap] = useState<string>('');
   const [incomeGoal, setIncomeGoal] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -64,8 +95,19 @@ export const OnboardingModal: React.FC = () => {
       c.name.toLowerCase().includes(currencySearch.toLowerCase())
   );
 
+  // Calculate regular cycle dates live based on selected start day
+  const activeCyclePreview = useMemo(() => {
+    const dayNum = parseInt(cycleStartDayStr, 10);
+    const validDay = !isNaN(dayNum) ? Math.min(31, Math.max(1, dayNum)) : 1;
+    if (cycleMode === 'custom') {
+      const name = customCycleName.trim() || formatCycleDateRange(customStartDate, customEndDate);
+      return { startDate: customStartDate, endDate: customEndDate, name };
+    }
+    return getRegularCycleDates(validDay);
+  }, [cycleMode, cycleStartDayStr, customCycleName, customStartDate, customEndDate]);
+
   const handleNext = () => {
-    if (currentStep < 2) {
+    if (currentStep < 3) {
       setCurrentStep(currentStep + 1);
     } else {
       handleFinish();
@@ -80,11 +122,17 @@ export const OnboardingModal: React.FC = () => {
 
   const handleSkipToNext = () => {
     if (currentStep === 1) {
-      // Clear wallet fields and advance to Step 3
+      // Clear wallet fields and advance to Step 2
       setWalletName('');
       setStartingBalance('');
       setCurrentStep(2);
     } else if (currentStep === 2) {
+      // Default to regular calendar on 1st and advance to Step 3
+      setCycleMode('regular');
+      setCycleStartDayStr('1');
+      setCycleBalanceMode('monthly');
+      setCurrentStep(3);
+    } else if (currentStep === 3) {
       // Skip targets and finish
       setBudgetCap('');
       setIncomeGoal('');
@@ -99,6 +147,8 @@ export const OnboardingModal: React.FC = () => {
       const startBal = parseFloat(startingBalance);
       const bCap = parseFloat(budgetCap);
       const iGoal = parseFloat(incomeGoal);
+      const dayNum = parseInt(cycleStartDayStr, 10);
+      const validDay = !isNaN(dayNum) ? Math.min(31, Math.max(1, dayNum)) : 1;
 
       await completeOnboarding({
         currency: selectedCurrency,
@@ -106,6 +156,12 @@ export const OnboardingModal: React.FC = () => {
         startingBalance: !isNaN(startBal) ? startBal : undefined,
         budgetCap: !isNaN(bCap) ? bCap : undefined,
         incomeGoal: !isNaN(iGoal) ? iGoal : undefined,
+        cycleMode,
+        cycleMonthStartDay: validDay,
+        cycleBalanceMode,
+        customCycleStartDate: cycleMode === 'custom' ? customStartDate : undefined,
+        customCycleEndDate: cycleMode === 'custom' ? customEndDate : undefined,
+        customCycleName: cycleMode === 'custom' ? customCycleName.trim() || undefined : undefined,
       });
     } finally {
       setIsSubmitting(false);
@@ -139,9 +195,9 @@ export const OnboardingModal: React.FC = () => {
               )}
             </View>
 
-            {/* Segmented Progress Indicators */}
+            {/* Segmented Progress Indicators (4 Steps) */}
             <View style={styles.progressSegmentsWrap}>
-              {[0, 1, 2].map((stepIdx) => {
+              {[0, 1, 2, 3].map((stepIdx) => {
                 const isCompleted = stepIdx < currentStep;
                 const isCurrent = stepIdx === currentStep;
                 return (
@@ -370,8 +426,274 @@ export const OnboardingModal: React.FC = () => {
               </View>
             )}
 
-            {/* STEP 3: BUDGET TARGETS (OPTIONAL) */}
+            {/* STEP 3: CONFIGURE BUDGET CYCLE (NEW!) */}
             {currentStep === 2 && (
+              <View style={styles.stepContainer}>
+                <View style={styles.stepHeroBadge}>
+                  <View style={[styles.stepIconCircle, { backgroundColor: theme.primaryContainer }]}>
+                    <MaterialCommunityIcons name="calendar-sync-outline" size={32} color={theme.primary} />
+                  </View>
+                  <Text style={[styles.stepHeaderTitle, { color: theme.onSurface }]}>Budget Cycle & Calendar</Text>
+                  <Text style={[styles.stepHeaderSubtitle, { color: theme.onSurfaceVariant }]}>
+                    Choose how your cycles recur and when allowances calculate.
+                  </Text>
+                </View>
+
+                {/* Live Cycle Preview Banner */}
+                <View
+                  style={[
+                    styles.cyclePreviewBanner,
+                    { backgroundColor: theme.primaryContainer, borderColor: theme.primary },
+                  ]}
+                >
+                  <MaterialCommunityIcons name="calendar-check" size={22} color={theme.primary} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.cyclePreviewLabel, { color: theme.onPrimaryContainer }]}>
+                      INITIAL ACTIVE CYCLE
+                    </Text>
+                    <Text style={[styles.cyclePreviewName, { color: theme.onPrimaryContainer }]}>
+                      {activeCyclePreview.name}
+                    </Text>
+                    <Text style={[styles.cyclePreviewDates, { color: theme.onPrimaryContainer }]}>
+                      {activeCyclePreview.startDate} ➔ {activeCyclePreview.endDate}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Mode Selector Tabs */}
+                <View style={[styles.modeTabsRow, { backgroundColor: theme.pillBg }]}>
+                  <TouchableOpacity
+                    style={[
+                      styles.modeTab,
+                      cycleMode === 'regular' && { backgroundColor: theme.primaryContainer },
+                    ]}
+                    onPress={() => setCycleMode('regular')}
+                    activeOpacity={0.7}
+                  >
+                    <MaterialCommunityIcons
+                      name="calendar-month-outline"
+                      size={18}
+                      color={cycleMode === 'regular' ? theme.onPrimaryContainer : theme.onSurfaceVariant}
+                    />
+                    <Text
+                      style={[
+                        styles.modeTabText,
+                        {
+                          color: cycleMode === 'regular' ? theme.onPrimaryContainer : theme.onSurfaceVariant,
+                          fontWeight: cycleMode === 'regular' ? '700' : '500',
+                        },
+                      ]}
+                    >
+                      Regular Monthly
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.modeTab,
+                      cycleMode === 'custom' && { backgroundColor: theme.primaryContainer },
+                    ]}
+                    onPress={() => setCycleMode('custom')}
+                    activeOpacity={0.7}
+                  >
+                    <MaterialCommunityIcons
+                      name="calendar-range"
+                      size={18}
+                      color={cycleMode === 'custom' ? theme.onPrimaryContainer : theme.onSurfaceVariant}
+                    />
+                    <Text
+                      style={[
+                        styles.modeTabText,
+                        {
+                          color: cycleMode === 'custom' ? theme.onPrimaryContainer : theme.onSurfaceVariant,
+                          fontWeight: cycleMode === 'custom' ? '700' : '500',
+                        },
+                      ]}
+                    >
+                      Custom Periods
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Mode 1: Regular Monthly Configuration */}
+                {cycleMode === 'regular' && (
+                  <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }, M3Elevation.level1]}>
+                    <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>
+                      MONTH START DAY
+                    </Text>
+                    <Text style={[styles.fieldHint, { color: theme.onSurfaceVariant, marginBottom: 10 }]}>
+                      Choose when your cycle begins (e.g. 1st of month, or on pay day).
+                    </Text>
+
+                    {/* Quick Presets for Start Day */}
+                    <View style={styles.startDayChipsRow}>
+                      {START_DAY_PRESETS.map((p) => {
+                        const isPicked = cycleStartDayStr === p.day.toString();
+                        return (
+                          <TouchableOpacity
+                            key={p.day}
+                            style={[
+                              styles.startDayChip,
+                              {
+                                backgroundColor: isPicked ? theme.primaryContainer : theme.pillBg,
+                                borderColor: isPicked ? theme.primary : 'transparent',
+                              },
+                            ]}
+                            onPress={() => setCycleStartDayStr(p.day.toString())}
+                            activeOpacity={0.7}
+                          >
+                            <Text
+                              style={[
+                                styles.startDayChipText,
+                                {
+                                  color: isPicked ? theme.onPrimaryContainer : theme.onSurface,
+                                  fontWeight: isPicked ? '700' : '500',
+                                },
+                              ]}
+                            >
+                              {p.label}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+
+                    {/* Custom Day Input */}
+                    <View style={[styles.balanceInputWrap, { backgroundColor: theme.pillBg, marginTop: 4 }]}>
+                      <MaterialCommunityIcons name="calendar-edit" size={18} color={theme.onSurfaceVariant} style={{ marginRight: 8 }} />
+                      <TextInput
+                        style={[styles.balanceInput, { color: theme.onSurface }]}
+                        placeholder="Custom day (1 - 31)"
+                        placeholderTextColor={theme.onSurfaceVariant}
+                        keyboardType="number-pad"
+                        value={cycleStartDayStr}
+                        onChangeText={setCycleStartDayStr}
+                        maxLength={2}
+                      />
+                    </View>
+
+                    <View style={[styles.fieldDivider, { backgroundColor: theme.divider }]} />
+
+                    {/* Balance Carryover Mode */}
+                    <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>
+                      ALLOWANCE CARRYOVER MODE
+                    </Text>
+
+                    <View style={styles.balanceModeRow}>
+                      <TouchableOpacity
+                        style={[
+                          styles.balanceModeCard,
+                          {
+                            backgroundColor: cycleBalanceMode === 'monthly' ? theme.primaryContainer : theme.pillBg,
+                            borderColor: cycleBalanceMode === 'monthly' ? theme.primary : 'transparent',
+                          },
+                        ]}
+                        onPress={() => setCycleBalanceMode('monthly')}
+                        activeOpacity={0.7}
+                      >
+                        <MaterialCommunityIcons
+                          name="restart"
+                          size={22}
+                          color={cycleBalanceMode === 'monthly' ? theme.onPrimaryContainer : theme.onSurfaceVariant}
+                        />
+                        <Text
+                          style={[
+                            styles.balanceModeTitle,
+                            { color: cycleBalanceMode === 'monthly' ? theme.onPrimaryContainer : theme.onSurface },
+                          ]}
+                        >
+                          Monthly Reset
+                        </Text>
+                        <Text
+                          style={[
+                            styles.balanceModeSub,
+                            { color: cycleBalanceMode === 'monthly' ? theme.onPrimaryContainer : theme.onSurfaceVariant },
+                          ]}
+                        >
+                          Allowance & budget start fresh each cycle
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[
+                          styles.balanceModeCard,
+                          {
+                            backgroundColor: cycleBalanceMode === 'accumulated' ? theme.primaryContainer : theme.pillBg,
+                            borderColor: cycleBalanceMode === 'accumulated' ? theme.primary : 'transparent',
+                          },
+                        ]}
+                        onPress={() => setCycleBalanceMode('accumulated')}
+                        activeOpacity={0.7}
+                      >
+                        <MaterialCommunityIcons
+                          name="trending-up"
+                          size={22}
+                          color={cycleBalanceMode === 'accumulated' ? theme.onPrimaryContainer : theme.onSurfaceVariant}
+                        />
+                        <Text
+                          style={[
+                            styles.balanceModeTitle,
+                            { color: cycleBalanceMode === 'accumulated' ? theme.onPrimaryContainer : theme.onSurface },
+                          ]}
+                        >
+                          Accumulated
+                        </Text>
+                        <Text
+                          style={[
+                            styles.balanceModeSub,
+                            { color: cycleBalanceMode === 'accumulated' ? theme.onPrimaryContainer : theme.onSurfaceVariant },
+                          ]}
+                        >
+                          Unspent allowance rolls into next cycle
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
+                {/* Mode 2: Custom Periods Configuration */}
+                {cycleMode === 'custom' && (
+                  <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }, M3Elevation.level1]}>
+                    <View style={styles.inputGroup}>
+                      <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>PERIOD NAME</Text>
+                      <TextInput
+                        style={[styles.input, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
+                        placeholder="e.g. Pay Period 1 or Sprint 1"
+                        placeholderTextColor={theme.onSurfaceVariant}
+                        value={customCycleName}
+                        onChangeText={setCustomCycleName}
+                      />
+                    </View>
+
+                    <View style={styles.inputsRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>START DATE (YYYY-MM-DD)</Text>
+                        <TextInput
+                          style={[styles.input, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
+                          placeholder="2026-11-01"
+                          placeholderTextColor={theme.onSurfaceVariant}
+                          value={customStartDate}
+                          onChangeText={setCustomStartDate}
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>END DATE (YYYY-MM-DD)</Text>
+                        <TextInput
+                          style={[styles.input, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
+                          placeholder="2026-11-30"
+                          placeholderTextColor={theme.onSurfaceVariant}
+                          value={customEndDate}
+                          onChangeText={setCustomEndDate}
+                        />
+                      </View>
+                    </View>
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* STEP 4: BUDGET TARGETS (OPTIONAL) */}
+            {currentStep === 3 && (
               <View style={styles.stepContainer}>
                 <View style={styles.stepHeroBadge}>
                   <View style={[styles.stepIconCircle, { backgroundColor: theme.primaryContainer }]}>
@@ -380,6 +702,14 @@ export const OnboardingModal: React.FC = () => {
                   <Text style={[styles.stepHeaderTitle, { color: theme.onSurface }]}>Cycle Budget Targets</Text>
                   <Text style={[styles.stepHeaderSubtitle, { color: theme.onSurfaceVariant }]}>
                     Plan your cycle by setting an overall spending budget cap or monthly income goal.
+                  </Text>
+                </View>
+
+                {/* Target Cycle Info Pill */}
+                <View style={[styles.targetCyclePill, { backgroundColor: theme.pillBg }]}>
+                  <MaterialCommunityIcons name="calendar-clock" size={16} color={theme.primary} />
+                  <Text style={[styles.targetCycleText, { color: theme.onSurface }]}>
+                    Configured Cycle: <Text style={{ fontWeight: '800' }}>{activeCyclePreview.name}</Text>
                   </Text>
                 </View>
 
@@ -447,14 +777,18 @@ export const OnboardingModal: React.FC = () => {
 
           {/* Sticky Bottom Actions Bar */}
           <View style={[styles.bottomBar, { backgroundColor: theme.surface, borderTopColor: theme.divider }]}>
-            {currentStep < 2 ? (
+            {currentStep < 3 ? (
               <TouchableOpacity
                 style={[styles.primaryActionBtn, { backgroundColor: theme.primary }, M3Elevation.level2]}
                 onPress={handleNext}
                 activeOpacity={0.85}
               >
                 <Text style={[styles.primaryActionBtnText, { color: theme.onPrimary }]}>
-                  {currentStep === 0 ? `Continue with ${selectedCurrency}` : 'Continue to Targets'}
+                  {currentStep === 0
+                    ? `Continue with ${selectedCurrency}`
+                    : currentStep === 1
+                    ? 'Continue to Budget Cycle'
+                    : 'Continue to Cycle Targets'}
                 </Text>
                 <MaterialCommunityIcons name="arrow-right" size={20} color={theme.onPrimary} />
               </TouchableOpacity>
@@ -479,7 +813,11 @@ export const OnboardingModal: React.FC = () => {
                 activeOpacity={0.7}
               >
                 <Text style={[styles.skipSecondaryBtnText, { color: theme.onSurfaceVariant }]}>
-                  {currentStep === 1 ? 'Skip Wallet Setup' : 'Skip & Finish Setup'}
+                  {currentStep === 1
+                    ? 'Skip Wallet Setup'
+                    : currentStep === 2
+                    ? 'Use Default Cycle (1st of month)'
+                    : 'Skip & Finish Setup'}
                 </Text>
               </TouchableOpacity>
             )}
@@ -537,7 +875,7 @@ const styles = StyleSheet.create({
     height: 4,
     flex: 1,
     borderRadius: 2,
-    maxWidth: 64,
+    maxWidth: 48,
   },
   scrollContent: {
     padding: 20,
@@ -572,27 +910,27 @@ const styles = StyleSheet.create({
   },
   stepHeroBadge: {
     alignItems: 'center',
-    marginBottom: 20,
-    marginTop: 10,
+    marginBottom: 16,
+    marginTop: 6,
   },
   stepIconCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
+    marginBottom: 10,
   },
   stepHeaderTitle: {
-    fontSize: 22,
+    fontSize: 21,
     fontWeight: '900',
     textAlign: 'center',
-    marginBottom: 6,
+    marginBottom: 4,
   },
   stepHeaderSubtitle: {
     fontSize: 13,
     textAlign: 'center',
-    lineHeight: 19,
+    lineHeight: 18,
     paddingHorizontal: 16,
   },
   selectedCurrencyCard: {
@@ -696,17 +1034,21 @@ const styles = StyleSheet.create({
   inputGroup: {
     marginBottom: 16,
   },
+  inputsRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
   inputLabel: {
     fontSize: 12,
     fontWeight: '800',
     letterSpacing: 0.5,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   input: {
     height: 46,
     borderRadius: M3Shape.medium,
     paddingHorizontal: 14,
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '500',
   },
   balanceInputWrap: {
@@ -723,14 +1065,108 @@ const styles = StyleSheet.create({
   },
   balanceInput: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
   },
   fieldHint: {
     fontSize: 11,
     fontWeight: '500',
-    marginTop: 6,
+    marginTop: 4,
     marginLeft: 2,
+  },
+  cyclePreviewBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    borderRadius: M3Shape.large,
+    borderWidth: 1.5,
+    marginBottom: 14,
+    gap: 12,
+  },
+  cyclePreviewLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  cyclePreviewName: {
+    fontSize: 15,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  cyclePreviewDates: {
+    fontSize: 12,
+    opacity: 0.85,
+    marginTop: 1,
+  },
+  modeTabsRow: {
+    flexDirection: 'row',
+    borderRadius: M3Shape.full,
+    padding: 4,
+    marginBottom: 14,
+  },
+  modeTab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 9,
+    borderRadius: M3Shape.full,
+  },
+  modeTabText: {
+    fontSize: 13,
+  },
+  startDayChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 10,
+  },
+  startDayChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: M3Shape.full,
+    borderWidth: 1,
+  },
+  startDayChipText: {
+    fontSize: 12,
+  },
+  balanceModeRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 8,
+  },
+  balanceModeCard: {
+    flex: 1,
+    padding: 12,
+    borderRadius: M3Shape.large,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    gap: 4,
+  },
+  balanceModeTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  balanceModeSub: {
+    fontSize: 10,
+    textAlign: 'center',
+    lineHeight: 14,
+  },
+  targetCyclePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: M3Shape.full,
+    marginBottom: 14,
+    alignSelf: 'flex-start',
+  },
+  targetCycleText: {
+    fontSize: 13,
+    fontWeight: '500',
   },
   targetRow: {
     flexDirection: 'row',
