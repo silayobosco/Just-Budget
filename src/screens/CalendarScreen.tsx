@@ -11,11 +11,11 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
-import { formatCurrency, formatCycleDateRange } from '../utils/format';
+import { formatCurrency, formatCycleDateRange, getRegularCycleDates } from '../utils/format';
 import { DateRangePickerModal } from '../components/DateRangePickerModal';
 import { TransactionDetailModal } from '../components/TransactionDetailModal';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
-import { Transaction } from '../types';
+import { Transaction, BudgetCycle } from '../types';
 
 export const CalendarScreen: React.FC = () => {
   const {
@@ -140,32 +140,109 @@ export const CalendarScreen: React.FC = () => {
   // Shift Mode Switcher Modal (Tap active chip: shift between regular and custom, no editing)
   const [modeSwitcherVisible, setModeSwitcherVisible] = useState<boolean>(false);
 
-  // Horizontal list of cycles
+  const isRegularMode = settings.cycle_mode === 'regular';
+  const startDay = settings.cycle_month_start_day || 1;
+
+  // Horizontal list of cycles based on active mode
   const cycleList = useMemo(() => {
-    if (allCycles && allCycles.length > 0) {
-      const sorted = [...allCycles].sort((a, b) => b.start_date.localeCompare(a.start_date));
-      if (currentCycle && !sorted.some((c) => c.id === currentCycle.id)) {
-        sorted.unshift(currentCycle);
+    if (isRegularMode) {
+      // REGULAR CALENDAR: Generate timeline of regular months based on startDay
+      // Spanning past months through current to future coming months (-6 to +12 months)
+      const list: BudgetCycle[] = [];
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth();
+
+      // Range: from 6 months ago to 12 months ahead
+      for (let offset = -6; offset <= 12; offset++) {
+        const d = new Date(currentYear, currentMonth + offset, startDay);
+        const reg = getRegularCycleDates(startDay, d);
+        const regId = `cycle-reg-${reg.startDate}`;
+
+        // Match existing cycle record if available
+        const existing = allCycles.find(
+          (c) => c.id === regId || (c.start_date === reg.startDate && c.end_date === reg.endDate)
+        );
+
+        // Active cycle matches currentCycle start_date or today's cycle
+        const isActive = currentCycle
+          ? currentCycle.start_date === reg.startDate
+          : (now >= new Date(reg.startDate) && now <= new Date(reg.endDate));
+
+        list.push({
+          id: existing?.id || regId,
+          name: existing?.name || reg.name,
+          start_date: reg.startDate,
+          end_date: reg.endDate,
+          target_budget: existing?.target_budget ?? (settings.cycle_default_budget !== undefined ? Number(settings.cycle_default_budget) : undefined),
+          target_income: existing?.target_income ?? (settings.cycle_default_income !== undefined ? Number(settings.cycle_default_income) : undefined),
+          is_active: isActive,
+        });
       }
-      return sorted;
+
+      return list;
+    } else {
+      // CUSTOM PERIODS: ONLY show custom-created periods (exclude regular cycle records)
+      const customOnly = (allCycles || []).filter((c) => !c.id.startsWith('cycle-reg-'));
+      return customOnly.sort((a, b) => b.start_date.localeCompare(a.start_date));
     }
-    if (currentCycle) return [currentCycle];
-    return [];
-  }, [allCycles, currentCycle]);
+  }, [
+    isRegularMode,
+    startDay,
+    allCycles,
+    currentCycle,
+    settings.cycle_default_budget,
+    settings.cycle_default_income,
+  ]);
 
   const cycleScrollRef = useRef<any>(null);
 
   useEffect(() => {
-    if (cycleList.length > 1 && currentCycle) {
-      const idx = cycleList.findIndex((c) => c.id === currentCycle.id || c.is_active);
-      if (idx >= 0) {
-        const targetX = Math.max(0, idx * 140 - 50);
+    if (cycleList.length > 0) {
+      const activeIdx = cycleList.findIndex(
+        (c) => c.is_active || (currentCycle && c.start_date === currentCycle.start_date)
+      );
+      if (activeIdx >= 0) {
+        // Center the active chip horizontally
+        const chipEstimatedWidth = 145;
+        const targetX = Math.max(0, activeIdx * chipEstimatedWidth - 110);
         setTimeout(() => {
           cycleScrollRef.current?.scrollTo({ x: targetX, animated: true });
-        }, 120);
+        }, 150);
       }
     }
-  }, [cycleList, currentCycle]);
+  }, [cycleList, currentCycle, isRegularMode]);
+
+  const handlePressCycleChip = async (c: BudgetCycle, isActive: boolean) => {
+    if (isActive) {
+      // Tapping the active chip opens the Shift Mode Switcher (only shift btn regular and custom, no editing)
+      setModeSwitcherVisible(true);
+      return;
+    }
+
+    if (isRegularMode) {
+      // Regular mode: Activate this month's regular cycle
+      const existing = allCycles.find((item) => item.id === c.id || item.start_date === c.start_date);
+      if (existing) {
+        await setActiveBudgetCycle(existing.id);
+      } else {
+        await updateBudgetCycle({
+          id: c.id,
+          name: c.name,
+          start_date: c.start_date,
+          end_date: c.end_date,
+          target_budget: c.target_budget,
+          target_income: c.target_income,
+        });
+        await setActiveBudgetCycle(c.id);
+      }
+      setSelectedDate(c.start_date);
+    } else {
+      // Custom mode: Activate selected custom cycle
+      await setActiveBudgetCycle(c.id);
+      setSelectedDate(c.start_date);
+    }
+  };
 
   // Generate days in the active month or cycle
   const currentMonthDate = useMemo(() => {
@@ -242,87 +319,114 @@ export const CalendarScreen: React.FC = () => {
               cycleList.length <= 2 && { justifyContent: 'center', minWidth: '100%' },
             ]}
           >
-            {cycleList.map((c) => {
-              const isActive = c.is_active || (currentCycle && c.id === currentCycle.id);
-              const displayName = c.name || formatCycleDateRange(c.start_date, c.end_date);
-              const dateSub = formatCycleDateRange(c.start_date, c.end_date);
+            {cycleList.length === 0 && !isRegularMode ? (
+              <TouchableOpacity
+                style={[
+                  styles.cycleChip,
+                  {
+                    backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.25)' : theme.primaryContainer,
+                    borderColor: theme.primary,
+                  },
+                ]}
+                onPress={() => openCycleModal()}
+                activeOpacity={0.75}
+              >
+                <MaterialCommunityIcons name="calendar-plus" size={15} color={theme.primary} />
+                <Text style={[styles.cycleChipText, { color: theme.onPrimaryContainer, fontWeight: '700' }]}>
+                  + Create Custom Period
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              cycleList.map((c) => {
+                const isActive = Boolean(c.is_active || (currentCycle && c.start_date === currentCycle.start_date));
+                const displayName = c.name || formatCycleDateRange(c.start_date, c.end_date);
+                const dateSub = formatCycleDateRange(c.start_date, c.end_date);
 
-              return (
-                <TouchableOpacity
-                  key={c.id}
-                  style={[
-                    styles.cycleChip,
-                    {
-                      backgroundColor: isActive
-                        ? (isDarkMode ? 'rgba(99, 102, 241, 0.25)' : theme.primaryContainer)
-                        : theme.pillBg,
-                      borderColor: isActive ? theme.primary : 'transparent',
-                    },
-                    isActive && M3Elevation.level1,
-                  ]}
-                  onPress={() => {
-                    if (isActive) {
-                      // Tap active chip: open cycle manager to shift between regular and custom, no editing
-                      setModeSwitcherVisible(true);
-                    } else {
-                      // Tap inactive chip: switch to this cycle
-                      setActiveBudgetCycle(c.id);
-                    }
-                  }}
-                  onLongPress={() => {
-                    // Hold any cycle chip: open full editor/manager
-                    openCycleModal();
-                  }}
-                  delayLongPress={350}
-                  activeOpacity={0.75}
-                >
-                  <MaterialCommunityIcons
-                    name={isActive ? 'calendar-check' : 'calendar-outline'}
-                    size={15}
-                    color={isActive ? (isDarkMode ? '#A5B4FC' : theme.primary) : theme.onSurfaceVariant}
-                  />
-                  <View style={styles.chipTextCol}>
-                    <Text
-                      style={[
-                        styles.cycleChipText,
-                        {
-                          color: isActive ? (isDarkMode ? '#E0E7FF' : theme.onPrimaryContainer) : theme.onSurface,
-                          fontWeight: isActive ? '800' : '600',
-                        },
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {displayName}
-                    </Text>
-                    {c.name && c.name !== dateSub && (
+                return (
+                  <TouchableOpacity
+                    key={c.id}
+                    style={[
+                      styles.cycleChip,
+                      {
+                        backgroundColor: isActive
+                          ? (isDarkMode ? 'rgba(99, 102, 241, 0.25)' : theme.primaryContainer)
+                          : theme.pillBg,
+                        borderColor: isActive ? theme.primary : 'transparent',
+                      },
+                      isActive && M3Elevation.level1,
+                    ]}
+                    onPress={() => handlePressCycleChip(c, isActive)}
+                    onLongPress={() => openCycleModal()}
+                    delayLongPress={350}
+                    activeOpacity={0.75}
+                  >
+                    <MaterialCommunityIcons
+                      name={isActive ? 'calendar-check' : 'calendar-outline'}
+                      size={15}
+                      color={isActive ? (isDarkMode ? '#A5B4FC' : theme.primary) : theme.onSurfaceVariant}
+                    />
+                    <View style={styles.chipTextCol}>
                       <Text
                         style={[
-                          styles.cycleChipSubText,
+                          styles.cycleChipText,
                           {
-                            color: isActive ? (isDarkMode ? '#C7D2FE' : theme.primary) : theme.onSurfaceVariant,
+                            color: isActive ? (isDarkMode ? '#E0E7FF' : theme.onPrimaryContainer) : theme.onSurface,
+                            fontWeight: isActive ? '800' : '600',
                           },
                         ]}
                         numberOfLines={1}
                       >
-                        {dateSub}
+                        {displayName}
                       </Text>
-                    )}
-                  </View>
-                  {isActive && (
-                    <View
-                      style={[
-                        styles.activeBadgePill,
-                        { backgroundColor: isDarkMode ? '#818CF8' : theme.primary },
-                      ]}
-                    >
-                      <Text style={[styles.activeBadgeText, { color: isDarkMode ? '#0F172A' : theme.onPrimary }]}>
-                        Active
-                      </Text>
+                      {c.name && c.name !== dateSub && (
+                        <Text
+                          style={[
+                            styles.cycleChipSubText,
+                            {
+                              color: isActive ? (isDarkMode ? '#C7D2FE' : theme.primary) : theme.onSurfaceVariant,
+                            },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {dateSub}
+                        </Text>
+                      )}
                     </View>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
+                    {isActive && (
+                      <View
+                        style={[
+                          styles.activeBadgePill,
+                          { backgroundColor: isDarkMode ? '#818CF8' : theme.primary },
+                        ]}
+                      >
+                        <Text style={[styles.activeBadgeText, { color: isDarkMode ? '#0F172A' : theme.onPrimary }]}>
+                          Active
+                        </Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              })
+            )}
+
+            {!isRegularMode && cycleList.length > 0 && (
+              <TouchableOpacity
+                style={[
+                  styles.cycleChip,
+                  {
+                    backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.06)' : theme.pillBg,
+                    borderColor: 'transparent',
+                  },
+                ]}
+                onPress={() => openCycleModal()}
+                activeOpacity={0.75}
+              >
+                <MaterialCommunityIcons name="plus" size={15} color={theme.primary} />
+                <Text style={[styles.cycleChipText, { color: theme.primary, fontWeight: '700' }]}>
+                  Add Period
+                </Text>
+              </TouchableOpacity>
+            )}
           </ScrollView>
         </View>
 

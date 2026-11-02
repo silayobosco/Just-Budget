@@ -96,6 +96,11 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
     return getRegularCycleDates(validDay);
   }, [startDay]);
 
+  // Custom cycles only (filter out regular calendar records)
+  const customCycles = useMemo(() => {
+    return allCycles.filter((c) => !c.id.startsWith('cycle-reg-'));
+  }, [allCycles]);
+
   // Save Regular Calendar Settings
   const handleSaveRegular = async () => {
     const dayNum = parseInt(startDay, 10);
@@ -472,33 +477,39 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
                   </View>
 
                   <View style={styles.periodPillList}>
-                    {allCycles.map((c) => {
-                      const isSelected = selectedCycleId === c.id;
-                      return (
-                        <TouchableOpacity
-                          key={c.id}
-                          style={[
-                            styles.periodPill,
-                            {
-                              backgroundColor: isSelected ? theme.primary : theme.pillBg,
-                              borderColor: c.is_active ? theme.primary : 'transparent',
-                            },
-                          ]}
-                          onPress={() => handleSelectCustomCycle(c)}
-                        >
-                          <Text
+                    {customCycles.length === 0 ? (
+                      <Text style={[styles.subHint, { color: theme.onSurfaceVariant }]}>
+                        No custom periods created yet. Tap "+ Add Period" above to create one.
+                      </Text>
+                    ) : (
+                      customCycles.map((c) => {
+                        const isSelected = selectedCycleId === c.id;
+                        return (
+                          <TouchableOpacity
+                            key={c.id}
                             style={[
-                              styles.periodPillText,
-                              { color: isSelected ? theme.onPrimary : theme.onSurface },
-                              c.is_active && { fontWeight: '800' },
+                              styles.periodPill,
+                              {
+                                backgroundColor: isSelected ? theme.primary : theme.pillBg,
+                                borderColor: c.is_active ? theme.primary : 'transparent',
+                              },
                             ]}
-                            numberOfLines={1}
+                            onPress={() => handleSelectCustomCycle(c)}
                           >
-                            {c.name} {c.is_active ? '★' : ''}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
+                            <Text
+                              style={[
+                                styles.periodPillText,
+                                { color: isSelected ? theme.onPrimary : theme.onSurface },
+                                c.is_active && { fontWeight: '800' },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {c.name} {c.is_active ? '★' : ''}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })
+                    )}
                   </View>
                 </View>
 
