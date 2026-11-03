@@ -126,7 +126,9 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     setAddPrefilledCategoryId(categoryId);
     setAddPrefilledSubcategoryId(subcategoryId);
     setAddCategorySheetVisible(false);
-    setAddModalVisible(true);
+    setTimeout(() => {
+      setAddModalVisible(true);
+    }, 280);
   };
 
   const handleSaveNewTransaction = async (txData: {

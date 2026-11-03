@@ -100,7 +100,9 @@ export const AnalyticsScreen: React.FC = () => {
     setAddPrefilledCategoryId(categoryId);
     setAddPrefilledSubcategoryId(subcategoryId);
     setAddCategorySheetVisible(false);
-    setAddModalVisible(true);
+    setTimeout(() => {
+      setAddModalVisible(true);
+    }, 280);
   };
 
   const handleSaveNewTransaction = async (txData: {

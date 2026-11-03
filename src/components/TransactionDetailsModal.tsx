@@ -96,12 +96,20 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   const amountInputRef = useRef<any>(null);
   const [categorySheetVisible, setCategorySheetVisible] = useState<boolean>(false);
 
+  // Focus helper: blur then focus forces React Native & native IMM to pop up the soft keyboard
+  const focusAmountInput = () => {
+    if (amountInputRef.current) {
+      amountInputRef.current.blur();
+      amountInputRef.current.focus();
+    }
+  };
+
   // Automatically focus amount input and open numeric keyboard when modal opens
   useEffect(() => {
     if (visible) {
-      const t1 = setTimeout(() => amountInputRef.current?.focus(), 120);
-      const t2 = setTimeout(() => amountInputRef.current?.focus(), 300);
-      const t3 = setTimeout(() => amountInputRef.current?.focus(), 500);
+      const t1 = setTimeout(focusAmountInput, 150);
+      const t2 = setTimeout(focusAmountInput, 350);
+      const t3 = setTimeout(focusAmountInput, 600);
       return () => {
         clearTimeout(t1);
         clearTimeout(t2);
@@ -307,9 +315,9 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       presentationStyle="fullScreen"
       statusBarTranslucent={true}
       onShow={() => {
-        amountInputRef.current?.focus();
-        setTimeout(() => amountInputRef.current?.focus(), 150);
-        setTimeout(() => amountInputRef.current?.focus(), 350);
+        focusAmountInput();
+        setTimeout(focusAmountInput, 150);
+        setTimeout(focusAmountInput, 350);
       }}
     >
       <View
@@ -515,10 +523,9 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
                 style={[styles.amountInput, { color: theme.onSurface }]}
                 placeholder="0.00"
                 placeholderTextColor={theme.onSurfaceVariant}
-                keyboardType="decimal-pad"
+                keyboardType={Platform.OS === 'android' ? 'numeric' : 'decimal-pad'}
                 value={amountStr}
                 onChangeText={setAmountStr}
-                autoFocus={true}
                 selectTextOnFocus={true}
               />
             </View>

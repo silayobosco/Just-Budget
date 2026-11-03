@@ -504,7 +504,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
     setPrefilledCategoryId(categoryId);
     setPrefilledSubcategoryId(subcategoryId);
     setCategoryPickerVisible(false);
-    setDetailsModalVisible(true);
+    setTimeout(() => {
+      setDetailsModalVisible(true);
+    }, 280);
   };
 
   // Step 2: Save Full Details
