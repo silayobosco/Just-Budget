@@ -1865,7 +1865,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
         </TouchableOpacity>
       </Animated.View>
 
-      {/* FLOATING ACTION BUTTON (BOTTOM LEFT) */}
+      {/* FLOATING ACTION BUTTON (BOTTOM RIGHT) */}
       <TouchableOpacity
         style={[
           styles.fabMainBtn,
@@ -2467,11 +2467,11 @@ const styles = StyleSheet.create({
   },
   fabSpeedDialContainer: {
     position: 'absolute',
-    left: 18,
+    right: 18,
     bottom: 84,
     zIndex: 95,
     gap: 10,
-    alignItems: 'flex-start',
+    alignItems: 'flex-end',
   },
   fabRecordBtn: {
     borderRadius: M3Shape.large,
@@ -2482,7 +2482,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   fabRecordBtnContent: {
-    alignItems: 'flex-start',
+    alignItems: 'flex-end',
     justifyContent: 'center',
     gap: 3,
   },
@@ -2509,7 +2509,7 @@ const styles = StyleSheet.create({
   },
   fabMainBtn: {
     position: 'absolute',
-    left: 18,
+    right: 18,
     bottom: 18,
     width: 56,
     height: 56,
