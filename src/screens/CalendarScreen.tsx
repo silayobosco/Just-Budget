@@ -384,7 +384,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
       subText: hasTarget
         ? isOver
           ? `⚠️ ${formatCurrency(overBy, curr)} over`
-          : `${formatCurrency(remaining, curr)} left`
+          : `Cap: ${formatCurrency(target, curr)}`
         : 'Tap to set budget cap',
     };
   }, [effectiveTarget, overallBudgetLimit, effectiveSpent, curr]);
@@ -772,18 +772,18 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
               )}
             </View>
 
-            {/* Main Headline: Amount To Go */}
+            {/* Main Headline: Amount Earned */}
             <View style={styles.heroAmountRow}>
               <Text
                 style={[styles.switcherTabAmount, { color: isDarkMode ? '#34D399' : theme.success }]}
                 numberOfLines={1}
               >
                 {incomeSwitcherProgress.hasGoal
-                  ? formatCurrency(incomeSwitcherProgress.remaining, curr)
+                  ? formatCurrency(effectiveIncome, curr)
                   : '+ Set Goal'}
               </Text>
               {incomeSwitcherProgress.hasGoal && (
-                <Text style={[styles.heroAmountCaption, { color: theme.onSurfaceVariant }]}>TO GO</Text>
+                <Text style={[styles.heroAmountCaption, { color: theme.onSurfaceVariant }]}>EARNED</Text>
               )}
             </View>
 
@@ -882,7 +882,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
               )}
             </View>
 
-            {/* Main Headline: Amount Left */}
+            {/* Main Headline: Amount Used */}
             <View style={styles.heroAmountRow}>
               <Text
                 style={[
@@ -892,13 +892,11 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                 numberOfLines={1}
               >
                 {expenseSwitcherProgress.hasTarget
-                  ? expenseSwitcherProgress.isOver
-                    ? `-${formatCurrency(expenseSwitcherProgress.overBy, curr)}`
-                    : formatCurrency(expenseSwitcherProgress.remaining, curr)
+                  ? formatCurrency(effectiveSpent, curr)
                   : '+ Set Cap'}
               </Text>
               {expenseSwitcherProgress.hasTarget && (
-                <Text style={[styles.heroAmountCaption, { color: theme.onSurfaceVariant }]}>LEFT</Text>
+                <Text style={[styles.heroAmountCaption, { color: theme.onSurfaceVariant }]}>USED</Text>
               )}
             </View>
 
@@ -1307,7 +1305,11 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                 ]}
                 numberOfLines={1}
               >
-                Total: {formatCurrency(effectiveSpent, curr)}
+                {expenseSwitcherProgress.hasTarget
+                  ? expenseSwitcherProgress.isOver
+                    ? `Over: ${formatCurrency(expenseSwitcherProgress.overBy, curr)}`
+                    : `Remain: ${formatCurrency(expenseSwitcherProgress.remaining, curr)}`
+                  : `Total: ${formatCurrency(effectiveSpent, curr)}`}
               </Text>
             </View>
           </View>
@@ -1353,7 +1355,11 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                 ]}
                 numberOfLines={1}
               >
-                Total: {formatCurrency(effectiveIncome, curr)}
+                {incomeSwitcherProgress.hasGoal
+                  ? incomeSwitcherProgress.isReached
+                    ? '🎉 Reached'
+                    : `Remain: ${formatCurrency(incomeSwitcherProgress.remaining, curr)}`
+                  : `Total: ${formatCurrency(effectiveIncome, curr)}`}
               </Text>
             </View>
           </View>
