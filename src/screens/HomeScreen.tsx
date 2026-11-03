@@ -28,6 +28,22 @@ import { CycleModeSwitcherModal } from '../components/CycleModeSwitcherModal';
 
 import { TabType } from '../components/BottomTabs';
 
+// Safe arithmetic evaluator for basic calculation on dialpad
+export const evaluateMathExpression = (expr: string): number => {
+  if (!expr) return 0;
+  let clean = expr.replace(/×/g, '*').replace(/÷/g, '/').replace(/,/g, '');
+  clean = clean.replace(/[+\-*/.]+$/, '').trim();
+  if (!clean) return 0;
+  try {
+    if (!/^[0-9+\-*/. ()]+$/.test(clean)) return 0;
+    const result = new Function(`"use strict"; return (${clean})`)();
+    if (typeof result === 'number' && !isNaN(result) && isFinite(result)) {
+      return Math.round(result * 100) / 100;
+    }
+  } catch {}
+  return parseFloat(clean) || 0;
+};
+
 interface HomeScreenProps {
   onNavigateTab?: (tab: TabType) => void;
 }
@@ -68,6 +84,34 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
     } catch (err) {
       console.error('Failed to save home_collapsed_sheet_height:', err);
     }
+  };
+
+  // Basic Calculation Side of Keyboard toggle state (persisted in SQLite)
+  const [showCalcSide, setShowCalcSide] = useState<boolean>(() => {
+    try {
+      const db = getDB();
+      const row = db.getFirstSync<{ value: string }>(
+        "SELECT value FROM settings WHERE key = 'home_show_calc_side'"
+      );
+      return row?.value === '1';
+    } catch {}
+    return false;
+  });
+
+  const toggleCalcSide = () => {
+    setShowCalcSide((prev) => {
+      const next = !prev;
+      try {
+        const db = getDB();
+        db.runSync(
+          `INSERT INTO settings (key, value) VALUES ('home_show_calc_side', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+          [next ? '1' : '0']
+        );
+      } catch (err) {
+        console.error('Failed to save home_show_calc_side:', err);
+      }
+      return next;
+    });
   };
 
   // Responsive dial pad, button and row dimensions
@@ -183,21 +227,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
       setAmountSelection({ start: 1, end: 1 });
       return;
     }
-    const cleaned = text.replace(/,/g, '').replace(/[^0-9.]/g, '');
-    const parts = cleaned.split('.');
-    let valid = parts[0] || '0';
-    if (parts.length > 1) {
-      valid += '.' + parts.slice(1).join('').slice(0, 2);
-    }
-    if (valid.length > 1 && valid.startsWith('0') && !valid.startsWith('0.')) {
-      valid = valid.replace(/^0+/, '') || '0';
-    }
-    if (valid.length > 14) valid = valid.slice(0, 14);
-    const finalVal = valid || '0';
-    setAmountStr(finalVal);
+    const cleaned = text.replace(/,/g, '').replace(/[*]/g, '×').replace(/[/]/g, '÷').replace(/[^0-9.+×÷\- ]/g, '');
+    setAmountStr(cleaned || '0');
   };
 
-  // Dial Pad Keypress
+  // Dial Pad Keypress (Digits, Decimal, Calculation Operators & Equals)
   const handleKeyPress = (val: string) => {
     amountInputRef.current?.focus();
     const rawStart = amountSelection.start ?? amountStr.length;
@@ -221,19 +255,64 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
         setAmountSelection({ start: curStart, end: curStart });
         setTimeout(() => amountInputRef.current?.setSelection?.(curStart, curStart), 10);
       } else if (curStart > 0) {
-        const before = amountStr.slice(0, curStart - 1);
-        const after = amountStr.slice(curStart);
+        let deleteCount = 1;
+        // If backspacing over a spaced operator like " + ", remove cleanly
+        if (curStart >= 2 && amountStr.slice(curStart - 2, curStart) === ' ') {
+          deleteCount = 2;
+        } else if (curStart >= 3 && amountStr.slice(curStart - 3, curStart).endsWith(' ')) {
+          deleteCount = 3;
+        }
+        const before = amountStr.slice(0, Math.max(0, curStart - deleteCount));
+        const after = amountStr.slice(curEnd);
         const next = before + after || '0';
         setAmountStr(next);
-        const newPos = Math.max(0, curStart - 1);
+        const newPos = Math.max(0, curStart - deleteCount);
         setAmountSelection({ start: newPos, end: newPos });
         setTimeout(() => amountInputRef.current?.setSelection?.(newPos, newPos), 10);
       }
       return;
     }
 
+    // Equals ('=') evaluates the math expression immediately
+    if (val === '=') {
+      const result = evaluateMathExpression(amountStr);
+      const resStr = result.toString();
+      setAmountStr(resStr);
+      setAmountSelection({ start: resStr.length, end: resStr.length });
+      setTimeout(() => amountInputRef.current?.setSelection?.(resStr.length, resStr.length), 10);
+      return;
+    }
+
+    // Basic calculation operators (+, -, ×, ÷)
+    if (['+', '-', '×', '÷'].includes(val)) {
+      // If trailing operator already exists, replace it
+      const operatorRegex = / [+\-×÷] $/;
+      if (operatorRegex.test(amountStr)) {
+        const next = amountStr.replace(operatorRegex, ` ${val} `);
+        setAmountStr(next);
+        setAmountSelection({ start: next.length, end: next.length });
+        return;
+      }
+      // If equation already has a first number and operator, solve first then chain operator
+      if (/[0-9] [+\-×÷] [0-9]/.test(amountStr)) {
+        const result = evaluateMathExpression(amountStr);
+        const next = `${result} ${val} `;
+        setAmountStr(next);
+        setAmountSelection({ start: next.length, end: next.length });
+        return;
+      }
+      const next = `${amountStr} ${val} `;
+      setAmountStr(next);
+      setAmountSelection({ start: next.length, end: next.length });
+      setTimeout(() => amountInputRef.current?.setSelection?.(next.length, next.length), 10);
+      return;
+    }
+
     if (val === '.') {
-      if (amountStr.includes('.')) {
+      // Check last number segment in amountStr
+      const parts = amountStr.split(/ [+\-×÷] /);
+      const lastPart = parts[parts.length - 1] || '';
+      if (lastPart.includes('.')) {
         const selectedText = amountStr.slice(curStart, curEnd);
         if (!selectedText.includes('.')) return;
       }
@@ -258,9 +337,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
     const before = amountStr.slice(0, curStart);
     const after = amountStr.slice(curEnd);
     const nextCandidate = before + val + after;
-    const parts = nextCandidate.split('.');
-    if (parts.length === 2 && parts[1].length > 2) return;
-    if (nextCandidate.replace(/[^0-9]/g, '').length >= 12) return;
+
+    // Check decimal constraint on current number segment
+    const segments = nextCandidate.split(/ [+\-×÷] /);
+    const currentSegment = segments[segments.length - 1] || '';
+    const decParts = currentSegment.split('.');
+    if (decParts.length === 2 && decParts[1].length > 2) return;
+    if (nextCandidate.replace(/[^0-9]/g, '').length >= 15) return;
 
     setAmountStr(nextCandidate);
     const nextPos = curStart + 1;
@@ -268,7 +351,40 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
     setTimeout(() => amountInputRef.current?.setSelection?.(nextPos, nextPos), 10);
   };
 
-  const parsedAmount = parseFloat(amountStr) || 0;
+  // Math calculation properties
+  const hasOperator = useMemo(() => /[+\-×÷]/.test(amountStr), [amountStr]);
+  const isEquationReady = useMemo(() => /[0-9] [+\-×÷] [0-9]/.test(amountStr), [amountStr]);
+  const evaluatedAmount = useMemo(() => evaluateMathExpression(amountStr), [amountStr]);
+  const parsedAmount = evaluatedAmount;
+
+  // Responsive font size for longer calculation expressions
+  const dynamicAmountFontSize = useMemo(() => {
+    if (amountStr.length > 11) {
+      return isTinyScreen ? 20 : isCompactScreen ? 24 : 28;
+    }
+    if (amountStr.length > 7) {
+      return isTinyScreen ? 25 : isCompactScreen ? 30 : 34;
+    }
+    return amountFontSize;
+  }, [amountStr, isTinyScreen, isCompactScreen, amountFontSize]);
+
+  // Dial pad row configurations (3 columns vs 4 columns with basic calculation side)
+  const dialPadRows = useMemo(() => {
+    if (!showCalcSide) {
+      return [
+        ['1', '2', '3'],
+        ['4', '5', '6'],
+        ['7', '8', '9'],
+        ['.', '0', 'backspace'],
+      ];
+    }
+    return [
+      ['1', '2', '3', '÷'],
+      ['4', '5', '6', '×'],
+      ['7', '8', '9', '-'],
+      ['.', '0', 'backspace', isEquationReady ? '=' : '+'],
+    ];
+  }, [showCalcSide, isEquationReady]);
 
   // Duplicate warning detection
   const isDuplicate = useMemo(() => {
@@ -334,6 +450,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
     if (parsedAmount <= 0) {
       Alert.alert('Enter Amount', `Please enter an amount greater than 0 before recording ${type}.`);
       return;
+    }
+    // If user has a calculation pending, resolve it to final value
+    if (hasOperator) {
+      setAmountStr(parsedAmount.toString());
     }
     if (!selectedWalletId && wallets.length === 0) {
       setNewWalletName('');
@@ -748,7 +868,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
                   styles.amountInputText,
                   {
                     color: theme.onSurface,
-                    fontSize: amountFontSize,
+                    fontSize: dynamicAmountFontSize,
                   },
                 ]}
                 value={amountStr}
@@ -766,6 +886,29 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
               />
             </View>
           </Pressable>
+
+          {/* CALCULATION LIVE PREVIEW / SOLVE PILL */}
+          {hasOperator && (
+            <TouchableOpacity
+              style={[
+                styles.calcPreviewPill,
+                {
+                  backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.2)' : '#EEF2FF',
+                  borderColor: isDarkMode ? 'rgba(99, 102, 241, 0.45)' : '#C7D2FE',
+                },
+              ]}
+              onPress={() => handleKeyPress('=')}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons name="equal" size={15} color={theme.primary} />
+              <Text style={[styles.calcPreviewAmount, { color: theme.primary }]}>
+                {formatCurrency(evaluatedAmount, curr)}
+              </Text>
+              <Text style={[styles.calcPreviewHint, { color: theme.onSurfaceVariant }]}>
+                tap to solve
+              </Text>
+            </TouchableOpacity>
+          )}
 
           {isDuplicate && (
             <View style={[styles.duplicateBanner, { backgroundColor: '#FEF3C7' }]}>
@@ -873,42 +1016,143 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
               isCompactScreen && { paddingTop: 6, paddingBottom: 8 },
             ]}
           >
-            {[
-              ['1', '2', '3'],
-              ['4', '5', '6'],
-              ['7', '8', '9'],
-              ['.', '0', 'backspace'],
-            ].map((row, rIdx) => (
+            {dialPadRows.map((row, rIdx) => (
               <View key={rIdx} style={[styles.dialRow, { marginBottom: dialRowMargin }]}>
-                {row.map((k) => (
-                  <TouchableOpacity
-                    key={k}
-                    style={[
-                      styles.dialKey,
-                      {
-                        backgroundColor: theme.pillBg,
-                        height: dialKeyHeight,
-                      },
-                    ]}
-                    onPress={() => handleKeyPress(k)}
-                    activeOpacity={0.65}
-                  >
-                    {k === 'backspace' ? (
-                      <MaterialCommunityIcons
-                        name="backspace-outline"
-                        size={isTinyScreen ? 20 : 24}
-                        color={theme.onSurface}
-                      />
-                    ) : (
-                      <Text
-                        style={[styles.dialKeyText, { color: theme.onSurface, fontSize: dialKeyFontSize }]}
-                        maxFontSizeMultiplier={1.2}
+                {row.map((k) => {
+                  if (k === '.') {
+                    return (
+                      <View
+                        key={k}
+                        style={[
+                          styles.dialKey,
+                          styles.dotSwitcherKeyContainer,
+                          {
+                            backgroundColor: showCalcSide
+                              ? (isDarkMode ? 'rgba(99, 102, 241, 0.22)' : '#EEF2FF')
+                              : theme.pillBg,
+                            borderColor: showCalcSide
+                              ? theme.primary
+                              : (isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'transparent'),
+                            borderWidth: showCalcSide ? 1.5 : StyleSheet.hairlineWidth,
+                            height: dialKeyHeight,
+                          },
+                        ]}
                       >
-                        {k}
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                ))}
+                        {/* Dot Touch Area */}
+                        <TouchableOpacity
+                          style={styles.dotSubKeyTouch}
+                          onPress={() => handleKeyPress('.')}
+                          onLongPress={toggleCalcSide}
+                          activeOpacity={0.65}
+                          accessibilityRole="button"
+                          accessibilityLabel="Decimal point"
+                        >
+                          <Text
+                            style={[
+                              styles.dialKeyText,
+                              {
+                                color: theme.onSurface,
+                                fontSize: dialKeyFontSize + 4,
+                                fontWeight: '900',
+                                lineHeight: dialKeyFontSize + 4,
+                              },
+                            ]}
+                          >
+                            .
+                          </Text>
+                        </TouchableOpacity>
+
+                        {/* Subtle Divider */}
+                        <View
+                          style={[
+                            styles.dotSwitcherDivider,
+                            {
+                              backgroundColor: showCalcSide
+                                ? (isDarkMode ? 'rgba(99, 102, 241, 0.4)' : '#C7D2FE')
+                                : theme.divider,
+                            },
+                          ]}
+                        />
+
+                        {/* Calculation Side Switcher Touch Area */}
+                        <TouchableOpacity
+                          style={[
+                            styles.calcSwitchSubKeyTouch,
+                            showCalcSide && {
+                              backgroundColor: theme.primary,
+                            },
+                          ]}
+                          onPress={toggleCalcSide}
+                          activeOpacity={0.65}
+                          accessibilityRole="button"
+                          accessibilityLabel={
+                            showCalcSide
+                              ? 'Hide basic calculation keyboard'
+                              : 'Show basic calculation keyboard'
+                          }
+                        >
+                          <MaterialCommunityIcons
+                            name={showCalcSide ? 'calculator' : 'calculator-variant-outline'}
+                            size={isTinyScreen ? 14 : 16}
+                            color={showCalcSide ? '#FFFFFF' : theme.onSurfaceVariant}
+                          />
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  }
+
+                  const isOperator = ['+', '-', '×', '÷', '='].includes(k);
+                  const isEquals = k === '=';
+
+                  return (
+                    <TouchableOpacity
+                      key={k}
+                      style={[
+                        styles.dialKey,
+                        {
+                          backgroundColor: isEquals
+                            ? theme.primary
+                            : isOperator
+                            ? (isDarkMode ? 'rgba(99, 102, 241, 0.2)' : '#EEF2FF')
+                            : theme.pillBg,
+                          borderColor: isOperator && !isEquals
+                            ? (isDarkMode ? 'rgba(99, 102, 241, 0.4)' : '#C7D2FE')
+                            : 'transparent',
+                          borderWidth: isOperator && !isEquals ? StyleSheet.hairlineWidth : 0,
+                          height: dialKeyHeight,
+                        },
+                      ]}
+                      onPress={() => handleKeyPress(k)}
+                      activeOpacity={0.65}
+                    >
+                      {k === 'backspace' ? (
+                        <MaterialCommunityIcons
+                          name="backspace-outline"
+                          size={isTinyScreen ? 20 : 24}
+                          color={theme.onSurface}
+                        />
+                      ) : (
+                        <Text
+                          style={[
+                            styles.dialKeyText,
+                            {
+                              color: isEquals
+                                ? '#FFFFFF'
+                                : isOperator
+                                ? theme.primary
+                                : theme.onSurface,
+                              fontSize: isOperator ? dialKeyFontSize + 2 : dialKeyFontSize,
+                              fontWeight: isOperator ? '800' : '700',
+                            },
+                          ]}
+                          maxFontSizeMultiplier={1.2}
+                        >
+                          {k}
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
             ))}
 
@@ -1807,6 +2051,48 @@ const styles = StyleSheet.create({
   },
   dialKeyText: {
     fontWeight: '700',
+  },
+  dotSwitcherKeyContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 2,
+    overflow: 'hidden',
+  },
+  dotSubKeyTouch: {
+    flex: 1.1,
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dotSwitcherDivider: {
+    width: StyleSheet.hairlineWidth,
+    height: '60%',
+  },
+  calcSwitchSubKeyTouch: {
+    flex: 1,
+    height: '75%',
+    borderRadius: M3Shape.small,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 2,
+  },
+  calcPreviewPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: M3Shape.full,
+    borderWidth: 1,
+    gap: 6,
+    marginTop: 6,
+  },
+  calcPreviewAmount: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  calcPreviewHint: {
+    fontSize: 10,
+    fontWeight: '600',
   },
   dualActionBar: {
     flexDirection: 'row',
