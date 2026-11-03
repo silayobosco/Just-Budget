@@ -201,8 +201,27 @@ export const CalendarScreen: React.FC = () => {
     settings.cycle_default_income,
   ]);
 
-  // Effective cycle currently being displayed (defaults to current cycle containing today)
-  const effectiveCycle = selectedCalendarCycle || currentCycle;
+  // Today's cycle (the cycle that actually contains today's date)
+  const todayCycle = useMemo(() => {
+    const match = cycleList.find((c) => todayStr >= c.start_date && todayStr <= c.end_date);
+    if (match) return match;
+    if (currentCycle && todayStr >= currentCycle.start_date && todayStr <= currentCycle.end_date) {
+      return currentCycle;
+    }
+    const reg = getRegularCycleDates(startDay);
+    return {
+      id: `cycle-reg-${reg.startDate}`,
+      name: reg.name,
+      start_date: reg.startDate,
+      end_date: reg.endDate,
+      target_budget: settings.cycle_default_budget !== undefined ? Number(settings.cycle_default_budget) : undefined,
+      target_income: settings.cycle_default_income !== undefined ? Number(settings.cycle_default_income) : undefined,
+      is_active: true,
+    };
+  }, [cycleList, todayStr, currentCycle, startDay, settings.cycle_default_budget, settings.cycle_default_income]);
+
+  // Effective cycle currently being displayed (defaults to today's cycle)
+  const effectiveCycle = selectedCalendarCycle || todayCycle;
 
   // Active cycle date boundaries (for showing the WHOLE displayed cycle in the calendar)
   const activeCycleRange = useMemo(() => {
@@ -561,7 +580,7 @@ export const CalendarScreen: React.FC = () => {
     };
 
     const activeIdx = cycleList.findIndex(
-      (c) => c.is_active || (currentCycle && c.start_date === currentCycle.start_date)
+      (c) => c.start_date === activeCycleRange.startDate
     );
 
     if (activeIdx > 0) {
@@ -577,12 +596,32 @@ export const CalendarScreen: React.FC = () => {
     // Sort chronologically: e.g. 27 Oct, 28 Oct ... 26 Nov
     dates.sort();
     return dates;
-  }, [activeCycleRange, cycleList, currentCycle]);
+  }, [activeCycleRange, cycleList]);
 
   // References for continuous transactions scrolling
   const transactionsScrollRef = useRef<any>(null);
   const dayLayoutsRef = useRef<Record<string, number>>({});
   const isProgrammaticScrollRef = useRef<boolean>(false);
+
+  // Return to today and current cycle
+  const handleGoToToday = () => {
+    const nowToday = new Date().toISOString().slice(0, 10);
+    // 1. Reset any selected past/future cycle so we return to current cycle
+    setSelectedCalendarCycle(null);
+    // 2. Set selected date to today
+    setSelectedDate(nowToday);
+    // 3. Scroll transactions list to today
+    setTimeout(() => {
+      const targetY = dayLayoutsRef.current[nowToday];
+      if (targetY !== undefined && transactionsScrollRef.current) {
+        isProgrammaticScrollRef.current = true;
+        transactionsScrollRef.current.scrollTo({ y: Math.max(0, targetY - 8), animated: true });
+        setTimeout(() => {
+          isProgrammaticScrollRef.current = false;
+        }, 450);
+      }
+    }, 150);
+  };
 
   // Tapping a date on the calendar scrolls transactions to that date
   const handleSelectDateFromCalendar = (dateStr: string) => {
@@ -730,10 +769,7 @@ export const CalendarScreen: React.FC = () => {
               </View>
               <TouchableOpacity
                 style={[styles.returnToTodayBtn, { backgroundColor: theme.primaryContainer }]}
-                onPress={() => {
-                  setSelectedCalendarCycle(null);
-                  setSelectedDate(todayStr);
-                }}
+                onPress={handleGoToToday}
                 activeOpacity={0.7}
               >
                 <MaterialCommunityIcons name="arrow-u-left-top" size={13} color={theme.onPrimaryContainer} />
@@ -1151,10 +1187,7 @@ export const CalendarScreen: React.FC = () => {
           <View style={styles.calendarHeaderRightActions}>
             <TouchableOpacity
               style={[styles.todayBtn, { backgroundColor: theme.pillBg }]}
-              onPress={() => {
-                const todayStr = new Date().toISOString().slice(0, 10);
-                handleSelectDateFromCalendar(todayStr);
-              }}
+              onPress={handleGoToToday}
               activeOpacity={0.7}
             >
               <Text style={[styles.todayBtnText, { color: theme.primary }]}>Today</Text>

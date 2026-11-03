@@ -193,10 +193,9 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const isViewingCurrentCycle = useMemo(() => {
     const todayStr = new Date().toISOString().slice(0, 10);
-    const target = selectedCalendarCycle || currentCycle;
-    if (!target?.start_date || !target?.end_date) return true;
-    return todayStr >= target.start_date && todayStr <= target.end_date;
-  }, [selectedCalendarCycle, currentCycle]);
+    if (!selectedCalendarCycle) return true;
+    return todayStr >= selectedCalendarCycle.start_date && todayStr <= selectedCalendarCycle.end_date;
+  }, [selectedCalendarCycle]);
 
   const openCycleModal = useCallback(() => setIsCycleModalOpen(true), []);
   const closeCycleModal = useCallback(() => setIsCycleModalOpen(false), []);
