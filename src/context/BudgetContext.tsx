@@ -195,7 +195,8 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [selectedAnalyticsCycle, setSelectedAnalyticsCycle] = useState<BudgetCycle | null>(null);
 
   const isViewingCurrentCycle = useMemo(() => {
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     if (!selectedCalendarCycle) return true;
     return todayStr >= selectedCalendarCycle.start_date && todayStr <= selectedCalendarCycle.end_date;
   }, [selectedCalendarCycle]);
@@ -267,13 +268,63 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       // Active Budget Cycle
       let cycle = db.getFirstSync<BudgetCycle>(`SELECT * FROM budget_cycles WHERE is_active = 1 LIMIT 1`);
-      if (!cycle) {
-        cycle = db.getFirstSync<BudgetCycle>(`SELECT * FROM budget_cycles ORDER BY start_date DESC LIMIT 1`);
+
+      const now = new Date();
+      const localTodayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+      // In regular mode, always ensure the active cycle corresponds to today's regular cycle dates
+      if (newSettings.cycle_mode === 'regular') {
+        const reg = getRegularCycleDates(newSettings.cycle_month_start_day || 1, now);
+        const regId = `cycle-reg-${reg.startDate}`;
+
+        if (!cycle || cycle.start_date !== reg.startDate || cycle.end_date !== reg.endDate) {
+          let regCycle = db.getFirstSync<BudgetCycle>(
+            `SELECT * FROM budget_cycles WHERE (start_date = ? AND end_date = ?) OR id = ? LIMIT 1`,
+            [reg.startDate, reg.endDate, regId]
+          );
+
+          db.runSync(`UPDATE budget_cycles SET is_active = 0`);
+          if (regCycle) {
+            db.runSync(`UPDATE budget_cycles SET is_active = 1 WHERE id = ?`, [regCycle.id]);
+            cycle = { ...regCycle, is_active: true };
+          } else {
+            const bVal = newSettings.cycle_default_budget ?? null;
+            const iVal = newSettings.cycle_default_income ?? null;
+            db.runSync(
+              `INSERT INTO budget_cycles (id, name, start_date, end_date, target_budget, target_income, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+              [regId, reg.name, reg.startDate, reg.endDate, bVal, iVal]
+            );
+            cycle = {
+              id: regId,
+              name: reg.name,
+              start_date: reg.startDate,
+              end_date: reg.endDate,
+              target_budget: bVal ?? undefined,
+              target_income: iVal ?? undefined,
+              is_active: true,
+            };
+          }
+        }
+      } else {
+        // Custom mode: if no active cycle or currently active cycle has expired, check if a cycle covers today
+        if (!cycle || cycle.end_date < localTodayStr) {
+          const coveringCycle = db.getFirstSync<BudgetCycle>(
+            `SELECT * FROM budget_cycles WHERE start_date <= ? AND end_date >= ? ORDER BY start_date DESC LIMIT 1`,
+            [localTodayStr, localTodayStr]
+          );
+          if (coveringCycle) {
+            db.runSync(`UPDATE budget_cycles SET is_active = 0`);
+            db.runSync(`UPDATE budget_cycles SET is_active = 1 WHERE id = ?`, [coveringCycle.id]);
+            cycle = { ...coveringCycle, is_active: true };
+          } else if (!cycle) {
+            cycle = db.getFirstSync<BudgetCycle>(`SELECT * FROM budget_cycles ORDER BY start_date DESC LIMIT 1`);
+          }
+        }
       }
 
       // If no active cycle exists and onboarding completed, initialize with regular cycle dates
       if (!cycle && newSettings.onboarding_completed) {
-        const reg = getRegularCycleDates(newSettings.cycle_month_start_day || 1);
+        const reg = getRegularCycleDates(newSettings.cycle_month_start_day || 1, now);
         const regId = `cycle-reg-${reg.startDate}`;
         const bVal = newSettings.cycle_default_budget ?? null;
         const iVal = newSettings.cycle_default_income ?? null;
@@ -291,6 +342,10 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           is_active: true,
         };
       }
+
+      // Re-sync allCycles with the latest is_active status
+      const updatedCycleRows = db.getAllSync<BudgetCycle>(`SELECT * FROM budget_cycles ORDER BY start_date DESC`);
+      setAllCycles(updatedCycleRows.map((c) => ({ ...c, is_active: Boolean(c.is_active) })));
 
       // If Inherit mode is active and default targets exist, ensure cycle reflects defaults
       if (cycle && newSettings.cycle_target_mode === 'inherit') {
@@ -439,11 +494,29 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     const totalDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1);
 
-    // Days remaining includes today as day 1:
-    // e.g. Oct 29 to Oct 31: 2 days difference + 1 inclusive = 3 days (29, 30, 31)
-    const diffDays = Math.max(0, Math.round((end.getTime() - todayDateOnly.getTime()) / (1000 * 60 * 60 * 24)));
-    const daysRemaining = Math.max(1, diffDays + 1);
-    const dayIndex = Math.min(totalDays, Math.max(1, totalDays - daysRemaining + 1));
+    // Days difference between end date (midnight) and today (midnight)
+    const msDiff = end.getTime() - todayDateOnly.getTime();
+    const diffDays = Math.round(msDiff / (1000 * 60 * 60 * 24));
+
+    const isPast = todayDateOnly.getTime() > end.getTime();
+    const isFuture = todayDateOnly.getTime() < start.getTime();
+
+    // Actual remaining days in cycle:
+    // e.g. In Nov 1 to Nov 30: on Nov 3, diffDays is 27 (27 days left).
+    // On Nov 30 (last day): diffDays is 0 (0 days left / Ends today).
+    // If cycle is past: 0 days left (isEnded: true).
+    // If cycle is future: totalDays left.
+    const daysRemaining = isPast ? 0 : isFuture ? totalDays : Math.max(0, diffDays);
+
+    // Day index (1-based: e.g. Day 1 on Nov 1, Day 3 on Nov 3)
+    const dayIndex = isPast
+      ? totalDays
+      : isFuture
+      ? 1
+      : Math.min(
+          totalDays,
+          Math.max(1, Math.round((todayDateOnly.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1)
+        );
 
     // Spent today in app currency
     const todayExpenses = transactions
@@ -453,14 +526,15 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const hasTargetBudget = (currentCycle?.target_budget ?? 0) > 0;
 
     // Daily Allowance ("Available for Day") formula:
-    // If target budget is set, pool = remaining cycle balance + today's expenses.
-    // Otherwise, pool = total wallets balance + today's expenses.
-    // Available for day = pool / days remaining in defined month.
+    // Pool is divided by the number of daily spending buckets remaining including today (minimum 1 bucket)
+    // e.g. On Nov 3: today + 27 future days = 28 buckets.
+    // On Nov 30: today = 1 bucket.
+    const daysForAllowance = Math.max(1, isPast ? 1 : diffDays + 1);
     const pool = hasTargetBudget
       ? Math.max(0, remainingCycleBalance + todayExpenses)
       : Math.max(0, totalConvertedBalance + todayExpenses);
 
-    const baselineDaily = daysRemaining > 0 ? pool / daysRemaining : 0;
+    const baselineDaily = daysForAllowance > 0 ? pool / daysForAllowance : 0;
     const availableForDay = Math.max(0, baselineDaily);
     const remainingToday = availableForDay - todayExpenses;
 
@@ -478,6 +552,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       isOverDaily: todayExpenses > availableForDay && availableForDay > 0,
       hasBudget: hasTargetBudget,
       dailyAverage,
+      isEnded: isPast,
     };
   }, [currentCycle, transactions, remainingCycleBalance, spentInCycle, totalConvertedBalance]);
 

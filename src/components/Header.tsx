@@ -25,6 +25,7 @@ export const Header: React.FC<HeaderProps> = ({
     openCycleModal,
     totalConvertedBalance,
     isViewingCurrentCycle,
+    selectedCalendarCycle,
   } = useBudget();
   const isDarkMode = settings.theme_mode === 'dark';
   const theme = isDarkMode ? darkTheme : lightTheme;
@@ -37,9 +38,10 @@ export const Header: React.FC<HeaderProps> = ({
   // Only show Total Wallets balance when browsing a non-current cycle on calendar page
   const showRightBalanceChip = isCalendarTab && !isViewingCurrentCycle;
 
-  const cycleDisplayRange = currentCycle?.start_date && currentCycle?.end_date
-    ? formatCycleDateRange(currentCycle.start_date, currentCycle.end_date)
-    : (currentCycle?.name || 'Active Cycle');
+  const displayedCycle = isCalendarTab && selectedCalendarCycle ? selectedCalendarCycle : currentCycle;
+  const cycleDisplayRange = displayedCycle?.start_date && displayedCycle?.end_date
+    ? formatCycleDateRange(displayedCycle.start_date, displayedCycle.end_date)
+    : (displayedCycle?.name || 'Active Cycle');
 
   return (
     <View style={[styles.container, { backgroundColor: theme.surface, borderBottomColor: theme.divider }]}>
@@ -143,7 +145,13 @@ export const Header: React.FC<HeaderProps> = ({
               ]}
               numberOfLines={1}
             >
-              {dailyAllowanceStats.daysRemaining} {dailyAllowanceStats.daysRemaining === 1 ? 'day left' : 'days left'}
+              {dailyAllowanceStats.isEnded
+                ? 'Ended'
+                : dailyAllowanceStats.daysRemaining === 0
+                ? 'Ends today'
+                : dailyAllowanceStats.daysRemaining === 1
+                ? '1 day left'
+                : `${dailyAllowanceStats.daysRemaining} days left`}
             </Text>
           </TouchableOpacity>
         ) : (
