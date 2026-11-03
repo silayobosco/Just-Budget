@@ -16,6 +16,13 @@ export const CycleModeSwitcherModal: React.FC<CycleModeSwitcherModalProps> = ({
   const { settings, allCycles, updateSettings, setActiveBudgetCycle, openCycleModal } = useBudget();
   const isDarkMode = settings.theme_mode === 'dark';
   const theme = isDarkMode ? darkTheme : lightTheme;
+  const startDay = settings.cycle_month_start_day || 1;
+
+  const getOrdinal = (n: number) => {
+    const s = ['th', 'st', 'nd', 'rd'];
+    const v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  };
 
   const handleOpenCycleManager = () => {
     onClose();
@@ -60,7 +67,7 @@ export const CycleModeSwitcherModal: React.FC<CycleModeSwitcherModalProps> = ({
           <View style={styles.modeSwitcherHeader}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <MaterialCommunityIcons name="calendar-sync" size={22} color={theme.primary} />
-              <Text style={[styles.modeSwitcherTitle, { color: theme.onSurface }]}>Cycle Mode</Text>
+              <Text style={[styles.modeSwitcherTitle, { color: theme.onSurface }]}>Cycle Type Picker</Text>
             </View>
             <TouchableOpacity
               onPress={onClose}
@@ -71,7 +78,7 @@ export const CycleModeSwitcherModal: React.FC<CycleModeSwitcherModalProps> = ({
           </View>
 
           <Text style={[styles.modeSwitcherSub, { color: theme.onSurfaceVariant }]}>
-            Shift between regular recurring calendar months and custom arbitrary periods. Press & hold to manage cycles.
+            Choose how your budget cycles are structured. Tap an option to switch active mode.
           </Text>
 
           {/* Mode Option 1: Regular Calendar */}
@@ -107,7 +114,7 @@ export const CycleModeSwitcherModal: React.FC<CycleModeSwitcherModalProps> = ({
                 )}
               </View>
               <Text style={[styles.modeCardDesc, { color: theme.onSurfaceVariant }]}>
-                Monthly cycle repeating on the {settings.cycle_month_start_day || 1}st of each month.
+                Standard monthly cycles repeating on the {getOrdinal(startDay)} of each month.
               </Text>
             </View>
             <MaterialCommunityIcons
@@ -150,7 +157,7 @@ export const CycleModeSwitcherModal: React.FC<CycleModeSwitcherModalProps> = ({
                 )}
               </View>
               <Text style={[styles.modeCardDesc, { color: theme.onSurfaceVariant }]}>
-                Arbitrary date ranges, pay periods, or custom multi-week intervals.
+                Flexible custom periods, pay-to-pay dates, or multi-week intervals.
               </Text>
             </View>
             <MaterialCommunityIcons
@@ -161,10 +168,10 @@ export const CycleModeSwitcherModal: React.FC<CycleModeSwitcherModalProps> = ({
           </TouchableOpacity>
 
           {/* Hint for editing */}
-          <View style={[styles.modeHintRow, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : theme.pillBg }]}>
+          <View style={[styles.modeHintRow, { backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.12)' : theme.primaryContainer }]}>
             <MaterialCommunityIcons name="gesture-tap-hold" size={16} color={theme.primary} />
-            <Text style={[styles.modeHintText, { color: theme.onSurfaceVariant }]}>
-              Hold any cycle chip on the calendar header to edit dates and budget targets.
+            <Text style={[styles.modeHintText, { color: isDarkMode ? '#C7D2FE' : theme.onPrimaryContainer }]}>
+              Press and hold either cycle type above to open the Cycle Manager.
             </Text>
           </View>
         </View>
