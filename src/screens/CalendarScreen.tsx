@@ -574,7 +574,43 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     return `${prefix}${dayNames[dateObj.getDay()]}, ${d} ${monthNames[m - 1]} ${y}`;
   };
 
-  // Group transactions by date
+  // Format transaction time nicely: e.g. "2:30 PM"
+  const formatTxTime = (timeStr?: string, createdAtStr?: string): string => {
+    if (timeStr && timeStr.trim()) {
+      const clean = timeStr.trim();
+      if (/AM|PM/i.test(clean)) return clean;
+      if (clean.includes(':')) {
+        const [hStr, mStr] = clean.split(':');
+        let h = parseInt(hStr, 10);
+        const m = (mStr || '00').slice(0, 2);
+        if (!isNaN(h)) {
+          const ampm = h >= 12 ? 'PM' : 'AM';
+          h = h % 12;
+          if (h === 0) h = 12;
+          return `${h}:${m} ${ampm}`;
+        }
+      }
+      return clean;
+    }
+    if (createdAtStr) {
+      try {
+        const d = new Date(createdAtStr);
+        if (!isNaN(d.getTime())) {
+          let h = d.getHours();
+          const m = String(d.getMinutes()).padStart(2, '0');
+          const ampm = h >= 12 ? 'PM' : 'AM';
+          h = h % 12;
+          if (h === 0) h = 12;
+          return `${h}:${m} ${ampm}`;
+        }
+      } catch {
+        // ignore
+      }
+    }
+    return '';
+  };
+
+  // Group transactions by date, arranged with latest transaction last
   const transactionsByDate = useMemo(() => {
     const map: Record<string, Transaction[]> = {};
     transactions.forEach((tx) => {
@@ -583,6 +619,32 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
       }
       map[tx.date].push(tx);
     });
+
+    Object.keys(map).forEach((d) => {
+      map[d].sort((a, b) => {
+        // Compare time strings (e.g. "09:00" vs "14:30")
+        const timeA = a.time || (a.created_at ? a.created_at.slice(11, 16) : '');
+        const timeB = b.time || (b.created_at ? b.created_at.slice(11, 16) : '');
+
+        if (timeA && timeB) {
+          const cmp = timeA.localeCompare(timeB);
+          if (cmp !== 0) return cmp; // earlier first, latest last
+        } else if (timeA) {
+          return -1;
+        } else if (timeB) {
+          return 1;
+        }
+
+        // Fall back to created_at (oldest first, latest last)
+        if (a.created_at && b.created_at) {
+          const createdCmp = a.created_at.localeCompare(b.created_at);
+          if (createdCmp !== 0) return createdCmp;
+        }
+
+        return (a.id || '').localeCompare(b.id || '');
+      });
+    });
+
     return map;
   }, [transactions]);
 
@@ -1321,56 +1383,73 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                         .filter(Boolean)
                         .join(' • ');
 
+                      const txTime = formatTxTime(tx.time, tx.created_at);
+
                       return (
-                        <TouchableOpacity
-                          key={tx.id}
-                          style={[
-                            styles.dayTxItem,
-                            { backgroundColor: theme.cardBg, borderColor: theme.divider },
-                          ]}
-                          onPress={() => setViewingTransaction(tx)}
-                          activeOpacity={0.7}
-                        >
-                          <View
+                        <View key={tx.id} style={styles.dayTxWrapper}>
+                          {txTime ? (
+                            <View style={styles.dayTxTimeHeaderRow}>
+                              <MaterialCommunityIcons
+                                name="clock-time-four-outline"
+                                size={11}
+                                color={theme.onSurfaceVariant}
+                                style={{ marginRight: 4 }}
+                              />
+                              <Text style={[styles.dayTxTimeText, { color: theme.onSurfaceVariant }]}>
+                                {txTime}
+                              </Text>
+                            </View>
+                          ) : null}
+
+                          <TouchableOpacity
                             style={[
-                              styles.catDot,
-                              {
-                                backgroundColor: isTransfer
-                                  ? theme.tertiary
-                                  : cat?.color || (isExpense ? theme.error : theme.success),
-                              },
+                              styles.dayTxItem,
+                              { backgroundColor: theme.cardBg, borderColor: theme.divider },
                             ]}
-                          />
-                          <View style={{ flex: 1, marginLeft: 10 }}>
-                            <Text style={[styles.dayTxTitle, { color: theme.onSurface }]}>
-                              {mainTitle}
-                            </Text>
-                            <Text style={[styles.dayTxMeta, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
-                              {subMeta}
-                            </Text>
-                          </View>
-                          <Text
-                            style={[
-                              styles.dayTxAmount,
-                              {
-                                color: isExpense
-                                  ? theme.error
-                                  : isTransfer
-                                  ? theme.tertiary
-                                  : theme.success,
-                              },
-                            ]}
+                            onPress={() => setViewingTransaction(tx)}
+                            activeOpacity={0.7}
                           >
-                            {isExpense ? '-' : isTransfer ? '' : '+'}
-                            {formatCurrency(tx.amount, tx.currency || settings.base_currency)}
-                          </Text>
-                          <MaterialCommunityIcons
-                            name="chevron-right"
-                            size={18}
-                            color={theme.onSurfaceVariant}
-                            style={{ marginLeft: 6 }}
-                          />
-                        </TouchableOpacity>
+                            <View
+                              style={[
+                                styles.catDot,
+                                {
+                                  backgroundColor: isTransfer
+                                    ? theme.tertiary
+                                    : cat?.color || (isExpense ? theme.error : theme.success),
+                                },
+                              ]}
+                            />
+                            <View style={{ flex: 1, marginLeft: 10 }}>
+                              <Text style={[styles.dayTxTitle, { color: theme.onSurface }]}>
+                                {mainTitle}
+                              </Text>
+                              <Text style={[styles.dayTxMeta, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
+                                {subMeta}
+                              </Text>
+                            </View>
+                            <Text
+                              style={[
+                                styles.dayTxAmount,
+                                {
+                                  color: isExpense
+                                    ? theme.error
+                                    : isTransfer
+                                    ? theme.tertiary
+                                    : theme.success,
+                                },
+                              ]}
+                            >
+                              {isExpense ? '-' : isTransfer ? '' : '+'}
+                              {formatCurrency(tx.amount, tx.currency || settings.base_currency)}
+                            </Text>
+                            <MaterialCommunityIcons
+                              name="chevron-right"
+                              size={18}
+                              color={theme.onSurfaceVariant}
+                              style={{ marginLeft: 6 }}
+                            />
+                          </TouchableOpacity>
+                        </View>
                       );
                     })
                   )}
@@ -2071,13 +2150,26 @@ const styles = StyleSheet.create({
   emptyDayText: {
     fontSize: 13,
   },
+  dayTxWrapper: {
+    marginBottom: 8,
+  },
+  dayTxTimeHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 3,
+    paddingLeft: 4,
+  },
+  dayTxTimeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
   dayTxItem: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
     borderRadius: M3Shape.large,
     padding: 12,
-    marginBottom: 8,
   },
   catDot: {
     width: 12,
