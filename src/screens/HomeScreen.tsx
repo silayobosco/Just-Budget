@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
+import { getDB } from '../services/db';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
 import { Transaction, TransactionType, BillFrequency, RecurrenceEndType } from '../types';
 import { formatCurrency } from '../utils/format';
@@ -38,9 +39,36 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
   const isTinyScreen = windowHeight < 660; // e.g. iPhone SE, compact budget Androids
   const isCompactScreen = windowHeight < 740; // e.g. iPhone 13 mini, compact displays
 
-  // Responsive collapsed sheet height:
-  // Provides clean vertical space for header + dual badges, with drag handle comfortably lowered below without overlap
-  const COLLAPSED_SHEET_HEIGHT = isTinyScreen ? 90 : isCompactScreen ? 196 : 350; // 150 : 156
+  // Collapsed sheet snap points: default 90, with 170 / 190 / 317 depending on where user left it last
+  const COLLAPSED_SNAPS = [90, 170, 190, 317] as const;
+
+  const [collapsedHeight, setCollapsedHeight] = useState<number>(() => {
+    try {
+      const db = getDB();
+      const row = db.getFirstSync<{ value: string }>(
+        "SELECT value FROM settings WHERE key = 'home_collapsed_sheet_height'"
+      );
+      if (row?.value) {
+        const val = parseInt(row.value, 10);
+        if ([90, 170, 190, 317].includes(val)) {
+          return val;
+        }
+      }
+    } catch {}
+    return 90;
+  });
+
+  const saveCollapsedHeight = (height: number) => {
+    try {
+      const db = getDB();
+      db.runSync(
+        `INSERT INTO settings (key, value) VALUES ('home_collapsed_sheet_height', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+        [height.toString()]
+      );
+    } catch (err) {
+      console.error('Failed to save home_collapsed_sheet_height:', err);
+    }
+  };
 
   // Responsive dial pad, button and row dimensions
   const dialKeyHeight = isTinyScreen ? 38 : isCompactScreen ? 42 : 46;
@@ -519,10 +547,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
 
   const maxExpandedSheetHeight = useMemo(() => {
     if (screenContainerHeight > 0) {
-      return Math.max(COLLAPSED_SHEET_HEIGHT, screenContainerHeight - 6);
+      return Math.max(380, screenContainerHeight - 6);
     }
-    return Math.max(COLLAPSED_SHEET_HEIGHT, windowHeight - 210);
-  }, [screenContainerHeight, COLLAPSED_SHEET_HEIGHT, windowHeight]);
+    return Math.max(380, windowHeight - 210);
+  }, [screenContainerHeight, windowHeight]);
 
   const historyContentHeight = useMemo(() => {
     if (transactions.length === 0) return 75;
@@ -532,22 +560,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
   }, [groupedTransactions, transactions]);
 
   const expandedSheetHeight = useMemo(() => {
-    const totalTarget = 192 + historyContentHeight;
-    return Math.min(maxExpandedSheetHeight, Math.max(COLLAPSED_SHEET_HEIGHT, totalTarget));
-  }, [historyContentHeight, maxExpandedSheetHeight, COLLAPSED_SHEET_HEIGHT]);
+    const totalTarget = 240 + historyContentHeight;
+    return Math.min(maxExpandedSheetHeight, Math.max(380, totalTarget));
+  }, [historyContentHeight, maxExpandedSheetHeight]);
 
   const historyScrollRef = useRef<any>(null);
-  const animatedHeight = useRef(new Animated.Value(COLLAPSED_SHEET_HEIGHT)).current;
+  const animatedHeight = useRef(new Animated.Value(collapsedHeight)).current;
   const [isSheetExpanded, setIsSheetExpanded] = useState(false);
   const isExpandedRef = useRef(false);
-  const currentHeightRef = useRef(COLLAPSED_SHEET_HEIGHT);
-
-  useEffect(() => {
-    if (!isExpandedRef.current) {
-      animatedHeight.setValue(COLLAPSED_SHEET_HEIGHT);
-      currentHeightRef.current = COLLAPSED_SHEET_HEIGHT;
-    }
-  }, [COLLAPSED_SHEET_HEIGHT]);
+  const currentHeightRef = useRef(collapsedHeight);
+  const gestureStartHeightRef = useRef(collapsedHeight);
 
   useEffect(() => {
     if (isExpandedRef.current) {
@@ -559,15 +581,23 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
     }
   }, [expandedSheetHeight]);
 
+  // Smoothly reveal history sticky header when expanding past 317 toward expandedSheetHeight
   const historyHeaderOpacity = animatedHeight.interpolate({
-    inputRange: [COLLAPSED_SHEET_HEIGHT, COLLAPSED_SHEET_HEIGHT + 35],
+    inputRange: [317, 360],
     outputRange: [0, 1],
     extrapolate: 'clamp',
   });
 
   const historyHeaderHeight = animatedHeight.interpolate({
-    inputRange: [COLLAPSED_SHEET_HEIGHT, COLLAPSED_SHEET_HEIGHT + 35],
+    inputRange: [317, 360],
     outputRange: [0, 40],
+    extrapolate: 'clamp',
+  });
+
+  // Smoothly fade target cards (Income Goal & Budget Cap) between 90 and 170
+  const dualCardsOpacity = animatedHeight.interpolate({
+    inputRange: [90, 140, 170],
+    outputRange: [0, 0.4, 1],
     extrapolate: 'clamp',
   });
 
@@ -591,9 +621,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
     isExpandedRef.current = true;
   };
 
-  const closeSheet = () => {
+  const snapToCollapsed = (snapHeight: number) => {
     Animated.spring(animatedHeight, {
-      toValue: COLLAPSED_SHEET_HEIGHT,
+      toValue: snapHeight,
       useNativeDriver: false,
       bounciness: 3,
       speed: 14,
@@ -602,6 +632,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
     });
     setIsSheetExpanded(false);
     isExpandedRef.current = false;
+    setCollapsedHeight(snapHeight);
+    saveCollapsedHeight(snapHeight);
+  };
+
+  const closeSheet = () => {
+    snapToCollapsed(collapsedHeight);
   };
 
   const handlePressHistoryItem = (tx: Transaction) => {
@@ -623,16 +659,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (_, gestureState) => {
-        if (!isExpandedRef.current && gestureState.dy > 5) {
-          return true;
-        }
-        return false;
+        return Math.abs(gestureState.dy) > 5;
       },
-      onPanResponderGrant: () => {},
+      onPanResponderGrant: () => {
+        gestureStartHeightRef.current = currentHeightRef.current;
+      },
       onPanResponderMove: (_, gestureState) => {
-        let nextH = COLLAPSED_SHEET_HEIGHT + gestureState.dy;
-        if (nextH < COLLAPSED_SHEET_HEIGHT) {
-          nextH = COLLAPSED_SHEET_HEIGHT;
+        let nextH = gestureStartHeightRef.current + gestureState.dy;
+        if (nextH < 90) {
+          nextH = 90 + (nextH - 90) * 0.2;
         } else if (nextH > expandedSheetHeight) {
           nextH = expandedSheetHeight + (nextH - expandedSheetHeight) * 0.2;
         }
@@ -640,14 +675,34 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
       },
       onPanResponderRelease: (_, gestureState) => {
         const currentH = currentHeightRef.current;
-        const threshold = (COLLAPSED_SHEET_HEIGHT + expandedSheetHeight) / 2;
-        const isFlickDown = gestureState.vy > 0.4;
-        const isDragDown = gestureState.dy > 35;
+        const startH = gestureStartHeightRef.current;
+        const allSnaps = [90, 170, 190, 317, expandedSheetHeight];
+        let targetSnap = 90;
 
-        if (currentH > threshold || isFlickDown || isDragDown) {
+        if (gestureState.vy > 0.5) {
+          // Flick downwards (expanding) -> next higher snap
+          const higherSnaps = allSnaps.filter((s) => s > startH + 15);
+          targetSnap = higherSnaps.length > 0 ? higherSnaps[0] : expandedSheetHeight;
+        } else if (gestureState.vy < -0.5) {
+          // Flick upwards (collapsing) -> next lower snap
+          const lowerSnaps = allSnaps.filter((s) => s < startH - 15);
+          targetSnap = lowerSnaps.length > 0 ? lowerSnaps[lowerSnaps.length - 1] : 90;
+        } else {
+          // Drag and release -> nearest snap point
+          let minDiff = Infinity;
+          for (const snap of allSnaps) {
+            const diff = Math.abs(currentH - snap);
+            if (diff < minDiff) {
+              minDiff = diff;
+              targetSnap = snap;
+            }
+          }
+        }
+
+        if (targetSnap >= expandedSheetHeight - 15) {
           openSheet();
         } else {
-          closeSheet();
+          snapToCollapsed(targetSnap);
         }
       },
     })
@@ -663,7 +718,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
         style={[
           styles.baseEntryContainer,
           {
-            paddingTop: COLLAPSED_SHEET_HEIGHT,
+            paddingTop: collapsedHeight,
           },
         ]}
       >
@@ -1050,7 +1105,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
           </View>
 
           {/* DUAL DISPLAY CARDS: INCOME GOAL (LEFT) & BUDGET CAP (RIGHT) */}
-          <View style={styles.dualCardsRow}>
+          <Animated.View style={[styles.dualCardsRow, { opacity: dualCardsOpacity }]}>
             {/* Income Goal Card (Left) */}
             <TouchableOpacity
               style={[
@@ -1283,7 +1338,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
                 </View>
               )}
             </TouchableOpacity>
-          </View>
+          </Animated.View>
         </View>
 
         {/* 2B. HISTORY LIST (REVEALED WHEN SHEET PULLS DOWN) */}
