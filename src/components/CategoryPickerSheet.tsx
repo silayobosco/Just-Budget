@@ -25,9 +25,13 @@ interface CategoryPickerSheetProps {
   baseCurrency: string;
   onClose: () => void;
   onSave: (params: { categoryId?: string; subcategoryId?: string }) => void;
-  onOpenMoreOptions: (initialParams: { categoryId?: string; subcategoryId?: string }) => void;
+  onOpenMoreOptions?: (initialParams: { categoryId?: string; subcategoryId?: string }) => void;
   onManageCategories?: () => void;
   onAddSubcategory?: (categoryId: string, name: string) => Promise<string>;
+  initialCategoryId?: string;
+  initialSubcategoryId?: string;
+  selectOnly?: boolean;
+  useNativeModal?: boolean;
 }
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
@@ -46,9 +50,13 @@ export const CategoryPickerSheet: React.FC<CategoryPickerSheetProps> = ({
   onOpenMoreOptions,
   onManageCategories,
   onAddSubcategory,
+  initialCategoryId,
+  initialSubcategoryId,
+  selectOnly = false,
+  useNativeModal = true,
 }) => {
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
-  const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<string>('');
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>(initialCategoryId || '');
+  const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<string>(initialSubcategoryId || '');
   const [quickSubModalVisible, setQuickSubModalVisible] = useState(false);
   const [newSubName, setNewSubName] = useState('');
 
@@ -58,11 +66,10 @@ export const CategoryPickerSheet: React.FC<CategoryPickerSheetProps> = ({
 
   useEffect(() => {
     if (visible) {
-      // Do not autoselect category or subcategory on open
-      setSelectedCategoryId('');
-      setSelectedSubcategoryId('');
+      setSelectedCategoryId(initialCategoryId || '');
+      setSelectedSubcategoryId(initialSubcategoryId || '');
     }
-  }, [visible, txType]);
+  }, [visible, txType, initialCategoryId, initialSubcategoryId]);
 
   const handleSelectCategory = (cat: Category) => {
     if (selectedCategoryId === cat.id) {
@@ -92,7 +99,7 @@ export const CategoryPickerSheet: React.FC<CategoryPickerSheetProps> = ({
   };
 
   const handleMoreOptions = () => {
-    onOpenMoreOptions({
+    onOpenMoreOptions?.({
       categoryId: selectedCategoryId || undefined,
       subcategoryId: selectedSubcategoryId || undefined,
     });
@@ -105,59 +112,61 @@ export const CategoryPickerSheet: React.FC<CategoryPickerSheetProps> = ({
   const accentContainer = isExpense ? theme.errorContainer : theme.successContainer;
   const onAccentContainer = isExpense ? theme.onErrorContainer : theme.onSuccessContainer;
 
-  return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
-    >
-      <View style={styles.sheetBackdrop}>
-        <TouchableOpacity style={styles.sheetDismissArea} activeOpacity={1} onPress={onClose} />
+  const sheetInner = (
+    <View style={[styles.sheetBackdrop, useNativeModal === false && styles.overlayBackdrop]}>
+      <TouchableOpacity style={styles.sheetDismissArea} activeOpacity={1} onPress={onClose} />
 
-        <View
-          style={[
-            styles.sheetContainer,
-            { backgroundColor: theme.surface },
-            M3Elevation.level3,
-          ]}
-        >
-          {/* Top Drag Handle */}
-          <View style={styles.dragHandleRow}>
-            <View style={[styles.dragHandlePill, { backgroundColor: theme.outlineVariant }]} />
-          </View>
+      <View
+        style={[
+          styles.sheetContainer,
+          { backgroundColor: theme.surface },
+          M3Elevation.level3,
+        ]}
+      >
+        {/* Top Drag Handle */}
+        <View style={styles.dragHandleRow}>
+          <View style={[styles.dragHandlePill, { backgroundColor: theme.outlineVariant }]} />
+        </View>
 
-          {/* Header Row */}
-          <View style={styles.sheetHeader}>
-            <View style={styles.sheetTitleCol}>
-              <View style={styles.typeBadgeRow}>
-                <View style={[styles.typeBadge, { backgroundColor: accentContainer }]}>
-                  <MaterialCommunityIcons
-                    name={isExpense ? 'arrow-down-circle' : 'arrow-up-circle'}
-                    size={14}
-                    color={accentColor}
-                  />
-                  <Text style={[styles.typeBadgeText, { color: onAccentContainer }]}>
-                    {isExpense ? 'EXPENSE' : 'INCOME'}
-                  </Text>
-                </View>
+        {/* Header Row */}
+        <View style={styles.sheetHeader}>
+          <View style={styles.sheetTitleCol}>
+            <View style={styles.typeBadgeRow}>
+              <View style={[styles.typeBadge, { backgroundColor: accentContainer }]}>
+                <MaterialCommunityIcons
+                  name={isExpense ? 'arrow-down-circle' : 'arrow-up-circle'}
+                  size={14}
+                  color={accentColor}
+                />
+                <Text style={[styles.typeBadgeText, { color: onAccentContainer }]}>
+                  {isExpense ? 'EXPENSE' : 'INCOME'}
+                </Text>
+              </View>
+              {amount > 0 && (
                 <Text style={[styles.headerAmountText, { color: theme.onSurface }]}>
                   {formatCurrency(amount, selectedWallet?.currency || baseCurrency)}
                 </Text>
-              </View>
+              )}
+            </View>
+            {selectedWallet && amount > 0 ? (
               <Text style={[styles.walletSubText, { color: theme.onSurfaceVariant }]}>
                 From {selectedWallet?.name || 'Wallet'}
               </Text>
-            </View>
-
-            <TouchableOpacity
-              onPress={onClose}
-              style={[styles.closeBtn, { backgroundColor: theme.pillBg }]}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <MaterialCommunityIcons name="close" size={18} color={theme.onSurfaceVariant} />
-            </TouchableOpacity>
+            ) : (
+              <Text style={[styles.walletSubText, { color: theme.onSurfaceVariant }]}>
+                Select category & subcategory
+              </Text>
+            )}
           </View>
+
+          <TouchableOpacity
+            onPress={onClose}
+            style={[styles.closeBtn, { backgroundColor: theme.pillBg }]}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <MaterialCommunityIcons name="close" size={18} color={theme.onSurfaceVariant} />
+          </TouchableOpacity>
+        </View>
 
           <Text style={[styles.sectionLabel, { color: theme.onSurfaceVariant }]}>
             SELECT CATEGORY
@@ -319,25 +328,28 @@ export const CategoryPickerSheet: React.FC<CategoryPickerSheetProps> = ({
 
           {/* Action Buttons Footer */}
           <View style={[styles.footerRow, { borderTopColor: theme.divider }]}>
-            {/* More Options Button */}
-            <TouchableOpacity
-              style={[
-                styles.moreOptionsBtn,
-                { backgroundColor: theme.pillBg, borderColor: theme.outlineVariant },
-              ]}
-              onPress={handleMoreOptions}
-              activeOpacity={0.75}
-            >
-              <MaterialCommunityIcons name="tune" size={18} color={theme.onSurface} />
-              <Text style={[styles.moreOptionsText, { color: theme.onSurface }]}>
-                More Options
-              </Text>
-            </TouchableOpacity>
+            {/* More Options Button (only when not in selectOnly mode) */}
+            {!selectOnly && Boolean(onOpenMoreOptions) && (
+              <TouchableOpacity
+                style={[
+                  styles.moreOptionsBtn,
+                  { backgroundColor: theme.pillBg, borderColor: theme.outlineVariant },
+                ]}
+                onPress={handleMoreOptions}
+                activeOpacity={0.75}
+              >
+                <MaterialCommunityIcons name="tune" size={18} color={theme.onSurface} />
+                <Text style={[styles.moreOptionsText, { color: theme.onSurface }]}>
+                  More Options
+                </Text>
+              </TouchableOpacity>
+            )}
 
-            {/* Direct Save Button */}
+            {/* Direct Save / Done Button */}
             <TouchableOpacity
               style={[
                 styles.saveBtn,
+                selectOnly && { flex: 1 },
                 { backgroundColor: accentColor },
                 M3Elevation.level2,
               ]}
@@ -346,7 +358,7 @@ export const CategoryPickerSheet: React.FC<CategoryPickerSheetProps> = ({
             >
               <MaterialCommunityIcons name="check" size={18} color="#FFFFFF" />
               <Text style={styles.saveBtnText}>
-                Save {isExpense ? 'Expense' : 'Income'}
+                {selectOnly ? 'Done' : `Save ${isExpense ? 'Expense' : 'Income'}`}
               </Text>
             </TouchableOpacity>
           </View>
@@ -392,11 +404,33 @@ export const CategoryPickerSheet: React.FC<CategoryPickerSheetProps> = ({
           </View>
         )}
       </View>
+  );
+
+  if (useNativeModal === false) {
+    return sheetInner;
+  }
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      {sheetInner}
     </Modal>
   );
 };
 
 const styles = StyleSheet.create({
+  overlayBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 999,
+  },
   sheetBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',

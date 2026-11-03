@@ -11,14 +11,17 @@ import {
   Alert,
   Switch,
   Platform,
+  StatusBar,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Category, Subcategory, Wallet, TransactionType, BillFrequency, RecurrenceEndType } from '../types';
 import { formatCurrency } from '../utils/format';
 import { M3Elevation, M3Shape } from '../theme';
 import { AnalogClockModal } from './AnalogClockModal';
 import { CalendarPickerModal } from './CalendarPickerModal';
+import { CategoryPickerSheet } from './CategoryPickerSheet';
 
 interface TransactionDetailsModalProps {
   visible: boolean;
@@ -87,9 +90,11 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   onManageCategories,
   onAddSubcategory,
 }) => {
+  const insets = useSafeAreaInsets();
   const [currentType, setCurrentType] = useState<TransactionType>(defaultTxType);
   const [amountStr, setAmountStr] = useState<string>('');
   const amountInputRef = useRef<any>(null);
+  const [categorySheetVisible, setCategorySheetVisible] = useState<boolean>(false);
 
   // Automatically focus amount input and open numeric keyboard when modal opens
   useEffect(() => {
@@ -178,6 +183,9 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
 
   const activeCategories = categories.filter((c) => c.type === currentType);
   const selectedCategory = categories.find((c) => c.id === selectedCategoryId);
+  const selectedSubcategory = selectedCategory?.subcategories?.find(
+    (s: Subcategory) => s.id === selectedSubcategoryId
+  );
 
   // Auto-clear category if not belonging to active type
   useEffect(() => {
@@ -292,13 +300,22 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       visible={visible}
       animationType="slide"
       onRequestClose={onClose}
+      statusBarTranslucent={false}
       onShow={() => {
         setTimeout(() => {
           amountInputRef.current?.focus();
         }, 60);
       }}
     >
-      <View style={[styles.container, { backgroundColor: theme.background }]}>
+      <View
+        style={[
+          styles.container,
+          {
+            backgroundColor: theme.background,
+            paddingTop: Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 20) : 20),
+          },
+        ]}
+      >
         {/* Top App Bar */}
         <View style={[styles.topBar, { backgroundColor: theme.surface, borderBottomColor: theme.divider }]}>
           <TouchableOpacity
@@ -311,12 +328,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
           <Text style={[styles.topBarTitle, { color: theme.onSurface }]}>
             {isEditing ? 'Edit Transaction' : 'Transaction Details'}
           </Text>
-          <TouchableOpacity
-            onPress={handleSave}
-            style={[styles.topSaveBtn, { backgroundColor: accentColor }]}
-          >
-            <Text style={styles.topSaveBtnText}>Save</Text>
-          </TouchableOpacity>
+          <View style={styles.topBarPlaceholder} />
         </View>
 
         <ScrollView
@@ -325,7 +337,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* 1. TYPE SELECTOR & AMOUNT ROW */}
+          {/* 1. CATEGORY (FIRST ITEM DISPLAYED) & TYPE SWITCHER */}
           <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
             <View style={styles.typeSwitcherRow}>
               <TouchableOpacity
@@ -333,7 +345,13 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
                   styles.typeTab,
                   currentType === 'income' && { backgroundColor: theme.successContainer, borderColor: theme.success },
                 ]}
-                onPress={() => setCurrentType('income')}
+                onPress={() => {
+                  setCurrentType('income');
+                  if (selectedCategory && selectedCategory.type !== 'income') {
+                    setSelectedCategoryId('');
+                    setSelectedSubcategoryId('');
+                  }
+                }}
               >
                 <MaterialCommunityIcons
                   name="arrow-up-circle"
@@ -355,7 +373,13 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
                   styles.typeTab,
                   currentType === 'expense' && { backgroundColor: theme.errorContainer, borderColor: theme.error },
                 ]}
-                onPress={() => setCurrentType('expense')}
+                onPress={() => {
+                  setCurrentType('expense');
+                  if (selectedCategory && selectedCategory.type !== 'expense') {
+                    setSelectedCategoryId('');
+                    setSelectedSubcategoryId('');
+                  }
+                }}
               >
                 <MaterialCommunityIcons
                   name="arrow-down-circle"
@@ -373,28 +397,60 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
               </TouchableOpacity>
             </View>
 
-            {/* Amount & Currency input row */}
-            <View style={styles.amountInputRow}>
-              <TouchableOpacity
-                style={[styles.currencyChip, { backgroundColor: theme.pillBg, borderColor: theme.divider }]}
-                onPress={() => setCurrencyPickerVisible(true)}
-              >
-                <Text style={[styles.currencyText, { color: theme.primary }]}>{currency}</Text>
-                <MaterialCommunityIcons name="menu-down" size={16} color={theme.onSurfaceVariant} />
-              </TouchableOpacity>
+            <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant, marginTop: 4 }]}>CATEGORY</Text>
 
-              <TextInput
-                ref={amountInputRef}
-                style={[styles.amountInput, { color: theme.onSurface }]}
-                placeholder="0.00"
-                placeholderTextColor={theme.onSurfaceVariant}
-                keyboardType="decimal-pad"
-                value={amountStr}
-                onChangeText={setAmountStr}
-                autoFocus={true}
-                selectTextOnFocus={true}
-              />
-            </View>
+            {/* Breadcrumb Category Selector: clicking it opens CategoryPickerSheet */}
+            <TouchableOpacity
+              style={[
+                styles.categorySelectorRow,
+                {
+                  backgroundColor: theme.pillBg,
+                  borderColor: selectedCategory ? (selectedCategory.color || theme.primary) : theme.divider,
+                },
+              ]}
+              onPress={() => setCategorySheetVisible(true)}
+              activeOpacity={0.7}
+              accessibilityLabel="Select category"
+            >
+              <View style={styles.categorySelectorLeft}>
+                <View
+                  style={[
+                    styles.catIconWrap,
+                    {
+                      backgroundColor: selectedCategory
+                        ? (selectedCategory.color || theme.primary)
+                        : theme.pillBg,
+                    },
+                  ]}
+                >
+                  <MaterialCommunityIcons
+                    name={(selectedCategory?.icon as any) || 'shape-outline'}
+                    size={18}
+                    color={selectedCategory ? '#FFFFFF' : theme.onSurfaceVariant}
+                  />
+                </View>
+
+                <View style={styles.categoryBreadcrumbCol}>
+                  {selectedCategory ? (
+                    <Text style={[styles.categoryBreadcrumbText, { color: theme.onSurface }]} numberOfLines={1}>
+                      <Text style={{ fontWeight: '700' }}>{selectedCategory.name}</Text>
+                      {selectedSubcategory && (
+                        <>
+                          <Text style={{ color: theme.onSurfaceVariant, fontWeight: '400' }}>{' > '}</Text>
+                          <Text style={{ fontWeight: '700', color: theme.primary }}>{selectedSubcategory.name}</Text>
+                        </>
+                      )}
+                    </Text>
+                  ) : (
+                    <Text style={[styles.categoryPlaceholderText, { color: theme.onSurfaceVariant }]}>
+                      Select Category
+                    </Text>
+                  )}
+                </View>
+              </View>
+
+              <MaterialCommunityIcons name="chevron-right" size={20} color={theme.onSurfaceVariant} />
+            </TouchableOpacity>
           </View>
 
           {/* 2. WALLET SELECTION */}
@@ -437,114 +493,30 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
             </ScrollView>
           </View>
 
-          {/* 3. CATEGORY & SUBCATEGORY */}
+          {/* 3. AMOUNT ROW (NEXT ITEM AFTER WALLET) */}
           <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
-            <View style={styles.cardHeaderRow}>
-              <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant }]}>CATEGORY</Text>
-              {onManageCategories && (
-                <TouchableOpacity onPress={onManageCategories}>
-                  <Text style={[styles.manageLink, { color: theme.primary }]}>Manage</Text>
-                </TouchableOpacity>
-              )}
+            <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant }]}>AMOUNT</Text>
+            <View style={styles.amountInputRow}>
+              <TouchableOpacity
+                style={[styles.currencyChip, { backgroundColor: theme.pillBg, borderColor: theme.divider }]}
+                onPress={() => setCurrencyPickerVisible(true)}
+              >
+                <Text style={[styles.currencyText, { color: theme.primary }]}>{currency}</Text>
+                <MaterialCommunityIcons name="menu-down" size={16} color={theme.onSurfaceVariant} />
+              </TouchableOpacity>
+
+              <TextInput
+                ref={amountInputRef}
+                style={[styles.amountInput, { color: theme.onSurface }]}
+                placeholder="0.00"
+                placeholderTextColor={theme.onSurfaceVariant}
+                keyboardType="decimal-pad"
+                value={amountStr}
+                onChangeText={setAmountStr}
+                autoFocus={true}
+                selectTextOnFocus={true}
+              />
             </View>
-
-            <View style={styles.categoryWrap}>
-              {activeCategories.map((c) => {
-                const isSelected = c.id === selectedCategoryId;
-                return (
-                  <TouchableOpacity
-                    key={c.id}
-                    style={[
-                      styles.categoryCard,
-                      {
-                        backgroundColor: isSelected ? theme.primaryContainer : theme.pillBg,
-                        borderColor: isSelected ? theme.primary : 'transparent',
-                      },
-                    ]}
-                    onPress={() => handleSelectCategory(c)}
-                  >
-                    <View style={[styles.catIconWrap, { backgroundColor: c.color || theme.primary }]}>
-                      <MaterialCommunityIcons name={(c.icon as any) || 'folder'} size={16} color="#FFFFFF" />
-                    </View>
-                    <Text
-                      style={[
-                        styles.categoryName,
-                        {
-                          color: isSelected ? theme.onPrimaryContainer : theme.onSurface,
-                          fontWeight: isSelected ? '700' : '500',
-                        },
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {c.name}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
-            {/* Subcategories grid if category selected */}
-            {selectedCategory && (
-              <View style={styles.subArea}>
-                <Text style={[styles.fieldSubLabel, { color: theme.onSurfaceVariant }]}>
-                  SUBCATEGORY (OPTIONAL)
-                </Text>
-                <View style={styles.categoryWrap}>
-                  {(selectedCategory.subcategories || []).map((sub: Subcategory) => {
-                    const isSubSelected = sub.id === selectedSubcategoryId;
-                    return (
-                      <TouchableOpacity
-                        key={sub.id}
-                        style={[
-                          styles.categoryCard,
-                          {
-                            backgroundColor: isSubSelected ? theme.primaryContainer : theme.pillBg,
-                            borderColor: isSubSelected ? theme.primary : 'transparent',
-                          },
-                        ]}
-                        onPress={() => setSelectedSubcategoryId(isSubSelected ? '' : sub.id)}
-                      >
-                        <View style={[styles.catIconWrap, { backgroundColor: selectedCategory.color || theme.primary }]}>
-                          <MaterialCommunityIcons name="label-outline" size={16} color="#FFFFFF" />
-                        </View>
-                        <Text
-                          style={[
-                            styles.categoryName,
-                            {
-                              color: isSubSelected ? theme.onPrimaryContainer : theme.onSurface,
-                              fontWeight: isSubSelected ? '700' : '500',
-                            },
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {sub.name}
-                        </Text>
-                        {isSubSelected && (
-                          <View style={[styles.checkBadge, { backgroundColor: theme.primary }]}>
-                            <MaterialCommunityIcons name="check" size={10} color="#FFFFFF" />
-                          </View>
-                        )}
-                      </TouchableOpacity>
-                    );
-                  })}
-
-                  {/* + New Subcategory Button */}
-                  <TouchableOpacity
-                    style={[
-                      styles.categoryCard,
-                      styles.manageCatCard,
-                      { backgroundColor: theme.pillBg, borderColor: theme.outlineVariant },
-                    ]}
-                    onPress={() => setQuickSubModalVisible(true)}
-                  >
-                    <MaterialCommunityIcons name="plus" size={18} color={theme.primary} />
-                    <Text style={[styles.categoryName, { color: theme.primary, fontWeight: '700' }]}>
-                      New
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
           </View>
 
           {/* 4. DATE, TIME & PAID TOGGLE */}
@@ -920,7 +892,20 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
             )}
           </View>
 
-          {/* BOTTOM SAVE BUTTON */}
+        </ScrollView>
+
+        {/* DOCKED BOTTOM SAVE BUTTON (ALWAYS VISIBLE AT BOTTOM OF SCREEN) */}
+        <View
+          style={[
+            styles.dockedFooter,
+            {
+              backgroundColor: theme.surface,
+              borderTopColor: theme.divider,
+              paddingBottom: Math.max(insets.bottom, 16),
+            },
+            M3Elevation.level2,
+          ]}
+        >
           <TouchableOpacity
             style={[styles.mainSaveBtn, { backgroundColor: accentColor }, M3Elevation.level2]}
             onPress={handleSave}
@@ -931,7 +916,31 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
               Save {isExpense ? 'Expense' : 'Income'}
             </Text>
           </TouchableOpacity>
-        </ScrollView>
+        </View>
+
+        {/* CATEGORY SELECTOR BOTTOM SHEET */}
+        <CategoryPickerSheet
+          visible={categorySheetVisible}
+          txType={currentType}
+          amount={parseFloat(amountStr) || 0}
+          walletId={selectedWalletId}
+          wallets={wallets}
+          categories={categories}
+          theme={theme}
+          baseCurrency={baseCurrency}
+          initialCategoryId={selectedCategoryId}
+          initialSubcategoryId={selectedSubcategoryId}
+          selectOnly={true}
+          useNativeModal={false}
+          onClose={() => setCategorySheetVisible(false)}
+          onSave={({ categoryId, subcategoryId }) => {
+            setSelectedCategoryId(categoryId || '');
+            setSelectedSubcategoryId(subcategoryId || '');
+            setCategorySheetVisible(false);
+          }}
+          onManageCategories={onManageCategories}
+          onAddSubcategory={onAddSubcategory}
+        />
 
         {/* TIME PICKER MODAL */}
         <AnalogClockModal
@@ -1069,9 +1078,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: Platform.OS === 'ios' ? 48 : 12,
-    paddingBottom: 12,
+    paddingTop: 10,
+    paddingBottom: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  topBarPlaceholder: {
+    width: 36,
+    height: 36,
   },
   backBtn: {
     width: 36,
@@ -1100,7 +1113,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 16,
     gap: 12,
-    paddingBottom: 40,
+    paddingBottom: 24,
   },
   card: {
     borderRadius: M3Shape.large,
@@ -1494,6 +1507,38 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
   },
+  categorySelectorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: M3Shape.large,
+    borderWidth: 1.5,
+    marginTop: 4,
+  },
+  categorySelectorLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+    marginRight: 8,
+  },
+  categoryBreadcrumbCol: {
+    flex: 1,
+  },
+  categoryBreadcrumbText: {
+    fontSize: 15,
+  },
+  categoryPlaceholderText: {
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  dockedFooter: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    borderTopWidth: 1,
+  },
   mainSaveBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1501,7 +1546,7 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 14,
     borderRadius: M3Shape.large,
-    marginTop: 8,
+    marginTop: 0,
   },
   mainSaveBtnText: {
     color: '#FFFFFF',
