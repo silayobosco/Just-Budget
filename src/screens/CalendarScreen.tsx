@@ -339,83 +339,205 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     };
   }, [effectiveCycle, settings.cycle_month_start_day]);
 
-  // Effective cycle budget calculations
-  const effectiveSpent = useMemo(() => {
-    return transactions
+  const curr = settings.base_currency;
+
+  // Format short date helper: e.g. "2 Nov"
+  const formatShortDate = (dateStr: string) => {
+    if (!dateStr) return '';
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `${d} ${monthNames[m - 1]}`;
+  };
+
+  // Focused cycle matching selectedDate (or falling back to effectiveCycle/todayCycle)
+  const focusedCycle = useMemo(() => {
+    const targetDate = selectedDate || todayStr;
+    const match = cycleList.find(
+      (c) => targetDate >= c.start_date && targetDate <= c.end_date
+    );
+    if (match) return match;
+    const allMatch = allCycles.find(
+      (c) => targetDate >= c.start_date && targetDate <= c.end_date
+    );
+    if (allMatch) return allMatch;
+    return effectiveCycle || todayCycle;
+  }, [selectedDate, todayStr, cycleList, allCycles, effectiveCycle, todayCycle]);
+
+  // Target Cards & Balance calculations dynamically filtered to the focused date (at end of that day)
+  const focusedValues = useMemo(() => {
+    const targetDate = selectedDate || todayStr;
+    const isPast = targetDate < todayStr;
+    const isToday = targetDate === todayStr;
+    const cycle = focusedCycle;
+
+    // 1. Target Budget & Expenses up to targetDate
+    const cycleCap =
+      cycle?.target_budget ??
+      (settings.cycle_default_budget !== undefined
+        ? Number(settings.cycle_default_budget)
+        : overallBudgetLimit);
+    const hasTarget = cycleCap > 0;
+
+    const spentUpToDate = transactions
       .filter(
         (t) =>
           t.type === 'expense' &&
-          t.date >= activeCycleRange.startDate &&
-          t.date <= activeCycleRange.endDate
+          t.date >= cycle.start_date &&
+          t.date <= targetDate
       )
-      .reduce((sum, t) => sum + t.base_amount, 0);
-  }, [transactions, activeCycleRange]);
+      .reduce((sum, t) => sum + (t.base_amount || t.amount || 0), 0);
 
-  const effectiveIncome = useMemo(() => {
-    return transactions
+    const expensePercent = hasTarget ? Math.round((spentUpToDate / cycleCap) * 100) : 0;
+    const isOverBudget = hasTarget && spentUpToDate > cycleCap;
+    const expenseRemaining = Math.max(0, cycleCap - spentUpToDate);
+    const expenseOverBy = Math.max(0, spentUpToDate - cycleCap);
+
+    // 2. Income Goal & Income up to targetDate
+    const cycleGoal =
+      cycle?.target_income && cycle.target_income > 0
+        ? cycle.target_income
+        : settings.cycle_default_income !== undefined
+        ? Number(settings.cycle_default_income)
+        : 0;
+    const hasGoal = cycleGoal > 0;
+
+    const incomeUpToDate = transactions
       .filter(
         (t) =>
           t.type === 'income' &&
-          t.date >= activeCycleRange.startDate &&
-          t.date <= activeCycleRange.endDate
+          t.date >= cycle.start_date &&
+          t.date <= targetDate
       )
       .reduce((sum, t) => sum + (t.base_amount || t.amount || 0), 0);
-  }, [transactions, activeCycleRange]);
 
-  const effectiveTarget = effectiveCycle?.target_budget ?? (settings.cycle_default_budget !== undefined ? Number(settings.cycle_default_budget) : totalConvertedBalance);
-  const curr = settings.base_currency;
+    const incomePercent = hasGoal ? Math.round((incomeUpToDate / cycleGoal) * 100) : 0;
+    const isIncomeReached = hasGoal && incomeUpToDate >= cycleGoal;
+    const incomeRemaining = Math.max(0, cycleGoal - incomeUpToDate);
+
+    // 3. Wallet Balance as of the end of targetDate
+    const txsAfterDate = transactions.filter((t) => t.date > targetDate);
+    const spentAfter = txsAfterDate
+      .filter((t) => t.type === 'expense')
+      .reduce((sum, t) => sum + (t.base_amount || t.amount || 0), 0);
+    const incomeAfter = txsAfterDate
+      .filter((t) => t.type === 'income')
+      .reduce((sum, t) => sum + (t.base_amount || t.amount || 0), 0);
+    const walletBalanceAtEndOfDate = totalConvertedBalance + spentAfter - incomeAfter;
+
+    // 4. Daily Allowance / Available at end of targetDate
+    let availableAmount = dailyAllowanceStats.remainingToday;
+    if (isPast) {
+      const [sy, sm, sd] = cycle.start_date.split('-').map(Number);
+      const [ey, em, ed] = cycle.end_date.split('-').map(Number);
+      const [fy, fm, fd] = targetDate.split('-').map(Number);
+      const cycleEnd = new Date(ey, em - 1, ed, 0, 0, 0);
+      const focDateObj = new Date(fy, fm - 1, fd, 0, 0, 0);
+
+      const diffDays = Math.round((cycleEnd.getTime() - focDateObj.getTime()) / 86400000);
+      const daysForAllowance = Math.max(1, diffDays + 1);
+
+      const spentBefore = transactions
+        .filter(
+          (t) =>
+            t.type === 'expense' &&
+            t.date >= cycle.start_date &&
+            t.date < targetDate
+        )
+        .reduce((sum, t) => sum + (t.base_amount || t.amount || 0), 0);
+
+      const spentOnDate = transactions
+        .filter((t) => t.type === 'expense' && t.date === targetDate)
+        .reduce((sum, t) => sum + (t.base_amount || t.amount || 0), 0);
+
+      const poolAtStart = hasTarget
+        ? Math.max(0, cycleCap - spentBefore)
+        : Math.max(0, walletBalanceAtEndOfDate + spentOnDate);
+
+      const dailyAllowance = daysForAllowance > 0 ? poolAtStart / daysForAllowance : 0;
+      availableAmount = dailyAllowance - spentOnDate;
+    }
+
+    return {
+      targetDate,
+      isPast,
+      isToday,
+      cycle,
+      availableAmount,
+      walletBalance: isToday ? totalConvertedBalance : walletBalanceAtEndOfDate,
+      spentUpToDate,
+      cycleCap,
+      hasTarget,
+      expensePercent,
+      isOverBudget,
+      expenseRemaining,
+      expenseOverBy,
+      incomeUpToDate,
+      cycleGoal,
+      hasGoal,
+      incomePercent,
+      isIncomeReached,
+      incomeRemaining,
+    };
+  }, [
+    selectedDate,
+    todayStr,
+    focusedCycle,
+    settings,
+    overallBudgetLimit,
+    transactions,
+    totalConvertedBalance,
+    dailyAllowanceStats.remainingToday,
+  ]);
+
+  const effectiveSpent = focusedValues.spentUpToDate;
+  const effectiveIncome = focusedValues.incomeUpToDate;
 
   // Target Cards Progress (replacing docked balance breakdown with HomeScreen top header target cards)
   const expenseSwitcherProgress = useMemo(() => {
-    const target = effectiveTarget > 0 ? effectiveTarget : overallBudgetLimit;
-    const hasTarget = target > 0;
-    const percent = hasTarget ? Math.round((effectiveSpent / target) * 100) : 0;
-    const isOver = hasTarget && effectiveSpent > target;
-    const remaining = Math.max(0, target - effectiveSpent);
-    const overBy = Math.max(0, effectiveSpent - target);
-
     return {
-      hasTarget,
-      percent,
-      isOver,
-      remaining,
-      overBy,
-      badgeText: hasTarget ? (isOver ? `⚠️ ${percent}%` : `${percent}%`) : '+ Set Cap',
-      subText: hasTarget
-        ? isOver
-          ? `⚠️ ${formatCurrency(overBy, curr)} over`
-          : `Cap: ${formatCurrency(target, curr)}`
+      hasTarget: focusedValues.hasTarget,
+      percent: focusedValues.expensePercent,
+      isOver: focusedValues.isOverBudget,
+      remaining: focusedValues.expenseRemaining,
+      overBy: focusedValues.expenseOverBy,
+      badgeText: focusedValues.hasTarget
+        ? focusedValues.isOverBudget
+          ? `⚠️ ${focusedValues.expensePercent}%`
+          : `${focusedValues.expensePercent}%`
+        : '+ Set Cap',
+      subText: focusedValues.hasTarget
+        ? focusedValues.isOverBudget
+          ? `⚠️ ${formatCurrency(focusedValues.expenseOverBy, curr)} over`
+          : `Cap: ${formatCurrency(focusedValues.cycleCap, curr)}`
         : 'Tap to set budget cap',
     };
-  }, [effectiveTarget, overallBudgetLimit, effectiveSpent, curr]);
+  }, [focusedValues, curr]);
 
   const incomeSwitcherProgress = useMemo(() => {
-    const goal = effectiveCycle?.target_income && effectiveCycle.target_income > 0
-      ? effectiveCycle.target_income
-      : (settings.cycle_default_income !== undefined ? Number(settings.cycle_default_income) : 0);
-    const hasGoal = goal > 0;
-    const percent = hasGoal ? Math.round((effectiveIncome / goal) * 100) : 0;
-    const isReached = hasGoal && effectiveIncome >= goal;
-    const remaining = Math.max(0, goal - effectiveIncome);
-
     return {
-      hasGoal,
-      goal,
-      percent,
-      isReached,
-      remaining,
-      badgeText: hasGoal ? (isReached ? '🎉 100%' : `${percent}%`) : '+ Set Goal',
-      subText: hasGoal
-        ? isReached
+      hasGoal: focusedValues.hasGoal,
+      goal: focusedValues.cycleGoal,
+      percent: focusedValues.incomePercent,
+      isReached: focusedValues.isIncomeReached,
+      remaining: focusedValues.incomeRemaining,
+      badgeText: focusedValues.hasGoal
+        ? focusedValues.isIncomeReached
+          ? '🎉 100%'
+          : `${focusedValues.incomePercent}%`
+        : '+ Set Goal',
+      subText: focusedValues.hasGoal
+        ? focusedValues.isIncomeReached
           ? '🎉 Goal reached'
-          : `Goal: ${formatCurrency(goal, curr)}`
+          : `Goal: ${formatCurrency(focusedValues.cycleGoal, curr)}`
         : 'Tap to set income goal',
     };
-  }, [effectiveCycle, settings.cycle_default_income, effectiveIncome, curr]);
+  }, [focusedValues, curr]);
 
   // References for continuous transactions scrolling
   const transactionsScrollRef = useRef<any>(null);
   const dayLayoutsRef = useRef<Record<string, number>>({});
+  const cycleLayoutsRef = useRef<Record<string, number>>({});
+  const childYOffsetsRef = useRef<Record<string, number>>({});
   const isProgrammaticScrollRef = useRef<boolean>(false);
 
   // Scroll transactions list to a specific date card smoothly
@@ -515,7 +637,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
           .filter((t) => t.type === 'income')
           .reduce((sum, t) => sum + (t.base_amount || t.amount || 0), 0);
 
-        const isSelected = effectiveCycle ? c.start_date === effectiveCycle.start_date : isCurrent;
+        const isSelected = focusedCycle ? c.start_date === focusedCycle.start_date : isCurrent;
         const displayName = c.name || formatCycleDateRange(c.start_date, c.end_date);
 
         return {
@@ -543,7 +665,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
         hasTransactions: boolean;
         days: string[];
       }[];
-  }, [cycleList, transactions, todayStr, effectiveCycle?.start_date]);
+  }, [cycleList, transactions, todayStr, focusedCycle?.start_date]);
 
   // Flattened feed days for continuous scrolling layout
   const feedDays = useMemo(() => {
@@ -654,19 +776,47 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
       >
         {/* AVAILABLE FOR TODAY BANNER */}
         <View style={styles.currentCycleBannerContent}>
-            {/* Available for Today Row */}
+            {/* Available for Today / Focused Date Row */}
             <View style={styles.todayBalanceRow}>
-              <View>
-                <Text
-                  style={[styles.todayBalanceLabel, { color: theme.onSurfaceVariant }]}
-                  maxFontSizeMultiplier={1.2}
-                >
-                  AVAILABLE FOR TODAY
-                </Text>
+              <TouchableOpacity
+                onPress={handleGoToToday}
+                activeOpacity={focusedValues.isPast ? 0.7 : 1}
+                disabled={!focusedValues.isPast}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text
+                    style={[styles.todayBalanceLabel, { color: theme.onSurfaceVariant }]}
+                    maxFontSizeMultiplier={1.2}
+                  >
+                    {focusedValues.isPast
+                      ? `AVAILABLE AT END OF ${formatShortDate(focusedValues.targetDate).toUpperCase()}`
+                      : 'AVAILABLE FOR TODAY'}
+                  </Text>
+                  {focusedValues.isPast && (
+                    <View
+                      style={{
+                        backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.25)' : theme.primaryContainer,
+                        paddingHorizontal: 6,
+                        paddingVertical: 1,
+                        borderRadius: 10,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 9,
+                          fontWeight: '700',
+                          color: isDarkMode ? '#C7D2FE' : theme.onPrimaryContainer,
+                        }}
+                      >
+                        Today ↩
+                      </Text>
+                    </View>
+                  )}
+                </View>
                 <Text
                   style={[
                     styles.todayBalanceAmount,
-                    { color: dailyAllowanceStats.remainingToday >= 0 ? theme.primary : theme.error },
+                    { color: focusedValues.availableAmount >= 0 ? theme.primary : theme.error },
                   ]}
                   numberOfLines={1}
                   adjustsFontSizeToFit
@@ -674,19 +824,23 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                   maxFontSizeMultiplier={1.2}
                 >
                   {wallets.length === 0 && overallBudgetLimit === 0
-                    ? formatCurrency(0, settings.base_currency)
-                    : formatCurrency(dailyAllowanceStats.remainingToday, settings.base_currency)}
+                    ? formatCurrency(0, curr)
+                    : formatCurrency(focusedValues.availableAmount, curr)}
                 </Text>
-              </View>
+              </TouchableOpacity>
 
               {/* Wallet summary pill */}
-              <View
+              <TouchableOpacity
                 style={[
                   styles.walletSumPill,
                   {
                     backgroundColor: theme.pillBg,
                   },
                 ]}
+                onPress={() => onNavigateTab?.('wallets')}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Open Wallets Screen"
               >
                 <MaterialCommunityIcons
                   name="wallet-outline"
@@ -702,9 +856,9 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                     },
                   ]}
                 >
-                  {formatCurrency(totalConvertedBalance, settings.base_currency)}
+                  {formatCurrency(focusedValues.walletBalance, curr)}
                 </Text>
-              </View>
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -946,7 +1100,20 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
         scrollEventThrottle={16}
       >
         {feedCycleGroups.map((group) => (
-          <View key={group.cycle.id || group.startDate} style={styles.cycleGroupSection}>
+          <View
+            key={group.cycle.id || group.startDate}
+            style={styles.cycleGroupSection}
+            onLayout={(e) => {
+              const cY = e.nativeEvent.layout.y;
+              const gKey = group.cycle.id || group.startDate;
+              cycleLayoutsRef.current[gKey] = cY;
+              for (const d of group.days) {
+                if (childYOffsetsRef.current[d] !== undefined) {
+                  dayLayoutsRef.current[d] = cY + childYOffsetsRef.current[d];
+                }
+              }
+            }}
+          >
             {/* Cycle Title Card Header (Tapping opens the Analysis page for this cycle) */}
             <TouchableOpacity
               style={[
@@ -1058,7 +1225,11 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                 <View
                   key={dateStr}
                   onLayout={(e) => {
-                    dayLayoutsRef.current[dateStr] = e.nativeEvent.layout.y;
+                    const localY = e.nativeEvent.layout.y;
+                    childYOffsetsRef.current[dateStr] = localY;
+                    const gKey = group.cycle.id || group.startDate;
+                    const cY = cycleLayoutsRef.current[gKey] || 0;
+                    dayLayoutsRef.current[dateStr] = cY + localY;
                   }}
                   style={[
                     styles.daySectionCard,
@@ -1070,7 +1241,14 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                   ]}
                 >
                   {/* Day Header */}
-                  <View style={styles.daySectionHeader}>
+                  <TouchableOpacity
+                    style={styles.daySectionHeader}
+                    onPress={() => {
+                      setSelectedDate(dateStr);
+                      scrollToDate(dateStr);
+                    }}
+                    activeOpacity={0.7}
+                  >
                     <View style={{ flex: 1 }}>
                       <Text
                         style={[
@@ -1094,7 +1272,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                         -{formatCurrency(spend, settings.base_currency)}
                       </Text>
                     )}
-                  </View>
+                  </TouchableOpacity>
 
                   {/* Transactions for this Day */}
                   {dayTxs.length === 0 ? (
