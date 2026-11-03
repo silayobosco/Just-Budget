@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -89,6 +89,17 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
 }) => {
   const [currentType, setCurrentType] = useState<TransactionType>(defaultTxType);
   const [amountStr, setAmountStr] = useState<string>('');
+  const amountInputRef = useRef<any>(null);
+
+  // Automatically focus amount input and open numeric keyboard when modal opens
+  useEffect(() => {
+    if (visible) {
+      const timer = setTimeout(() => {
+        amountInputRef.current?.focus();
+      }, 250);
+      return () => clearTimeout(timer);
+    }
+  }, [visible]);
   const [selectedWalletId, setSelectedWalletId] = useState<string>(initialWalletId);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>(initialCategoryId || '');
   const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<string>(initialSubcategoryId || '');
@@ -277,7 +288,16 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   const onAccentContainer = isExpense ? theme.onErrorContainer : theme.onSuccessContainer;
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      onRequestClose={onClose}
+      onShow={() => {
+        setTimeout(() => {
+          amountInputRef.current?.focus();
+        }, 60);
+      }}
+    >
       <View style={[styles.container, { backgroundColor: theme.background }]}>
         {/* Top App Bar */}
         <View style={[styles.topBar, { backgroundColor: theme.surface, borderBottomColor: theme.divider }]}>
@@ -364,12 +384,15 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
               </TouchableOpacity>
 
               <TextInput
+                ref={amountInputRef}
                 style={[styles.amountInput, { color: theme.onSurface }]}
                 placeholder="0.00"
                 placeholderTextColor={theme.onSurfaceVariant}
                 keyboardType="decimal-pad"
                 value={amountStr}
                 onChangeText={setAmountStr}
+                autoFocus={true}
+                selectTextOnFocus={true}
               />
             </View>
           </View>
