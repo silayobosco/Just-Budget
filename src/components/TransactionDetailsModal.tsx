@@ -120,15 +120,15 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       const heightFromScreenBottom =
         screenY != null && screenHeight > screenY ? screenHeight - screenY : 0;
 
-      // Base keyboard height: larger of coordinate height or screen bottom distance
-      const baseHeight = Math.max(coordHeight, heightFromScreenBottom);
-
-      // On Android translucent fullScreen modal, add the bottom navigation inset (or at least 36px)
-      // so the docked footer clears the soft keyboard completely without being half-blocked
-      const androidExtra =
-        Platform.OS === 'android' ? Math.max(insetsRef.current.bottom || 0, 36) : 0;
-
-      const effectiveHeight = baseHeight > 0 ? baseHeight + androidExtra : 0;
+      // When screen coordinates are available, heightFromScreenBottom measures the exact distance
+      // from the bottom of the screen to the top edge of the keyboard.
+      // If screenY is not present, fallback to coordHeight + insets.bottom.
+      const effectiveHeight =
+        heightFromScreenBottom > 0
+          ? heightFromScreenBottom
+          : coordHeight > 0
+          ? coordHeight + (Platform.OS === 'android' ? (insetsRef.current.bottom || 0) : 0)
+          : 0;
 
       try {
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -993,7 +993,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
             {
               backgroundColor: theme.surface,
               borderTopColor: theme.divider,
-              paddingBottom: keyboardHeight > 0 ? 10 : Math.max(insets.bottom, 16),
+              paddingBottom: keyboardHeight > 0 ? 8 : Math.max(insets.bottom, 16),
             },
             M3Elevation.level2,
           ]}
