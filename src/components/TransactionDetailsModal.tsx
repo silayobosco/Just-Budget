@@ -596,7 +596,43 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
             />
           </View>
 
-          {/* 6. REPEAT & REMINDERS */}
+          {/* 6. MEDIA ATTACHMENTS (RECEIPT / PHOTO) */}
+          <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
+            <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant }]}>MEDIA & RECEIPT</Text>
+
+            {mediaUri ? (
+              <View style={styles.mediaPreviewContainer}>
+                <Image source={{ uri: mediaUri }} style={styles.mediaImage} />
+                <TouchableOpacity
+                  style={[styles.removeMediaBtn, { backgroundColor: theme.error }]}
+                  onPress={() => setMediaUri(null)}
+                >
+                  <MaterialCommunityIcons name="trash-can-outline" size={16} color="#FFFFFF" />
+                  <Text style={styles.removeMediaText}>Remove Photo</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={styles.mediaActionsRow}>
+                <TouchableOpacity
+                  style={[styles.mediaActionBtn, { backgroundColor: theme.pillBg, borderColor: theme.divider }]}
+                  onPress={handleTakePhoto}
+                >
+                  <MaterialCommunityIcons name="camera-outline" size={20} color={theme.primary} />
+                  <Text style={[styles.mediaActionText, { color: theme.onSurface }]}>Take Photo</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.mediaActionBtn, { backgroundColor: theme.pillBg, borderColor: theme.divider }]}
+                  onPress={handlePickFromGallery}
+                >
+                  <MaterialCommunityIcons name="image-outline" size={20} color={theme.primary} />
+                  <Text style={[styles.mediaActionText, { color: theme.onSurface }]}>From Gallery</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+
+          {/* 7. REPEAT & REMINDERS (RECURRING TRANSACTION) */}
           <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
             <View style={styles.toggleRow}>
               <View style={styles.toggleTextCol}>
@@ -867,43 +903,6 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
               </View>
             )}
           </View>
-
-          {/* 7. MEDIA ATTACHMENTS (RECEIPT / PHOTO) */}
-          <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
-            <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant }]}>MEDIA & RECEIPT</Text>
-
-            {mediaUri ? (
-              <View style={styles.mediaPreviewContainer}>
-                <Image source={{ uri: mediaUri }} style={styles.mediaImage} />
-                <TouchableOpacity
-                  style={[styles.removeMediaBtn, { backgroundColor: theme.error }]}
-                  onPress={() => setMediaUri(null)}
-                >
-                  <MaterialCommunityIcons name="trash-can-outline" size={16} color="#FFFFFF" />
-                  <Text style={styles.removeMediaText}>Remove Photo</Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <View style={styles.mediaActionsRow}>
-                <TouchableOpacity
-                  style={[styles.mediaActionBtn, { backgroundColor: theme.pillBg, borderColor: theme.divider }]}
-                  onPress={handleTakePhoto}
-                >
-                  <MaterialCommunityIcons name="camera-outline" size={20} color={theme.primary} />
-                  <Text style={[styles.mediaActionText, { color: theme.onSurface }]}>Take Photo</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.mediaActionBtn, { backgroundColor: theme.pillBg, borderColor: theme.divider }]}
-                  onPress={handlePickFromGallery}
-                >
-                  <MaterialCommunityIcons name="image-outline" size={20} color={theme.primary} />
-                  <Text style={[styles.mediaActionText, { color: theme.onSurface }]}>From Gallery</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
-
         </ScrollView>
 
         {/* DOCKED BOTTOM SAVE BUTTON (ALWAYS VISIBLE AT BOTTOM OF SCREEN) */}
