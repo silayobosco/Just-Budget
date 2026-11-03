@@ -675,7 +675,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     }
   };
 
-  // Scrolling transactions updates the selected date and shifts cycle if crossing boundaries
+  // Scrolling transactions updates the selected date smoothly without causing re-render jumps
   const handleTransactionsScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     if (isProgrammaticScrollRef.current) return;
 
@@ -683,7 +683,10 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     let closestDate = selectedDate;
     let minDiff = Infinity;
 
-    for (const [dStr, yPos] of Object.entries(dayLayoutsRef.current)) {
+    // Only inspect layout positions for dates currently loaded in feedDays
+    for (const dStr of feedDays) {
+      const yPos = dayLayoutsRef.current[dStr];
+      if (yPos === undefined) continue;
       const diff = Math.abs(yPos - (scrollY + 12));
       if (diff < minDiff) {
         minDiff = diff;
@@ -693,21 +696,6 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
 
     if (closestDate && closestDate !== selectedDate) {
       setSelectedDate(closestDate);
-
-      // Check if scroll crossed into an adjacent cycle
-      if (closestDate < activeCycleRange.startDate || closestDate > activeCycleRange.endDate) {
-        const targetCycle = cycleList.find(
-          (c) => closestDate >= c.start_date && closestDate <= c.end_date
-        );
-        if (targetCycle && targetCycle.id !== effectiveCycle?.id) {
-          const isContToday = todayStr >= targetCycle.start_date && todayStr <= targetCycle.end_date;
-          if (isContToday) {
-            setSelectedCalendarCycle(null);
-          } else {
-            setSelectedCalendarCycle(targetCycle);
-          }
-        }
-      }
     }
   };
 
@@ -1362,7 +1350,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
         scrollEventThrottle={16}
       >
         {feedCycleGroups.map((group) => (
-          <View key={group.cycle.id || group.startDate} style={styles.cycleGroupSection}>
+          <React.Fragment key={group.cycle.id || group.startDate}>
             {/* Cycle Title Card Header (Tapping opens the Analysis page for this cycle) */}
             <TouchableOpacity
               style={[
@@ -1597,7 +1585,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                 </View>
               );
             })}
-          </View>
+          </React.Fragment>
         ))}
       </ScrollView>
 
