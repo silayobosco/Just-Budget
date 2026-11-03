@@ -23,6 +23,7 @@ import { CategoryManagerModal } from '../components/CategoryManagerModal';
 import { CategoryPickerSheet } from '../components/CategoryPickerSheet';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
 import { DateRangePickerModal } from '../components/DateRangePickerModal';
+import { CycleModeSwitcherModal } from '../components/CycleModeSwitcherModal';
 
 import { TabType } from '../components/BottomTabs';
 
@@ -121,6 +122,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
 
   // Budget Cycle & Date Range Modal State
   const [cycleModalVisible, setCycleModalVisible] = useState(false);
+  const [cycleModeModalVisible, setCycleModeModalVisible] = useState(false);
   const [dateRangePickerVisible, setDateRangePickerVisible] = useState(false);
 
   // Auto-select initial wallet
@@ -1007,7 +1009,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
               </Text>
             </View>
 
-            {/* Days Left chip - Tap to open Budget Cycle modal */}
+            {/* Days Left chip - Tap to open Cycle Type picker */}
             <TouchableOpacity
               style={[
                 styles.walletSumPill,
@@ -1015,10 +1017,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
                   backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.16)' : theme.pillBg,
                 },
               ]}
-              onPress={() => setCycleModalVisible(true)}
+              onPress={() => setCycleModeModalVisible(true)}
               activeOpacity={0.7}
               accessibilityRole="button"
-              accessibilityLabel="Budget Cycle details"
+              accessibilityLabel="Switch Cycle Type"
             >
               <MaterialCommunityIcons
                 name={currentCycle ? 'calendar-clock-outline' : 'calendar-plus'}
@@ -1626,6 +1628,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
 
       {/* CATEGORY & BUDGET MANAGER MODAL */}
       <CategoryManagerModal visible={categoryModalVisible} onClose={() => setCategoryModalVisible(false)} />
+
+      {/* CYCLE TYPE / MODE SWITCHER MODAL */}
+      <CycleModeSwitcherModal
+        visible={cycleModeModalVisible}
+        onClose={() => setCycleModeModalVisible(false)}
+      />
     </View>
   );
 };

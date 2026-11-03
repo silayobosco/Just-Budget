@@ -59,6 +59,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     addTransaction,
     incomeInCycle,
     addSubcategory,
+    setAnalyticsFocus,
   } = useBudget();
 
   const isDarkMode = settings.theme_mode === 'dark';
@@ -894,7 +895,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                 </Text>
               </TouchableOpacity>
 
-              {/* Days Left chip - Tap to open Budget Cycle modal */}
+              {/* Days Left chip - Tap to open Cycle Type picker */}
               <TouchableOpacity
                 style={[
                   styles.walletSumPill,
@@ -903,10 +904,10 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                     borderColor: isDarkMode ? 'rgba(129, 140, 248, 0.32)' : 'rgba(0, 0, 0, 0.08)',
                   },
                 ]}
-                onPress={openCycleModal}
+                onPress={() => setModeSwitcherVisible(true)}
                 activeOpacity={0.7}
                 accessibilityRole="button"
-                accessibilityLabel="Budget Cycle details"
+                accessibilityLabel="Switch Cycle Type"
               >
                 <MaterialCommunityIcons
                   name="calendar-clock-outline"
@@ -950,8 +951,14 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
               },
               M3Elevation.level1,
             ]}
-            onPress={openCycleModal}
+            onPress={() => {
+              setSelectedAnalyticsCycle(focusedCycle || currentCycle || undefined);
+              setAnalyticsFocus('income');
+              onNavigateTab?.('analytics');
+            }}
             activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel="Open Income Analysis"
           >
             {/* Background Progress Fill Track */}
             {incomeSwitcherProgress.hasGoal && (
@@ -1058,8 +1065,14 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
               },
               M3Elevation.level1,
             ]}
-            onPress={openCycleModal}
+            onPress={() => {
+              setSelectedAnalyticsCycle(focusedCycle || currentCycle || undefined);
+              setAnalyticsFocus('expense');
+              onNavigateTab?.('analytics');
+            }}
             activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel="Open Budget Cap Analysis"
           >
             {/* Background Progress Fill Track */}
             {expenseSwitcherProgress.hasTarget && (

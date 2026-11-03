@@ -13,9 +13,16 @@ export const CycleModeSwitcherModal: React.FC<CycleModeSwitcherModalProps> = ({
   visible,
   onClose,
 }) => {
-  const { settings, allCycles, updateSettings, setActiveBudgetCycle } = useBudget();
+  const { settings, allCycles, updateSettings, setActiveBudgetCycle, openCycleModal } = useBudget();
   const isDarkMode = settings.theme_mode === 'dark';
   const theme = isDarkMode ? darkTheme : lightTheme;
+
+  const handleOpenCycleManager = () => {
+    onClose();
+    setTimeout(() => {
+      openCycleModal();
+    }, 150);
+  };
 
   const handleSelectMode = async (mode: 'regular' | 'custom') => {
     await updateSettings({ cycle_mode: mode });
@@ -64,7 +71,7 @@ export const CycleModeSwitcherModal: React.FC<CycleModeSwitcherModalProps> = ({
           </View>
 
           <Text style={[styles.modeSwitcherSub, { color: theme.onSurfaceVariant }]}>
-            Shift between regular recurring calendar months and custom arbitrary periods.
+            Shift between regular recurring calendar months and custom arbitrary periods. Press & hold to manage cycles.
           </Text>
 
           {/* Mode Option 1: Regular Calendar */}
@@ -79,6 +86,8 @@ export const CycleModeSwitcherModal: React.FC<CycleModeSwitcherModalProps> = ({
               },
             ]}
             onPress={() => handleSelectMode('regular')}
+            onLongPress={handleOpenCycleManager}
+            delayLongPress={350}
             activeOpacity={0.75}
           >
             <View style={[styles.modeCardIconWrap, { backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.2)' : theme.primaryContainer }]}>
@@ -120,6 +129,8 @@ export const CycleModeSwitcherModal: React.FC<CycleModeSwitcherModalProps> = ({
               },
             ]}
             onPress={() => handleSelectMode('custom')}
+            onLongPress={handleOpenCycleManager}
+            delayLongPress={350}
             activeOpacity={0.75}
           >
             <View style={[styles.modeCardIconWrap, { backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.2)' : theme.primaryContainer }]}>
