@@ -21,6 +21,7 @@ import { DateRangePickerModal } from '../components/DateRangePickerModal';
 import { CycleModeSwitcherModal } from '../components/CycleModeSwitcherModal';
 import { TransactionDetailModal } from '../components/TransactionDetailModal';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
+import { CategoryPickerSheet } from '../components/CategoryPickerSheet';
 import { Transaction, BudgetCycle, TransactionType } from '../types';
 
 interface CalendarScreenProps {
@@ -70,6 +71,9 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
 
   // Floating Action Button (FAB) Speed-Dial & Add Transaction Modal states
   const [isFabOpen, setIsFabOpen] = useState(false);
+  const [addCategorySheetVisible, setAddCategorySheetVisible] = useState(false);
+  const [addPrefilledCategoryId, setAddPrefilledCategoryId] = useState<string | undefined>(undefined);
+  const [addPrefilledSubcategoryId, setAddPrefilledSubcategoryId] = useState<string | undefined>(undefined);
   const [addModalVisible, setAddModalVisible] = useState(false);
   const [addModalType, setAddModalType] = useState<TransactionType>('expense');
   const fabAnim = useRef(new Animated.Value(0)).current;
@@ -106,6 +110,21 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
   const handleOpenAddFlow = (type: TransactionType) => {
     setIsFabOpen(false);
     setAddModalType(type);
+    setAddPrefilledCategoryId(undefined);
+    setAddPrefilledSubcategoryId(undefined);
+    setAddCategorySheetVisible(true);
+  };
+
+  const handleCategorySelectedForAdd = ({
+    categoryId,
+    subcategoryId,
+  }: {
+    categoryId?: string;
+    subcategoryId?: string;
+  }) => {
+    setAddPrefilledCategoryId(categoryId);
+    setAddPrefilledSubcategoryId(subcategoryId);
+    setAddCategorySheetVisible(false);
     setAddModalVisible(true);
   };
 
@@ -1883,12 +1902,32 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
         </Animated.View>
       </TouchableOpacity>
 
-      {/* ADD TRANSACTION MODAL */}
+      {/* CATEGORY PICKER SHEET (STEP 1: OPENS FIRST ON RECORD) */}
+      <CategoryPickerSheet
+        visible={addCategorySheetVisible}
+        txType={addModalType}
+        amount={0}
+        walletId={wallets[0]?.id || ''}
+        wallets={wallets}
+        categories={categories}
+        theme={theme}
+        baseCurrency={settings.base_currency}
+        selectOnly={true}
+        confirmButtonText="Next"
+        onClose={() => setAddCategorySheetVisible(false)}
+        onSave={handleCategorySelectedForAdd}
+        onOpenMoreOptions={handleCategorySelectedForAdd}
+        onAddSubcategory={addSubcategory}
+      />
+
+      {/* ADD TRANSACTION MODAL (STEP 2: FOCUSED AMOUNT FIELD) */}
       <TransactionDetailsModal
         visible={addModalVisible}
         txType={addModalType}
         initialAmount={0}
         initialWalletId={wallets[0]?.id || ''}
+        initialCategoryId={addPrefilledCategoryId}
+        initialSubcategoryId={addPrefilledSubcategoryId}
         initialDate={selectedDate || todayStr}
         isEditing={false}
         wallets={wallets}

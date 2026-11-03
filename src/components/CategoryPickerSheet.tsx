@@ -31,6 +31,7 @@ interface CategoryPickerSheetProps {
   initialCategoryId?: string;
   initialSubcategoryId?: string;
   selectOnly?: boolean;
+  confirmButtonText?: string;
   useNativeModal?: boolean;
 }
 
@@ -53,6 +54,7 @@ export const CategoryPickerSheet: React.FC<CategoryPickerSheetProps> = ({
   initialCategoryId,
   initialSubcategoryId,
   selectOnly = false,
+  confirmButtonText,
   useNativeModal = true,
 }) => {
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>(initialCategoryId || '');
@@ -358,7 +360,7 @@ export const CategoryPickerSheet: React.FC<CategoryPickerSheetProps> = ({
             >
               <MaterialCommunityIcons name="check" size={18} color="#FFFFFF" />
               <Text style={styles.saveBtnText}>
-                {selectOnly ? 'Done' : `Save ${isExpense ? 'Expense' : 'Income'}`}
+                {selectOnly ? (confirmButtonText || 'Done') : `Save ${isExpense ? 'Expense' : 'Income'}`}
               </Text>
             </TouchableOpacity>
           </View>

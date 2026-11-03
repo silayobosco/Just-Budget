@@ -932,11 +932,19 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
           initialSubcategoryId={selectedSubcategoryId}
           selectOnly={true}
           useNativeModal={false}
-          onClose={() => setCategorySheetVisible(false)}
+          onClose={() => {
+            setCategorySheetVisible(false);
+            setTimeout(() => {
+              amountInputRef.current?.focus();
+            }, 120);
+          }}
           onSave={({ categoryId, subcategoryId }) => {
             setSelectedCategoryId(categoryId || '');
             setSelectedSubcategoryId(subcategoryId || '');
             setCategorySheetVisible(false);
+            setTimeout(() => {
+              amountInputRef.current?.focus();
+            }, 120);
           }}
           onManageCategories={onManageCategories}
           onAddSubcategory={onAddSubcategory}
