@@ -38,7 +38,7 @@ const MainApp: React.FC = () => {
       {/* Main Tab Screen Content */}
       <View style={[styles.content, { backgroundColor: theme.background }]}>
         {currentTab === 'home' && <HomeScreen onNavigateTab={setCurrentTab} />}
-        {currentTab === 'calendar' && <CalendarScreen />}
+        {currentTab === 'calendar' && <CalendarScreen onNavigateTab={setCurrentTab} />}
         {currentTab === 'wallets' && <WalletsScreen />}
         {currentTab === 'analytics' && <AnalyticsScreen />}
         {currentTab === 'settings' && <SettingsScreen />}

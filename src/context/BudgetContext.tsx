@@ -56,6 +56,8 @@ interface BudgetContextType {
   setSelectedTransactionIdForCalendar: (id: string | null) => void;
   selectedCalendarCycle: BudgetCycle | null;
   setSelectedCalendarCycle: (cycle: BudgetCycle | null) => void;
+  selectedAnalyticsCycle: BudgetCycle | null;
+  setSelectedAnalyticsCycle: (cycle: BudgetCycle | null) => void;
   isViewingCurrentCycle: boolean;
 
   // Computed
@@ -190,6 +192,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [selectedTransactionIdForCalendar, setSelectedTransactionIdForCalendar] = useState<string | null>(null);
   const [selectedCalendarCycle, setSelectedCalendarCycle] = useState<BudgetCycle | null>(null);
+  const [selectedAnalyticsCycle, setSelectedAnalyticsCycle] = useState<BudgetCycle | null>(null);
 
   const isViewingCurrentCycle = useMemo(() => {
     const todayStr = new Date().toISOString().slice(0, 10);
@@ -1345,6 +1348,8 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setSelectedTransactionIdForCalendar,
         selectedCalendarCycle,
         setSelectedCalendarCycle,
+        selectedAnalyticsCycle,
+        setSelectedAnalyticsCycle,
         isViewingCurrentCycle,
         totalConvertedBalance,
         spentInCycle,

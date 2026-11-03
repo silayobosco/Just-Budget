@@ -18,6 +18,8 @@ export const AnalyticsScreen: React.FC = () => {
     transactions,
     categories,
     currentCycle,
+    selectedAnalyticsCycle,
+    setSelectedAnalyticsCycle,
     spentInCycle,
     incomeInCycle,
     overallBudgetLimit,
@@ -32,15 +34,18 @@ export const AnalyticsScreen: React.FC = () => {
   const theme = isDarkMode ? darkTheme : lightTheme;
   const [scope, setScope] = useState<'cycle' | 'all'>('cycle');
 
+  // Effective cycle being analyzed
+  const effectiveCycle = selectedAnalyticsCycle || currentCycle;
+
   // Filtered transactions by scope
   const activeTransactions = useMemo(() => {
-    if (scope === 'cycle' && currentCycle) {
+    if (scope === 'cycle' && effectiveCycle?.start_date && effectiveCycle?.end_date) {
       return transactions.filter(
-        (t) => t.date >= currentCycle.start_date && t.date <= currentCycle.end_date
+        (t) => t.date >= effectiveCycle.start_date && t.date <= effectiveCycle.end_date
       );
     }
     return transactions;
-  }, [scope, currentCycle, transactions]);
+  }, [scope, effectiveCycle, transactions]);
 
   // Expenses and Incomes
   const totalExpense = useMemo(() => {
@@ -112,14 +117,14 @@ export const AnalyticsScreen: React.FC = () => {
   }, [activeTransactions, totalExpense]);
 
   // Target metrics for analyzer
-  const effectiveBudget = overallBudgetLimit > 0 ? overallBudgetLimit : (currentCycle?.target_budget || 0);
-  const budgetSpent = scope === 'cycle' ? spentInCycle : totalExpense;
+  const effectiveBudget = effectiveCycle?.target_budget ?? overallBudgetLimit;
+  const budgetSpent = scope === 'cycle' ? totalExpense : totalExpense;
   const budgetRemaining = effectiveBudget - budgetSpent;
   const budgetPercent = effectiveBudget > 0 ? Math.round((budgetSpent / effectiveBudget) * 100) : 0;
   const isBudgetOver = effectiveBudget > 0 && budgetSpent > effectiveBudget;
 
-  const effectiveIncomeGoal = incomeGoal > 0 ? incomeGoal : (currentCycle?.target_income || 0);
-  const incomeEarned = scope === 'cycle' ? incomeInCycle : totalIncome;
+  const effectiveIncomeGoal = effectiveCycle?.target_income ?? incomeGoal;
+  const incomeEarned = scope === 'cycle' ? totalIncome : totalIncome;
   const incomeRemainingToGo = Math.max(0, effectiveIncomeGoal - incomeEarned);
   const incomePercent = effectiveIncomeGoal > 0 ? Math.round((incomeEarned / effectiveIncomeGoal) * 100) : 0;
   const isIncomeGoalReached = effectiveIncomeGoal > 0 && incomeEarned >= effectiveIncomeGoal;
@@ -193,6 +198,34 @@ export const AnalyticsScreen: React.FC = () => {
           </TouchableOpacity>
         </View>
 
+        {/* SELECTED ANALYTICS CYCLE BANNER */}
+        {selectedAnalyticsCycle && (
+          <View
+            style={[
+              styles.selectedCycleAlert,
+              { backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.2)' : theme.primaryContainer },
+            ]}
+          >
+            <MaterialCommunityIcons name="chart-box-outline" size={16} color={theme.primary} />
+            <Text
+              style={[
+                styles.selectedCycleAlertText,
+                { color: isDarkMode ? '#C7D2FE' : theme.onPrimaryContainer },
+              ]}
+              numberOfLines={1}
+            >
+              Viewing: {effectiveCycle?.name || 'Cycle'}
+            </Text>
+            <TouchableOpacity
+              onPress={() => setSelectedAnalyticsCycle(null)}
+              style={styles.selectedCycleAlertClearBtn}
+              activeOpacity={0.7}
+            >
+              <Text style={{ fontSize: 11, fontWeight: '800', color: theme.primary }}>✕ Reset</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* SCOPE TOGGLE PILL BAR */}
         <View style={[styles.scopeBar, { backgroundColor: theme.pillBg }]}>
           <TouchableOpacity
@@ -208,7 +241,7 @@ export const AnalyticsScreen: React.FC = () => {
                 },
               ]}
             >
-              Current Cycle ({currentCycle?.name || 'Cycle'})
+              Cycle ({effectiveCycle?.name || 'Cycle'})
             </Text>
           </TouchableOpacity>
 
@@ -882,5 +915,23 @@ const styles = StyleSheet.create({
   catBarFill: {
     height: '100%',
     borderRadius: M3Shape.full,
+  },
+  selectedCycleAlert: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: M3Shape.medium,
+    marginBottom: 10,
+  },
+  selectedCycleAlertText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  selectedCycleAlertClearBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
   },
 });

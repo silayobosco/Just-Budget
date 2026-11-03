@@ -21,7 +21,11 @@ import { TransactionDetailModal } from '../components/TransactionDetailModal';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
 import { Transaction, BudgetCycle } from '../types';
 
-export const CalendarScreen: React.FC = () => {
+interface CalendarScreenProps {
+  onNavigateTab?: (tab: any) => void;
+}
+
+export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab }) => {
   const {
     settings,
     currentCycle,
@@ -42,6 +46,8 @@ export const CalendarScreen: React.FC = () => {
     setSelectedTransactionIdForCalendar,
     selectedCalendarCycle,
     setSelectedCalendarCycle,
+    selectedAnalyticsCycle,
+    setSelectedAnalyticsCycle,
     isViewingCurrentCycle,
     dailyAllowanceStats,
     overallBudgetLimit,
@@ -554,49 +560,82 @@ export const CalendarScreen: React.FC = () => {
     return map;
   }, [transactions]);
 
-  // Generate continuous feed days: includes previous cycle, current cycle, and next cycle
-  const feedDays = useMemo(() => {
-    const dates: string[] = [];
-    const dateSet = new Set<string>();
-
-    const addRange = (start?: string, end?: string) => {
-      if (!start || !end) return;
-      const [sy, sm, sd] = start.split('-').map(Number);
-      const [ey, em, ed] = end.split('-').map(Number);
-      const cur = new Date(sy, sm - 1, sd, 12, 0, 0);
-      const endD = new Date(ey, em - 1, ed, 12, 0, 0);
-
-      while (cur <= endD) {
-        const y = cur.getFullYear();
-        const m = String(cur.getMonth() + 1).padStart(2, '0');
-        const d = String(cur.getDate()).padStart(2, '0');
-        const str = `${y}-${m}-${d}`;
-        if (!dateSet.has(str)) {
-          dateSet.add(str);
-          dates.push(str);
-        }
-        cur.setDate(cur.getDate() + 1);
-      }
-    };
+  // Group continuous feed by cycles (with title before each cycle list)
+  const feedCycleGroups = useMemo(() => {
+    if (cycleList.length === 0) return [];
 
     const activeIdx = cycleList.findIndex(
       (c) => c.start_date === activeCycleRange.startDate
     );
 
-    if (activeIdx > 0) {
-      addRange(cycleList[activeIdx - 1].start_date, cycleList[activeIdx - 1].end_date);
+    const targetCycles: BudgetCycle[] = [];
+    const startIdx = Math.max(0, activeIdx - 1);
+    const endIdx = Math.min(cycleList.length - 1, activeIdx + 1);
+
+    for (let i = startIdx; i <= endIdx; i++) {
+      targetCycles.push(cycleList[i]);
     }
 
-    addRange(activeCycleRange.startDate, activeCycleRange.endDate);
+    return targetCycles.map((c) => {
+      const [sy, sm, sd] = c.start_date.split('-').map(Number);
+      const [ey, em, ed] = c.end_date.split('-').map(Number);
+      const cur = new Date(sy, sm - 1, sd, 12, 0, 0);
+      const endD = new Date(ey, em - 1, ed, 12, 0, 0);
 
-    if (activeIdx >= 0 && activeIdx < cycleList.length - 1) {
-      addRange(cycleList[activeIdx + 1].start_date, cycleList[activeIdx + 1].end_date);
-    }
+      const days: string[] = [];
+      while (cur <= endD) {
+        const y = cur.getFullYear();
+        const m = String(cur.getMonth() + 1).padStart(2, '0');
+        const d = String(cur.getDate()).padStart(2, '0');
+        days.push(`${y}-${m}-${d}`);
+        cur.setDate(cur.getDate() + 1);
+      }
 
-    // Sort chronologically: e.g. 27 Oct, 28 Oct ... 26 Nov
+      days.sort();
+
+      const cycleSpent = transactions
+        .filter((t) => t.type === 'expense' && t.date >= c.start_date && t.date <= c.end_date)
+        .reduce((sum, t) => sum + (t.base_amount || t.amount || 0), 0);
+
+      const cycleIncome = transactions
+        .filter((t) => t.type === 'income' && t.date >= c.start_date && t.date <= c.end_date)
+        .reduce((sum, t) => sum + (t.base_amount || t.amount || 0), 0);
+
+      const isCurrent = todayStr >= c.start_date && todayStr <= c.end_date;
+      const isSelected = effectiveCycle ? c.start_date === effectiveCycle.start_date : isCurrent;
+      const displayName = c.name || formatCycleDateRange(c.start_date, c.end_date);
+
+      return {
+        cycle: c,
+        displayName,
+        startDate: c.start_date,
+        endDate: c.end_date,
+        isCurrent,
+        isSelected,
+        cycleSpent,
+        cycleIncome,
+        days,
+      };
+    });
+  }, [cycleList, activeCycleRange.startDate, transactions, todayStr, effectiveCycle]);
+
+  // Flattened feed days for continuous scrolling layout
+  const feedDays = useMemo(() => {
+    const dates: string[] = [];
+    feedCycleGroups.forEach((g) => {
+      g.days.forEach((d) => {
+        if (!dates.includes(d)) dates.push(d);
+      });
+    });
     dates.sort();
     return dates;
-  }, [activeCycleRange, cycleList]);
+  }, [feedCycleGroups]);
+
+  // Open Analytics screen focused on a specific cycle
+  const handleOpenCycleAnalytics = (cycle: BudgetCycle) => {
+    setSelectedAnalyticsCycle(cycle);
+    onNavigateTab?.('analytics');
+  };
 
   // References for continuous transactions scrolling
   const transactionsScrollRef = useRef<any>(null);
@@ -1314,7 +1353,7 @@ export const CalendarScreen: React.FC = () => {
         </TouchableOpacity>
       </View>
 
-      {/* 3. CONTINUOUS DAY-BY-DAY TRANSACTIONS SCROLL LIST */}
+      {/* 3. CONTINUOUS DAY-BY-DAY TRANSACTIONS SCROLL LIST GROUPED BY CYCLES */}
       <ScrollView
         ref={transactionsScrollRef}
         showsVerticalScrollIndicator={false}
@@ -1322,158 +1361,244 @@ export const CalendarScreen: React.FC = () => {
         onScroll={handleTransactionsScroll}
         scrollEventThrottle={16}
       >
-        {feedDays.map((dateStr) => {
-          const dayTxs = transactionsByDate[dateStr] || [];
-          const spend = dailySpendMap[dateStr] || 0;
-          const isSelected = dateStr === selectedDate;
-          const isToday = dateStr === new Date().toISOString().slice(0, 10);
-          const isCycleStart = dateStr === activeCycleRange.startDate;
-
-          return (
-            <View
-              key={dateStr}
-              onLayout={(e) => {
-                dayLayoutsRef.current[dateStr] = e.nativeEvent.layout.y;
-              }}
+        {feedCycleGroups.map((group) => (
+          <View key={group.cycle.id || group.startDate} style={styles.cycleGroupSection}>
+            {/* Cycle Title Card Header (Tapping opens the Analysis page for this cycle) */}
+            <TouchableOpacity
               style={[
-                styles.daySectionCard,
-                isSelected && {
-                  borderLeftColor: theme.primary,
-                  borderLeftWidth: 3,
-                  paddingLeft: 8,
+                styles.cycleGroupHeaderCard,
+                {
+                  backgroundColor: group.isSelected
+                    ? (isDarkMode ? 'rgba(99, 102, 241, 0.22)' : '#EEF2FF')
+                    : (isDarkMode ? 'rgba(255, 255, 255, 0.05)' : theme.cardBg),
+                  borderColor: group.isSelected
+                    ? (isDarkMode ? '#818CF8' : theme.primary)
+                    : theme.divider,
                 },
+                M3Elevation.level1,
               ]}
+              onPress={() => handleOpenCycleAnalytics(group.cycle)}
+              activeOpacity={0.75}
+              accessibilityLabel={`Open Analysis for cycle ${group.displayName}`}
             >
-              {isCycleStart && (
+              <View style={styles.cycleGroupHeaderLeft}>
                 <View
                   style={[
-                    styles.cycleBoundaryBadge,
-                    { backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.2)' : theme.primaryContainer },
+                    styles.cycleGroupIconWrap,
+                    {
+                      backgroundColor: group.isSelected
+                        ? (isDarkMode ? '#818CF8' : theme.primary)
+                        : (isDarkMode ? 'rgba(99, 102, 241, 0.2)' : theme.pillBg),
+                    },
                   ]}
                 >
-                  <MaterialCommunityIcons name="calendar-sync" size={13} color={theme.primary} />
-                  <Text style={[styles.cycleBoundaryText, { color: theme.primary }]}>
-                    Cycle: {activeCycleRange.name}
-                  </Text>
-                </View>
-              )}
-
-              {/* Day Header */}
-              <View style={styles.daySectionHeader}>
-                <View style={{ flex: 1 }}>
-                  <Text
-                    style={[
-                      styles.daySectionTitle,
-                      {
-                        color: isSelected
-                          ? theme.primary
-                          : isToday
-                          ? (isDarkMode ? '#A5B4FC' : theme.primary)
-                          : theme.onSurface,
-                        fontWeight: isSelected || isToday ? '800' : '600',
-                      },
-                    ]}
-                  >
-                    {formatSelectedDateHeader(dateStr)}
-                  </Text>
-                </View>
-
-                {spend > 0 && (
-                  <Text style={[styles.daySectionSpend, { color: theme.error }]}>
-                    -{formatCurrency(spend, settings.base_currency)}
-                  </Text>
-                )}
-              </View>
-
-              {/* Transactions for this Day */}
-              {dayTxs.length === 0 ? (
-                <View style={styles.compactEmptyDayRow}>
-                  <View
-                    style={[
-                      styles.emptyDayDot,
-                      { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.18)' : theme.divider },
-                    ]}
+                  <MaterialCommunityIcons
+                    name="chart-pie"
+                    size={18}
+                    color={group.isSelected ? (isDarkMode ? '#0F172A' : '#FFFFFF') : theme.primary}
                   />
-                  <Text style={[styles.compactEmptyDayText, { color: theme.onSurfaceVariant }]}>
-                    No transactions
-                  </Text>
                 </View>
-              ) : (
-                dayTxs.map((tx) => {
-                  const cat = categories.find((c) => c.id === tx.category_id);
-                  const sub = cat?.subcategories?.find((s) => s.id === tx.subcategory_id);
-                  const wallet = wallets.find((w) => w.id === tx.wallet_id);
-                  const isExpense = tx.type === 'expense';
-                  const isTransfer = tx.type === 'transfer';
-
-                  const mainTitle = isTransfer
-                    ? 'Transfer'
-                    : sub?.name || cat?.name || (isExpense ? 'Expense' : 'Income');
-
-                  const subMeta = [
-                    sub ? cat?.name : null,
-                    wallet?.name,
-                    tx.note || null,
-                  ]
-                    .filter(Boolean)
-                    .join(' • ');
-
-                  return (
-                    <TouchableOpacity
-                      key={tx.id}
+                <View style={styles.cycleGroupTitleCol}>
+                  <View style={styles.cycleGroupTitleRow}>
+                    <Text
                       style={[
-                        styles.dayTxItem,
-                        { backgroundColor: theme.cardBg, borderColor: theme.divider },
+                        styles.cycleGroupTitleText,
+                        { color: theme.onSurface },
+                        group.isSelected && { fontWeight: '800' },
                       ]}
-                      onPress={() => setViewingTransaction(tx)}
-                      activeOpacity={0.7}
+                      numberOfLines={1}
                     >
+                      {group.displayName}
+                    </Text>
+                    {group.isCurrent && (
                       <View
                         style={[
-                          styles.catDot,
-                          {
-                            backgroundColor: isTransfer
-                              ? theme.tertiary
-                              : cat?.color || (isExpense ? theme.error : theme.success),
-                          },
+                          styles.cycleCurrentBadge,
+                          { backgroundColor: isDarkMode ? 'rgba(16, 185, 129, 0.25)' : '#D1FAE5' },
                         ]}
-                      />
-                      <View style={{ flex: 1, marginLeft: 10 }}>
-                        <Text style={[styles.dayTxTitle, { color: theme.onSurface }]}>
-                          {mainTitle}
-                        </Text>
-                        <Text style={[styles.dayTxMeta, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
-                          {subMeta}
+                      >
+                        <Text
+                          style={[
+                            styles.cycleCurrentBadgeText,
+                            { color: isDarkMode ? '#6EE7B7' : '#047857' },
+                          ]}
+                        >
+                          Current
                         </Text>
                       </View>
+                    )}
+                  </View>
+                  <Text style={[styles.cycleGroupMetaText, { color: theme.onSurfaceVariant }]}>
+                    Spent: {formatCurrency(group.cycleSpent, curr)}
+                    {group.cycleIncome > 0 && ` • Income: ${formatCurrency(group.cycleIncome, curr)}`}
+                  </Text>
+                </View>
+              </View>
+
+              <View
+                style={[
+                  styles.openAnalyticsActionPill,
+                  {
+                    backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.25)' : theme.primaryContainer,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.openAnalyticsActionText,
+                    { color: isDarkMode ? '#C7D2FE' : theme.onPrimaryContainer },
+                  ]}
+                >
+                  Analysis
+                </Text>
+                <MaterialCommunityIcons
+                  name="chevron-right"
+                  size={15}
+                  color={isDarkMode ? '#C7D2FE' : theme.onPrimaryContainer}
+                />
+              </View>
+            </TouchableOpacity>
+
+            {/* Days and Transactions in this Cycle */}
+            {group.days.map((dateStr) => {
+              const dayTxs = transactionsByDate[dateStr] || [];
+              const spend = dailySpendMap[dateStr] || 0;
+              const isSelected = dateStr === selectedDate;
+              const isToday = dateStr === new Date().toISOString().slice(0, 10);
+
+              return (
+                <View
+                  key={dateStr}
+                  onLayout={(e) => {
+                    dayLayoutsRef.current[dateStr] = e.nativeEvent.layout.y;
+                  }}
+                  style={[
+                    styles.daySectionCard,
+                    isSelected && {
+                      borderLeftColor: theme.primary,
+                      borderLeftWidth: 3,
+                      paddingLeft: 8,
+                    },
+                  ]}
+                >
+                  {/* Day Header */}
+                  <View style={styles.daySectionHeader}>
+                    <View style={{ flex: 1 }}>
                       <Text
                         style={[
-                          styles.dayTxAmount,
+                          styles.daySectionTitle,
                           {
-                            color: isExpense
-                              ? theme.error
-                              : isTransfer
-                              ? theme.tertiary
-                              : theme.success,
+                            color: isSelected
+                              ? theme.primary
+                              : isToday
+                              ? (isDarkMode ? '#A5B4FC' : theme.primary)
+                              : theme.onSurface,
+                            fontWeight: isSelected || isToday ? '800' : '600',
                           },
                         ]}
                       >
-                        {isExpense ? '-' : isTransfer ? '' : '+'}
-                        {formatCurrency(tx.amount, tx.currency || settings.base_currency)}
+                        {formatSelectedDateHeader(dateStr)}
                       </Text>
-                      <MaterialCommunityIcons
-                        name="chevron-right"
-                        size={18}
-                        color={theme.onSurfaceVariant}
-                        style={{ marginLeft: 6 }}
+                    </View>
+
+                    {spend > 0 && (
+                      <Text style={[styles.daySectionSpend, { color: theme.error }]}>
+                        -{formatCurrency(spend, settings.base_currency)}
+                      </Text>
+                    )}
+                  </View>
+
+                  {/* Transactions for this Day */}
+                  {dayTxs.length === 0 ? (
+                    <View style={styles.compactEmptyDayRow}>
+                      <View
+                        style={[
+                          styles.emptyDayDot,
+                          { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.18)' : theme.divider },
+                        ]}
                       />
-                    </TouchableOpacity>
-                  );
-                })
-              )}
-            </View>
-          );
-        })}
+                      <Text style={[styles.compactEmptyDayText, { color: theme.onSurfaceVariant }]}>
+                        No transactions
+                      </Text>
+                    </View>
+                  ) : (
+                    dayTxs.map((tx) => {
+                      const cat = categories.find((c) => c.id === tx.category_id);
+                      const sub = cat?.subcategories?.find((s) => s.id === tx.subcategory_id);
+                      const wallet = wallets.find((w) => w.id === tx.wallet_id);
+                      const isExpense = tx.type === 'expense';
+                      const isTransfer = tx.type === 'transfer';
+
+                      const mainTitle = isTransfer
+                        ? 'Transfer'
+                        : sub?.name || cat?.name || (isExpense ? 'Expense' : 'Income');
+
+                      const subMeta = [
+                        sub ? cat?.name : null,
+                        wallet?.name,
+                        tx.note || null,
+                      ]
+                        .filter(Boolean)
+                        .join(' • ');
+
+                      return (
+                        <TouchableOpacity
+                          key={tx.id}
+                          style={[
+                            styles.dayTxItem,
+                            { backgroundColor: theme.cardBg, borderColor: theme.divider },
+                          ]}
+                          onPress={() => setViewingTransaction(tx)}
+                          activeOpacity={0.7}
+                        >
+                          <View
+                            style={[
+                              styles.catDot,
+                              {
+                                backgroundColor: isTransfer
+                                  ? theme.tertiary
+                                  : cat?.color || (isExpense ? theme.error : theme.success),
+                              },
+                            ]}
+                          />
+                          <View style={{ flex: 1, marginLeft: 10 }}>
+                            <Text style={[styles.dayTxTitle, { color: theme.onSurface }]}>
+                              {mainTitle}
+                            </Text>
+                            <Text style={[styles.dayTxMeta, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
+                              {subMeta}
+                            </Text>
+                          </View>
+                          <Text
+                            style={[
+                              styles.dayTxAmount,
+                              {
+                                color: isExpense
+                                  ? theme.error
+                                  : isTransfer
+                                  ? theme.tertiary
+                                  : theme.success,
+                              },
+                            ]}
+                          >
+                            {isExpense ? '-' : isTransfer ? '' : '+'}
+                            {formatCurrency(tx.amount, tx.currency || settings.base_currency)}
+                          </Text>
+                          <MaterialCommunityIcons
+                            name="chevron-right"
+                            size={18}
+                            color={theme.onSurfaceVariant}
+                            style={{ marginLeft: 6 }}
+                          />
+                        </TouchableOpacity>
+                      );
+                    })
+                  )}
+                </View>
+              );
+            })}
+          </View>
+        ))}
       </ScrollView>
 
       {/* SHIFT CYCLE MODE MODAL (TAP ACTIVE CHIP: SHIFT BETWEEN REGULAR & CUSTOM, NO EDITING) */}
@@ -1746,6 +1871,72 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 40,
+  },
+  cycleGroupSection: {
+    marginBottom: 20,
+  },
+  cycleGroupHeaderCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: M3Shape.large,
+    borderWidth: 1.5,
+    marginBottom: 12,
+    marginTop: 4,
+  },
+  cycleGroupHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+    marginRight: 8,
+  },
+  cycleGroupIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cycleGroupTitleCol: {
+    flex: 1,
+  },
+  cycleGroupTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  cycleGroupTitleText: {
+    fontSize: 13.5,
+    fontWeight: '700',
+  },
+  cycleCurrentBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: M3Shape.full,
+  },
+  cycleCurrentBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+  },
+  cycleGroupMetaText: {
+    fontSize: 11,
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  openAnalyticsActionPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 9,
+    paddingVertical: 4.5,
+    borderRadius: M3Shape.full,
+    gap: 2,
+  },
+  openAnalyticsActionText: {
+    fontSize: 11,
+    fontWeight: '800',
   },
   daySectionCard: {
     marginBottom: 14,
