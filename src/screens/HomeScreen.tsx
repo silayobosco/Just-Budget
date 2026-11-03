@@ -1007,36 +1007,42 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
               </Text>
             </View>
 
-            {/* Wallet summary pill - Tap to open Wallets screen or Add Wallet */}
+            {/* Days Left chip - Tap to open Budget Cycle modal */}
             <TouchableOpacity
               style={[
                 styles.walletSumPill,
                 {
-                  backgroundColor: wallets.length === 0
-                    ? (isDarkMode ? 'rgba(99, 102, 241, 0.22)' : theme.primaryContainer)
-                    : theme.pillBg,
+                  backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.16)' : theme.pillBg,
                 },
               ]}
-              onPress={() => onNavigateTab?.('wallets')}
+              onPress={() => setCycleModalVisible(true)}
               activeOpacity={0.7}
               accessibilityRole="button"
-              accessibilityLabel="Open Wallets Screen"
+              accessibilityLabel="Budget Cycle details"
             >
               <MaterialCommunityIcons
-                name={wallets.length === 0 ? 'wallet-plus-outline' : 'wallet-outline'}
+                name={currentCycle ? 'calendar-clock-outline' : 'calendar-plus'}
                 size={14}
-                color={wallets.length === 0 ? theme.primary : theme.primary}
+                color={isDarkMode ? '#A5B4FC' : theme.primary}
               />
               <Text
                 style={[
                   styles.walletSumText,
                   {
-                    color: wallets.length === 0 ? (isDarkMode ? '#C7D2FE' : theme.onPrimaryContainer) : theme.onSurface,
-                    fontWeight: wallets.length === 0 ? '800' : '700',
+                    color: isDarkMode ? '#E0E7FF' : theme.onSurface,
+                    fontWeight: '700',
                   },
                 ]}
               >
-                {wallets.length === 0 ? '+ Add Wallet' : formatCurrency(totalConvertedBalance, curr)}
+                {!currentCycle
+                  ? '+ Set Cycle'
+                  : dailyAllowanceStats.isEnded
+                  ? 'Ended'
+                  : dailyAllowanceStats.daysRemaining === 0
+                  ? 'Ends today'
+                  : dailyAllowanceStats.daysRemaining === 1
+                  ? '1 day left'
+                  : `${dailyAllowanceStats.daysRemaining} days left`}
               </Text>
             </TouchableOpacity>
           </View>

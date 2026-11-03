@@ -9,12 +9,14 @@ import { CycleModeSwitcherModal } from './CycleModeSwitcherModal';
 
 interface HeaderProps {
   currentTab?: TabType;
+  onNavigateTab?: (tab: TabType) => void;
   onOpenCategories?: () => void;
   onOpenSettings?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   currentTab,
+  onNavigateTab,
   onOpenCategories,
   onOpenSettings,
 }) => {
@@ -24,6 +26,7 @@ export const Header: React.FC<HeaderProps> = ({
     dailyAllowanceStats,
     openCycleModal,
     totalConvertedBalance,
+    wallets,
     isViewingCurrentCycle,
     selectedCalendarCycle,
   } = useBudget();
@@ -93,96 +96,38 @@ export const Header: React.FC<HeaderProps> = ({
           </View>
         </View>
 
-        {/* Right Chip: Total Wallets Balance when browsing non-current cycle; Remaining Days in current cycle */}
-        {showRightBalanceChip ? (
-          <View
+        {/* Right Chip: Total Wallets Balance (Tapping opens Wallets screen across all tabs) */}
+        <TouchableOpacity
+          style={[
+            styles.daysBadge,
+            {
+              backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.16)' : theme.primaryContainer,
+              borderColor: isDarkMode ? 'rgba(129, 140, 248, 0.32)' : 'rgba(0, 0, 0, 0.08)',
+            },
+          ]}
+          onPress={() => onNavigateTab?.('wallets')}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Open Wallets Screen"
+        >
+          <MaterialCommunityIcons
+            name={wallets.length === 0 ? 'wallet-plus-outline' : 'wallet-outline'}
+            size={14}
+            color={isDarkMode ? '#A5B4FC' : theme.primary}
+            style={{ marginRight: 4 }}
+          />
+          <Text
             style={[
-              styles.daysBadge,
-              {
-                backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.16)' : theme.primaryContainer,
-                borderColor: isDarkMode ? 'rgba(129, 140, 248, 0.32)' : 'rgba(0, 0, 0, 0.08)',
-              },
+              styles.daysBadgeText,
+              { color: isDarkMode ? '#E0E7FF' : theme.onPrimaryContainer, fontWeight: '800' },
             ]}
+            numberOfLines={1}
           >
-            <MaterialCommunityIcons
-              name="wallet-outline"
-              size={14}
-              color={isDarkMode ? '#A5B4FC' : theme.primary}
-              style={{ marginRight: 4 }}
-            />
-            <Text
-              style={[
-                styles.daysBadgeText,
-                { color: isDarkMode ? '#E0E7FF' : theme.onPrimaryContainer, fontWeight: '800' },
-              ]}
-              numberOfLines={1}
-            >
-              {formatCurrency(totalConvertedBalance, settings.base_currency)}
-            </Text>
-          </View>
-        ) : currentCycle ? (
-          <TouchableOpacity
-            style={[
-              styles.daysBadge,
-              {
-                backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.16)' : theme.primaryContainer,
-                borderColor: isDarkMode ? 'rgba(129, 140, 248, 0.32)' : 'rgba(0, 0, 0, 0.08)',
-              },
-            ]}
-            onPress={openCycleModal}
-            activeOpacity={0.7}
-          >
-            <MaterialCommunityIcons
-              name="calendar-clock-outline"
-              size={13}
-              color={isDarkMode ? '#A5B4FC' : theme.primary}
-              style={{ marginRight: 4 }}
-            />
-            <Text
-              style={[
-                styles.daysBadgeText,
-                { color: isDarkMode ? '#E0E7FF' : theme.onPrimaryContainer },
-              ]}
-              numberOfLines={1}
-            >
-              {dailyAllowanceStats.isEnded
-                ? 'Ended'
-                : dailyAllowanceStats.daysRemaining === 0
-                ? 'Ends today'
-                : dailyAllowanceStats.daysRemaining === 1
-                ? '1 day left'
-                : `${dailyAllowanceStats.daysRemaining} days left`}
-            </Text>
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            style={[
-              styles.daysBadge,
-              {
-                backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.2)' : theme.primaryContainer,
-                borderColor: theme.primary,
-              },
-            ]}
-            onPress={openCycleModal}
-            activeOpacity={0.7}
-          >
-            <MaterialCommunityIcons
-              name="calendar-plus"
-              size={13}
-              color={isDarkMode ? '#A5B4FC' : theme.primary}
-              style={{ marginRight: 4 }}
-            />
-            <Text
-              style={[
-                styles.daysBadgeText,
-                { color: isDarkMode ? '#E0E7FF' : theme.onPrimaryContainer },
-              ]}
-              numberOfLines={1}
-            >
-              Set Cycle
-            </Text>
-          </TouchableOpacity>
-        )}
+            {wallets.length === 0
+              ? '+ Add Wallet'
+              : formatCurrency(totalConvertedBalance, settings.base_currency)}
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {/* Cycle Mode Switcher Modal (Opened when tapping cycle type in calendar page) */}

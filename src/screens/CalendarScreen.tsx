@@ -426,6 +426,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
 
     // 4. Daily Allowance / Available at end of targetDate
     let availableAmount = dailyAllowanceStats.remainingToday;
+    let daysRemaining = dailyAllowanceStats.daysRemaining;
     if (isPast) {
       const [sy, sm, sd] = cycle.start_date.split('-').map(Number);
       const [ey, em, ed] = cycle.end_date.split('-').map(Number);
@@ -435,6 +436,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
 
       const diffDays = Math.round((cycleEnd.getTime() - focDateObj.getTime()) / 86400000);
       const daysForAllowance = Math.max(1, diffDays + 1);
+      daysRemaining = Math.max(0, diffDays);
 
       const spentBefore = transactions
         .filter(
@@ -463,6 +465,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
       isToday,
       cycle,
       availableAmount,
+      daysRemaining,
       walletBalance: isToday ? totalConvertedBalance : walletBalanceAtEndOfDate,
       spentUpToDate,
       cycleCap,
@@ -829,34 +832,45 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                 </Text>
               </TouchableOpacity>
 
-              {/* Wallet summary pill */}
+              {/* Days Left chip - Tap to open Budget Cycle modal */}
               <TouchableOpacity
                 style={[
                   styles.walletSumPill,
                   {
-                    backgroundColor: theme.pillBg,
+                    backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.16)' : theme.pillBg,
+                    borderColor: isDarkMode ? 'rgba(129, 140, 248, 0.32)' : 'rgba(0, 0, 0, 0.08)',
                   },
                 ]}
-                onPress={() => onNavigateTab?.('wallets')}
+                onPress={openCycleModal}
                 activeOpacity={0.7}
                 accessibilityRole="button"
-                accessibilityLabel="Open Wallets Screen"
+                accessibilityLabel="Budget Cycle details"
               >
                 <MaterialCommunityIcons
-                  name="wallet-outline"
+                  name="calendar-clock-outline"
                   size={14}
-                  color={theme.primary}
+                  color={isDarkMode ? '#A5B4FC' : theme.primary}
                 />
                 <Text
                   style={[
                     styles.walletSumText,
                     {
-                      color: theme.onSurface,
+                      color: isDarkMode ? '#E0E7FF' : theme.onSurface,
                       fontWeight: '700',
                     },
                   ]}
                 >
-                  {formatCurrency(focusedValues.walletBalance, curr)}
+                  {focusedValues.isPast
+                    ? focusedValues.daysRemaining === 0
+                      ? 'Ended'
+                      : `${focusedValues.daysRemaining} days left`
+                    : dailyAllowanceStats.isEnded
+                    ? 'Ended'
+                    : dailyAllowanceStats.daysRemaining === 0
+                    ? 'Ends today'
+                    : dailyAllowanceStats.daysRemaining === 1
+                    ? '1 day left'
+                    : `${dailyAllowanceStats.daysRemaining} days left`}
                 </Text>
               </TouchableOpacity>
             </View>

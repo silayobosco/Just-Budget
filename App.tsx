@@ -33,7 +33,7 @@ const MainApp: React.FC = () => {
       <StatusBar style={settings.theme_mode === 'dark' ? 'light' : 'dark'} />
 
       {/* Header */}
-      <Header currentTab={currentTab} />
+      <Header currentTab={currentTab} onNavigateTab={setCurrentTab} />
 
       {/* Main Tab Screen Content */}
       <View style={[styles.content, { backgroundColor: theme.background }]}>
