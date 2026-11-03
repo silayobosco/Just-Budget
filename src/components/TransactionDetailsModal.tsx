@@ -13,6 +13,7 @@ import {
   Platform,
   StatusBar,
   useWindowDimensions,
+  Dimensions,
   Keyboard,
   LayoutAnimation,
   UIManager,
@@ -95,6 +96,8 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   onAddSubcategory,
 }) => {
   const insets = useSafeAreaInsets();
+  const insetsRef = useRef(insets);
+  insetsRef.current = insets;
   const { height: windowHeight } = useWindowDimensions();
   const bottomScrollPadding = Math.max(360, Math.round(windowHeight * 0.52)) + (insets.bottom || 0);
   const [currentType, setCurrentType] = useState<TransactionType>(defaultTxType);
@@ -111,13 +114,28 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
 
   useEffect(() => {
     const handleKeyboardShow = (e: any) => {
-      const h = Math.max(0, e?.endCoordinates?.height || 0);
+      const coordHeight = e?.endCoordinates?.height || 0;
+      const screenY = e?.endCoordinates?.screenY;
+      const screenHeight = Dimensions.get('screen').height;
+      const heightFromScreenBottom =
+        screenY != null && screenHeight > screenY ? screenHeight - screenY : 0;
+
+      // Base keyboard height: larger of coordinate height or screen bottom distance
+      const baseHeight = Math.max(coordHeight, heightFromScreenBottom);
+
+      // On Android translucent fullScreen modal, add the bottom navigation inset (or at least 36px)
+      // so the docked footer clears the soft keyboard completely without being half-blocked
+      const androidExtra =
+        Platform.OS === 'android' ? Math.max(insetsRef.current.bottom || 0, 36) : 0;
+
+      const effectiveHeight = baseHeight > 0 ? baseHeight + androidExtra : 0;
+
       try {
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       } catch (err) {
         // ignore
       }
-      setKeyboardHeight(h);
+      setKeyboardHeight(effectiveHeight);
     };
 
     const handleKeyboardHide = () => {
