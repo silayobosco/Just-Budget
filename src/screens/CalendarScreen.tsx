@@ -10,6 +10,8 @@ import {
   PanResponder,
   NativeSyntheticEvent,
   NativeScrollEvent,
+  Animated,
+  Pressable,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
@@ -19,7 +21,7 @@ import { DateRangePickerModal } from '../components/DateRangePickerModal';
 import { CycleModeSwitcherModal } from '../components/CycleModeSwitcherModal';
 import { TransactionDetailModal } from '../components/TransactionDetailModal';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
-import { Transaction, BudgetCycle } from '../types';
+import { Transaction, BudgetCycle, TransactionType } from '../types';
 
 interface CalendarScreenProps {
   onNavigateTab?: (tab: any) => void;
@@ -53,6 +55,8 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     overallBudgetLimit,
     updateTransaction,
     deleteTransaction,
+    addTransaction,
+    incomeInCycle,
     addSubcategory,
   } = useBudget();
 
@@ -63,6 +67,76 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
   // Selected date on calendar (bound to global calendar date)
   const selectedDate = selectedCalendarDate;
   const setSelectedDate = setSelectedCalendarDate;
+
+  // Floating Action Button (FAB) Speed-Dial & Add Transaction Modal states
+  const [isFabOpen, setIsFabOpen] = useState(false);
+  const [addModalVisible, setAddModalVisible] = useState(false);
+  const [addModalType, setAddModalType] = useState<TransactionType>('expense');
+  const fabAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.spring(fabAnim, {
+      toValue: isFabOpen ? 1 : 0,
+      useNativeDriver: true,
+      tension: 65,
+      friction: 10,
+    }).start();
+  }, [isFabOpen]);
+
+  const fabRotate = fabAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '45deg'],
+  });
+
+  const speedDialTranslateY = fabAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [20, 0],
+  });
+
+  const speedDialScale = fabAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.85, 1],
+  });
+
+  const speedDialOpacity = fabAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 1],
+  });
+
+  const handleOpenAddFlow = (type: TransactionType) => {
+    setIsFabOpen(false);
+    setAddModalType(type);
+    setAddModalVisible(true);
+  };
+
+  const handleSaveNewTransaction = async (txData: {
+    amount: number;
+    wallet_id: string;
+    category_id?: string;
+    subcategory_id?: string;
+    type: TransactionType;
+    currency: string;
+    date: string;
+    time?: string;
+    is_paid: boolean;
+    note?: string;
+    media_uri?: string;
+  }) => {
+    await addTransaction({
+      wallet_id: txData.wallet_id || wallets[0]?.id || '',
+      category_id: txData.category_id,
+      subcategory_id: txData.subcategory_id,
+      type: txData.type,
+      amount: txData.amount,
+      currency: txData.currency,
+      date: txData.date,
+      time: txData.time,
+      is_paid: txData.is_paid,
+      note: txData.note,
+      media_uri: txData.media_uri,
+    });
+    setAddModalVisible(false);
+  };
 
   // Transaction Detail & Edit Modal states
   const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
@@ -1678,6 +1752,153 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
           onAddSubcategory={addSubcategory}
         />
       )}
+
+      {/* FAB OVERLAY BACKDROP */}
+      {isFabOpen && (
+        <Pressable
+          style={styles.fabBackdrop}
+          onPress={() => setIsFabOpen(false)}
+        />
+      )}
+
+      {/* FLOATING SPEED DIAL ACTION BUTTONS (FLOATING VERTICAL, EXPENSE ON TOP) */}
+      <Animated.View
+        pointerEvents={isFabOpen ? 'auto' : 'none'}
+        style={[
+          styles.fabSpeedDialContainer,
+          {
+            opacity: speedDialOpacity,
+            transform: [{ translateY: speedDialTranslateY }, { scale: speedDialScale }],
+          },
+        ]}
+      >
+        {/* Record Expense Button (Top) */}
+        <TouchableOpacity
+          style={[
+            styles.fabRecordBtn,
+            {
+              backgroundColor: theme.errorContainer,
+              borderColor: theme.error,
+            },
+            M3Elevation.level3,
+          ]}
+          onPress={() => handleOpenAddFlow('expense')}
+          activeOpacity={0.85}
+          accessibilityLabel="Record Expense"
+        >
+          <View style={styles.fabRecordBtnContent}>
+            <View style={styles.fabRecordHeaderRow}>
+              <MaterialCommunityIcons name="minus-circle" size={16} color={theme.error} />
+              <Text
+                style={[styles.fabRecordBtnTitle, { color: theme.onErrorContainer }]}
+                numberOfLines={1}
+              >
+                Record Expense
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.fabRecordBadge,
+                {
+                  backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.85)',
+                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.fabRecordBadgeText,
+                  { color: isDarkMode ? '#FCA5A5' : '#B91C1C' },
+                ]}
+                numberOfLines={1}
+              >
+                Total: {formatCurrency(effectiveSpent, curr)}
+              </Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+
+        {/* Record Income Button (Bottom - Below Expense, Above FAB) */}
+        <TouchableOpacity
+          style={[
+            styles.fabRecordBtn,
+            {
+              backgroundColor: theme.successContainer,
+              borderColor: theme.success,
+            },
+            M3Elevation.level3,
+          ]}
+          onPress={() => handleOpenAddFlow('income')}
+          activeOpacity={0.85}
+          accessibilityLabel="Record Income"
+        >
+          <View style={styles.fabRecordBtnContent}>
+            <View style={styles.fabRecordHeaderRow}>
+              <MaterialCommunityIcons name="plus-circle" size={16} color={theme.success} />
+              <Text
+                style={[styles.fabRecordBtnTitle, { color: theme.onSuccessContainer }]}
+                numberOfLines={1}
+              >
+                Record Income
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.fabRecordBadge,
+                {
+                  backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.85)',
+                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.fabRecordBadgeText,
+                  { color: isDarkMode ? '#6EE7B7' : '#047857' },
+                ]}
+                numberOfLines={1}
+              >
+                Total: {formatCurrency(effectiveIncome, curr)}
+              </Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Animated.View>
+
+      {/* FLOATING ACTION BUTTON (BOTTOM LEFT) */}
+      <TouchableOpacity
+        style={[
+          styles.fabMainBtn,
+          {
+            backgroundColor: theme.primary,
+          },
+          M3Elevation.level3,
+        ]}
+        onPress={() => setIsFabOpen(!isFabOpen)}
+        activeOpacity={0.85}
+        accessibilityLabel={isFabOpen ? 'Close record menu' : 'Add transaction'}
+      >
+        <Animated.View style={{ transform: [{ rotate: fabRotate }] }}>
+          <MaterialCommunityIcons name="plus" size={28} color={theme.onPrimary} />
+        </Animated.View>
+      </TouchableOpacity>
+
+      {/* ADD TRANSACTION MODAL */}
+      <TransactionDetailsModal
+        visible={addModalVisible}
+        txType={addModalType}
+        initialAmount={0}
+        initialWalletId={wallets[0]?.id || ''}
+        initialDate={selectedDate || todayStr}
+        isEditing={false}
+        wallets={wallets}
+        categories={categories}
+        theme={theme}
+        baseCurrency={settings.base_currency}
+        onClose={() => setAddModalVisible(false)}
+        onSave={handleSaveNewTransaction}
+        onAddSubcategory={addSubcategory}
+      />
     </View>
   );
 };
@@ -1891,7 +2112,7 @@ const styles = StyleSheet.create({
   transactionsScrollContent: {
     paddingHorizontal: 16,
     paddingTop: 12,
-    paddingBottom: 40,
+    paddingBottom: 85,
   },
   cycleGroupSection: {
     marginBottom: 20,
@@ -2234,5 +2455,67 @@ const styles = StyleSheet.create({
     fontSize: 11,
     flex: 1,
     lineHeight: 15,
+  },
+  fabBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
+    zIndex: 90,
+  },
+  fabSpeedDialContainer: {
+    position: 'absolute',
+    left: 18,
+    bottom: 84,
+    zIndex: 95,
+    gap: 10,
+    alignItems: 'flex-start',
+  },
+  fabRecordBtn: {
+    borderRadius: M3Shape.large,
+    borderWidth: 1.5,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    minWidth: 165,
+    justifyContent: 'center',
+  },
+  fabRecordBtnContent: {
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    gap: 3,
+  },
+  fabRecordHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  fabRecordBtnTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  fabRecordBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 1.5,
+    borderRadius: M3Shape.full,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginTop: 1,
+  },
+  fabRecordBadgeText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+  },
+  fabMainBtn: {
+    position: 'absolute',
+    left: 18,
+    bottom: 18,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 100,
   },
 });
