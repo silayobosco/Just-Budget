@@ -13,6 +13,9 @@ import {
   Platform,
   StatusBar,
   useWindowDimensions,
+  Keyboard,
+  LayoutAnimation,
+  UIManager,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -98,6 +101,62 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   const [amountStr, setAmountStr] = useState<string>('');
   const amountInputRef = useRef<any>(null);
   const [categorySheetVisible, setCategorySheetVisible] = useState<boolean>(false);
+  const [keyboardHeight, setKeyboardHeight] = useState<number>(0);
+
+  useEffect(() => {
+    if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+      UIManager.setLayoutAnimationEnabledExperimental(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleKeyboardShow = (e: any) => {
+      const h = Math.max(0, e?.endCoordinates?.height || 0);
+      try {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      } catch (err) {
+        // ignore
+      }
+      setKeyboardHeight(h);
+    };
+
+    const handleKeyboardHide = () => {
+      try {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      } catch (err) {
+        // ignore
+      }
+      setKeyboardHeight(0);
+    };
+
+    const subs = [
+      Keyboard.addListener('keyboardDidShow', handleKeyboardShow),
+      Keyboard.addListener('keyboardDidHide', handleKeyboardHide),
+    ];
+    if (Platform.OS === 'ios') {
+      subs.push(
+        Keyboard.addListener('keyboardWillShow', handleKeyboardShow),
+        Keyboard.addListener('keyboardWillHide', handleKeyboardHide)
+      );
+    } else {
+      try {
+        subs.push(Keyboard.addListener('keyboardWillShow', handleKeyboardShow));
+        subs.push(Keyboard.addListener('keyboardWillHide', handleKeyboardHide));
+      } catch (err) {
+        // ignore
+      }
+    }
+
+    return () => {
+      subs.forEach((s) => s.remove());
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!visible) {
+      setKeyboardHeight(0);
+    }
+  }, [visible]);
 
   // Focus helper: blur then focus forces React Native & native IMM to pop up the soft keyboard
   const focusAmountInput = () => {
@@ -329,6 +388,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
           {
             backgroundColor: theme.background,
             paddingTop: Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 0),
+            paddingBottom: keyboardHeight,
           },
         ]}
       >
@@ -915,7 +975,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
             {
               backgroundColor: theme.surface,
               borderTopColor: theme.divider,
-              paddingBottom: Math.max(insets.bottom, 16),
+              paddingBottom: keyboardHeight > 0 ? 10 : Math.max(insets.bottom, 16),
             },
             M3Elevation.level2,
           ]}
