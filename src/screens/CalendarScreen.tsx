@@ -197,7 +197,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     } else {
       // CUSTOM PERIODS: ONLY show custom-created periods (exclude regular cycle records)
       const customOnly = (allCycles || []).filter((c) => !c.id.startsWith('cycle-reg-'));
-      return customOnly.sort((a, b) => b.start_date.localeCompare(a.start_date));
+      return customOnly.sort((a, b) => a.start_date.localeCompare(b.start_date));
     }
   }, [
     isRegularMode,
@@ -337,6 +337,25 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     }
   }, [cycleList, activeCycleRange.startDate]);
 
+  // References for continuous transactions scrolling
+  const transactionsScrollRef = useRef<any>(null);
+  const dayLayoutsRef = useRef<Record<string, number>>({});
+  const isProgrammaticScrollRef = useRef<boolean>(false);
+
+  // Scroll transactions list to a specific date card smoothly
+  const scrollToDate = (dateStr: string, animated: boolean = true) => {
+    setTimeout(() => {
+      const targetY = dayLayoutsRef.current[dateStr];
+      if (targetY !== undefined && transactionsScrollRef.current) {
+        isProgrammaticScrollRef.current = true;
+        transactionsScrollRef.current.scrollTo({ y: Math.max(0, targetY - 8), animated });
+        setTimeout(() => {
+          isProgrammaticScrollRef.current = false;
+        }, 450);
+      }
+    }, 100);
+  };
+
   // Handle cycle chip selection: if cycle doesn't contain current date, highlight as selected cycle (NOT current)
   const handlePressCycleChip = async (c: BudgetCycle, isCurrent: boolean, isSelected: boolean) => {
     if (isSelected) {
@@ -345,16 +364,17 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     }
 
     const isContToday = todayStr >= c.start_date && todayStr <= c.end_date;
+    const targetDate = isContToday ? todayStr : c.start_date;
 
     if (isContToday) {
       // Contains today's date -> It is the current cycle
       setSelectedCalendarCycle(null);
-      setSelectedDate(todayStr);
     } else {
       // Does NOT contain today's date -> Do not make it current cycle in DB, just highlight as selected
       setSelectedCalendarCycle(c);
-      setSelectedDate(c.start_date);
     }
+    setSelectedDate(targetDate);
+    scrollToDate(targetDate);
   };
 
   // Collapsible Calendar View state: Collapsed to 1-week row by default for maximum transaction list space
@@ -367,13 +387,14 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     if (activeIdx > 0) {
       const prev = cycleList[activeIdx - 1];
       const isContToday = todayStr >= prev.start_date && todayStr <= prev.end_date;
+      const targetDate = isContToday ? todayStr : prev.start_date;
       if (isContToday) {
         setSelectedCalendarCycle(null);
-        setSelectedDate(todayStr);
       } else {
         setSelectedCalendarCycle(prev);
-        setSelectedDate(prev.start_date);
       }
+      setSelectedDate(targetDate);
+      scrollToDate(targetDate);
     }
   };
 
@@ -384,13 +405,14 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     if (activeIdx >= 0 && activeIdx < cycleList.length - 1) {
       const next = cycleList[activeIdx + 1];
       const isContToday = todayStr >= next.start_date && todayStr <= next.end_date;
+      const targetDate = isContToday ? todayStr : next.start_date;
       if (isContToday) {
         setSelectedCalendarCycle(null);
-        setSelectedDate(todayStr);
       } else {
         setSelectedCalendarCycle(next);
-        setSelectedDate(next.start_date);
       }
+      setSelectedDate(targetDate);
+      scrollToDate(targetDate);
     }
   };
 
@@ -409,21 +431,24 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
           }
         },
       }),
-    [cycleList, currentCycle, activeCycleRange]
+    [cycleList, currentCycle, activeCycleRange, effectiveCycle, todayStr]
   );
 
-  // Keep selectedDate within cycle if cycle changes
+  // Synchronize selectedDate when activeCycleRange is changed externally (e.g. tapping cycle chip or swiping calendar)
+  const prevActiveCycleStartRef = useRef<string>(activeCycleRange.startDate);
   useEffect(() => {
-    if (activeCycleRange.startDate && activeCycleRange.endDate) {
-      const todayStr = new Date().toISOString().slice(0, 10);
-      const isTodayInCycle = todayStr >= activeCycleRange.startDate && todayStr <= activeCycleRange.endDate;
-      const isSelectedInCycle = selectedDate >= activeCycleRange.startDate && selectedDate <= activeCycleRange.endDate;
-
-      if (!isSelectedInCycle) {
-        setSelectedDate(isTodayInCycle ? todayStr : activeCycleRange.startDate);
+    if (prevActiveCycleStartRef.current !== activeCycleRange.startDate) {
+      prevActiveCycleStartRef.current = activeCycleRange.startDate;
+      if (activeCycleRange.startDate && activeCycleRange.endDate) {
+        const isSelectedInCycle = selectedDate >= activeCycleRange.startDate && selectedDate <= activeCycleRange.endDate;
+        if (!isSelectedInCycle) {
+          const isTodayInCycle = todayStr >= activeCycleRange.startDate && todayStr <= activeCycleRange.endDate;
+          const targetDate = isTodayInCycle ? todayStr : activeCycleRange.startDate;
+          setSelectedDate(targetDate);
+        }
       }
     }
-  }, [activeCycleRange, selectedDate, setSelectedDate]);
+  }, [activeCycleRange.startDate, activeCycleRange.endDate, selectedDate, todayStr, setSelectedDate]);
 
   // Generate ALL days in the whole active cycle (with weekday alignment)
   const cycleCalendarDays = useMemo(() => {
@@ -561,22 +586,11 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
   }, [transactions]);
 
   // Group continuous feed by cycles (with title before each cycle list)
+  // Stable cycle mapping over cycleList ensures no jumping or layout displacement while scrolling
   const feedCycleGroups = useMemo(() => {
     if (cycleList.length === 0) return [];
 
-    const activeIdx = cycleList.findIndex(
-      (c) => c.start_date === activeCycleRange.startDate
-    );
-
-    const targetCycles: BudgetCycle[] = [];
-    const startIdx = Math.max(0, activeIdx - 1);
-    const endIdx = Math.min(cycleList.length - 1, activeIdx + 1);
-
-    for (let i = startIdx; i <= endIdx; i++) {
-      targetCycles.push(cycleList[i]);
-    }
-
-    return targetCycles.map((c) => {
+    return cycleList.map((c) => {
       const [sy, sm, sd] = c.start_date.split('-').map(Number);
       const [ey, em, ed] = c.end_date.split('-').map(Number);
       const cur = new Date(sy, sm - 1, sd, 12, 0, 0);
@@ -617,7 +631,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
         days,
       };
     });
-  }, [cycleList, activeCycleRange.startDate, transactions, todayStr, effectiveCycle]);
+  }, [cycleList, transactions, todayStr, effectiveCycle?.start_date]);
 
   // Flattened feed days for continuous scrolling layout
   const feedDays = useMemo(() => {
@@ -637,42 +651,37 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     onNavigateTab?.('analytics');
   };
 
-  // References for continuous transactions scrolling
-  const transactionsScrollRef = useRef<any>(null);
-  const dayLayoutsRef = useRef<Record<string, number>>({});
-  const isProgrammaticScrollRef = useRef<boolean>(false);
+  // Keep refs synchronized for fast scroll event handling without stale closures
+  const activeCycleRangeRef = useRef(activeCycleRange);
+  activeCycleRangeRef.current = activeCycleRange;
+
+  const effectiveCycleRef = useRef<BudgetCycle | null>(effectiveCycle);
+  effectiveCycleRef.current = effectiveCycle;
+
+  const cycleListRef = useRef(cycleList);
+  cycleListRef.current = cycleList;
+
+  const feedDaysRef = useRef(feedDays);
+  feedDaysRef.current = feedDays;
+
+  const selectedDateRef = useRef(selectedDate);
+  selectedDateRef.current = selectedDate;
+
+  const todayStrRef = useRef(todayStr);
+  todayStrRef.current = todayStr;
 
   // Return to today and current cycle
   const handleGoToToday = () => {
     const nowToday = new Date().toISOString().slice(0, 10);
-    // 1. Reset any selected past/future cycle so we return to current cycle
     setSelectedCalendarCycle(null);
-    // 2. Set selected date to today
     setSelectedDate(nowToday);
-    // 3. Scroll transactions list to today
-    setTimeout(() => {
-      const targetY = dayLayoutsRef.current[nowToday];
-      if (targetY !== undefined && transactionsScrollRef.current) {
-        isProgrammaticScrollRef.current = true;
-        transactionsScrollRef.current.scrollTo({ y: Math.max(0, targetY - 8), animated: true });
-        setTimeout(() => {
-          isProgrammaticScrollRef.current = false;
-        }, 450);
-      }
-    }, 150);
+    scrollToDate(nowToday);
   };
 
   // Tapping a date on the calendar scrolls transactions to that date
   const handleSelectDateFromCalendar = (dateStr: string) => {
     setSelectedDate(dateStr);
-    const targetY = dayLayoutsRef.current[dateStr];
-    if (targetY !== undefined && transactionsScrollRef.current) {
-      isProgrammaticScrollRef.current = true;
-      transactionsScrollRef.current.scrollTo({ y: Math.max(0, targetY - 8), animated: true });
-      setTimeout(() => {
-        isProgrammaticScrollRef.current = false;
-      }, 450);
-    }
+    scrollToDate(dateStr);
   };
 
   // Scrolling transactions updates the selected date smoothly without causing re-render jumps
@@ -680,11 +689,11 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     if (isProgrammaticScrollRef.current) return;
 
     const scrollY = e.nativeEvent.contentOffset.y;
-    let closestDate = selectedDate;
+    let closestDate = selectedDateRef.current;
     let minDiff = Infinity;
 
     // Only inspect layout positions for dates currently loaded in feedDays
-    for (const dStr of feedDays) {
+    for (const dStr of feedDaysRef.current) {
       const yPos = dayLayoutsRef.current[dStr];
       if (yPos === undefined) continue;
       const diff = Math.abs(yPos - (scrollY + 12));
@@ -694,26 +703,50 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
       }
     }
 
-    if (closestDate && closestDate !== selectedDate) {
+    if (closestDate && closestDate !== selectedDateRef.current) {
+      selectedDateRef.current = closestDate;
       setSelectedDate(closestDate);
+
+      // Smoothly update effective cycle when scrolling across cycle boundaries
+      const currentRange = activeCycleRangeRef.current;
+      if (currentRange.startDate && currentRange.endDate) {
+        if (closestDate < currentRange.startDate || closestDate > currentRange.endDate) {
+          const targetCycle = cycleListRef.current.find(
+            (c) => closestDate >= c.start_date && closestDate <= c.end_date
+          );
+          if (targetCycle && targetCycle.start_date !== effectiveCycleRef.current?.start_date) {
+            const isContToday = todayStrRef.current >= targetCycle.start_date && todayStrRef.current <= targetCycle.end_date;
+            effectiveCycleRef.current = isContToday ? null : targetCycle;
+            setSelectedCalendarCycle(isContToday ? null : targetCycle);
+          }
+        }
+      }
     }
   };
 
   // Initial scroll to selected date or today
   const hasInitiallyScrolledRef = useRef(false);
   useEffect(() => {
-    if (!hasInitiallyScrolledRef.current && feedDays.length > 0) {
-      const targetDate = selectedDate || new Date().toISOString().slice(0, 10);
-      const timer = setTimeout(() => {
-        const targetY = dayLayoutsRef.current[targetDate];
-        if (targetY !== undefined && transactionsScrollRef.current) {
-          transactionsScrollRef.current.scrollTo({ y: Math.max(0, targetY - 8), animated: false });
-          hasInitiallyScrolledRef.current = true;
-        }
-      }, 350);
-      return () => clearTimeout(timer);
-    }
-  }, [feedDays, selectedDate]);
+    if (hasInitiallyScrolledRef.current) return;
+    const targetDate = selectedDate || new Date().toISOString().slice(0, 10);
+    let attempts = 0;
+    const checkAndScroll = () => {
+      attempts++;
+      const targetY = dayLayoutsRef.current[targetDate];
+      if (targetY !== undefined && transactionsScrollRef.current) {
+        isProgrammaticScrollRef.current = true;
+        transactionsScrollRef.current.scrollTo({ y: Math.max(0, targetY - 8), animated: false });
+        hasInitiallyScrolledRef.current = true;
+        setTimeout(() => {
+          isProgrammaticScrollRef.current = false;
+        }, 300);
+      } else if (attempts < 15) {
+        setTimeout(checkAndScroll, 80);
+      }
+    };
+    const timer = setTimeout(checkAndScroll, 150);
+    return () => clearTimeout(timer);
+  }, []);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
