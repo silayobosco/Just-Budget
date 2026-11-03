@@ -99,10 +99,14 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   // Automatically focus amount input and open numeric keyboard when modal opens
   useEffect(() => {
     if (visible) {
-      const timer = setTimeout(() => {
-        amountInputRef.current?.focus();
-      }, 250);
-      return () => clearTimeout(timer);
+      const t1 = setTimeout(() => amountInputRef.current?.focus(), 120);
+      const t2 = setTimeout(() => amountInputRef.current?.focus(), 300);
+      const t3 = setTimeout(() => amountInputRef.current?.focus(), 500);
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+        clearTimeout(t3);
+      };
     }
   }, [visible]);
   const [selectedWalletId, setSelectedWalletId] = useState<string>(initialWalletId);
@@ -300,11 +304,12 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       visible={visible}
       animationType="slide"
       onRequestClose={onClose}
-      statusBarTranslucent={false}
+      presentationStyle="fullScreen"
+      statusBarTranslucent={true}
       onShow={() => {
-        setTimeout(() => {
-          amountInputRef.current?.focus();
-        }, 60);
+        amountInputRef.current?.focus();
+        setTimeout(() => amountInputRef.current?.focus(), 150);
+        setTimeout(() => amountInputRef.current?.focus(), 350);
       }}
     >
       <View
@@ -312,7 +317,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
           styles.container,
           {
             backgroundColor: theme.background,
-            paddingTop: Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 20) : 20),
+            paddingTop: Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 0),
           },
         ]}
       >
