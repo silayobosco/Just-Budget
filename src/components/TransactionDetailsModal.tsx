@@ -12,6 +12,7 @@ import {
   Switch,
   Platform,
   StatusBar,
+  useWindowDimensions,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -91,6 +92,8 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   onAddSubcategory,
 }) => {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  const bottomScrollPadding = Math.max(360, Math.round(windowHeight * 0.52)) + (insets.bottom || 0);
   const [currentType, setCurrentType] = useState<TransactionType>(defaultTxType);
   const [amountStr, setAmountStr] = useState<string>('');
   const amountInputRef = useRef<any>(null);
@@ -346,7 +349,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
 
         <ScrollView
           style={styles.scrollArea}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: bottomScrollPadding }]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
