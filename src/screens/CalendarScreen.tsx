@@ -369,7 +369,7 @@ export const CalendarScreen: React.FC = () => {
     }
   };
 
-  // Calendar horizontal swipe gesture listener (moving calendar left for previous, right for next)
+  // Calendar horizontal swipe gesture listener (swiping left for next cycle, right for previous cycle)
   const panResponder = useMemo(
     () =>
       PanResponder.create({
@@ -378,9 +378,9 @@ export const CalendarScreen: React.FC = () => {
         },
         onPanResponderRelease: (_, gestureState) => {
           if (gestureState.dx < -40) {
-            goToPreviousCycle();
-          } else if (gestureState.dx > 40) {
             goToNextCycle();
+          } else if (gestureState.dx > 40) {
+            goToPreviousCycle();
           }
         },
       }),
