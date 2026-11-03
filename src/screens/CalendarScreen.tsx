@@ -473,51 +473,76 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
   }, [transactions]);
 
   // Group continuous feed by cycles (with title before each cycle list)
-  // Stable cycle mapping over cycleList ensures no jumping or layout displacement while scrolling
+  // Only shows cycles that have transactions registered (or current cycle if no transactions exist yet)
   const feedCycleGroups = useMemo(() => {
     if (cycleList.length === 0) return [];
 
-    return cycleList.map((c) => {
-      const [sy, sm, sd] = c.start_date.split('-').map(Number);
-      const [ey, em, ed] = c.end_date.split('-').map(Number);
-      const cur = new Date(sy, sm - 1, sd, 12, 0, 0);
-      const endD = new Date(ey, em - 1, ed, 12, 0, 0);
+    return cycleList
+      .map((c) => {
+        const cycleTxs = transactions.filter(
+          (t) => t.date >= c.start_date && t.date <= c.end_date
+        );
 
-      const days: string[] = [];
-      while (cur <= endD) {
-        const y = cur.getFullYear();
-        const m = String(cur.getMonth() + 1).padStart(2, '0');
-        const d = String(cur.getDate()).padStart(2, '0');
-        days.push(`${y}-${m}-${d}`);
-        cur.setDate(cur.getDate() + 1);
-      }
+        const isCurrent = todayStr >= c.start_date && todayStr <= c.end_date;
+        const hasTransactions = cycleTxs.length > 0;
 
-      days.sort();
+        // ONLY show if there was transaction registered (or if there are no transactions at all in the app, show current cycle)
+        if (!hasTransactions && !(isCurrent && transactions.length === 0)) {
+          return null;
+        }
 
-      const cycleSpent = transactions
-        .filter((t) => t.type === 'expense' && t.date >= c.start_date && t.date <= c.end_date)
-        .reduce((sum, t) => sum + (t.base_amount || t.amount || 0), 0);
+        const [sy, sm, sd] = c.start_date.split('-').map(Number);
+        const [ey, em, ed] = c.end_date.split('-').map(Number);
+        const cur = new Date(sy, sm - 1, sd, 12, 0, 0);
+        const endD = new Date(ey, em - 1, ed, 12, 0, 0);
 
-      const cycleIncome = transactions
-        .filter((t) => t.type === 'income' && t.date >= c.start_date && t.date <= c.end_date)
-        .reduce((sum, t) => sum + (t.base_amount || t.amount || 0), 0);
+        const days: string[] = [];
+        while (cur <= endD) {
+          const y = cur.getFullYear();
+          const m = String(cur.getMonth() + 1).padStart(2, '0');
+          const d = String(cur.getDate()).padStart(2, '0');
+          days.push(`${y}-${m}-${d}`);
+          cur.setDate(cur.getDate() + 1);
+        }
 
-      const isCurrent = todayStr >= c.start_date && todayStr <= c.end_date;
-      const isSelected = effectiveCycle ? c.start_date === effectiveCycle.start_date : isCurrent;
-      const displayName = c.name || formatCycleDateRange(c.start_date, c.end_date);
+        days.sort();
 
-      return {
-        cycle: c,
-        displayName,
-        startDate: c.start_date,
-        endDate: c.end_date,
-        isCurrent,
-        isSelected,
-        cycleSpent,
-        cycleIncome,
-        days,
-      };
-    });
+        const cycleSpent = cycleTxs
+          .filter((t) => t.type === 'expense')
+          .reduce((sum, t) => sum + (t.base_amount || t.amount || 0), 0);
+
+        const cycleIncome = cycleTxs
+          .filter((t) => t.type === 'income')
+          .reduce((sum, t) => sum + (t.base_amount || t.amount || 0), 0);
+
+        const isSelected = effectiveCycle ? c.start_date === effectiveCycle.start_date : isCurrent;
+        const displayName = c.name || formatCycleDateRange(c.start_date, c.end_date);
+
+        return {
+          cycle: c,
+          displayName,
+          startDate: c.start_date,
+          endDate: c.end_date,
+          isCurrent,
+          isSelected,
+          cycleSpent,
+          cycleIncome,
+          hasTransactions,
+          days,
+        };
+      })
+      .filter(Boolean) as {
+        cycle: BudgetCycle;
+        displayName: string;
+        startDate: string;
+        endDate: string;
+        isCurrent: boolean;
+        isSelected: boolean;
+        cycleSpent: number;
+        cycleIncome: number;
+        hasTransactions: boolean;
+        days: string[];
+      }[];
   }, [cycleList, transactions, todayStr, effectiveCycle?.start_date]);
 
   // Flattened feed days for continuous scrolling layout
@@ -923,7 +948,103 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
         scrollEventThrottle={16}
       >
         {feedCycleGroups.map((group) => (
-          <React.Fragment key={group.cycle.id || group.startDate}>
+          <View key={group.cycle.id || group.startDate} style={styles.cycleGroupSection}>
+            {/* Cycle Title Card Header (Tapping opens the Analysis page for this cycle) */}
+            <TouchableOpacity
+              style={[
+                styles.cycleGroupHeaderCard,
+                {
+                  backgroundColor: group.isSelected
+                    ? (isDarkMode ? 'rgba(99, 102, 241, 0.22)' : '#EEF2FF')
+                    : (isDarkMode ? 'rgba(255, 255, 255, 0.05)' : theme.cardBg),
+                  borderColor: group.isSelected
+                    ? (isDarkMode ? '#818CF8' : theme.primary)
+                    : theme.divider,
+                },
+                M3Elevation.level1,
+              ]}
+              onPress={() => handleOpenCycleAnalytics(group.cycle)}
+              activeOpacity={0.75}
+              accessibilityLabel={`Open Analysis for cycle ${group.displayName}`}
+            >
+              <View style={styles.cycleGroupHeaderLeft}>
+                <View
+                  style={[
+                    styles.cycleGroupIconWrap,
+                    {
+                      backgroundColor: group.isSelected
+                        ? (isDarkMode ? '#818CF8' : theme.primary)
+                        : (isDarkMode ? 'rgba(99, 102, 241, 0.2)' : theme.pillBg),
+                    },
+                  ]}
+                >
+                  <MaterialCommunityIcons
+                    name="chart-pie"
+                    size={18}
+                    color={group.isSelected ? (isDarkMode ? '#0F172A' : '#FFFFFF') : theme.primary}
+                  />
+                </View>
+                <View style={styles.cycleGroupTitleCol}>
+                  <View style={styles.cycleGroupTitleRow}>
+                    <Text
+                      style={[
+                        styles.cycleGroupTitleText,
+                        { color: theme.onSurface },
+                        group.isSelected && { fontWeight: '800' },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {group.displayName}
+                    </Text>
+                    {group.isCurrent && (
+                      <View
+                        style={[
+                          styles.cycleCurrentBadge,
+                          { backgroundColor: isDarkMode ? 'rgba(16, 185, 129, 0.25)' : '#D1FAE5' },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.cycleCurrentBadgeText,
+                            { color: isDarkMode ? '#6EE7B7' : '#047857' },
+                          ]}
+                        >
+                          Current
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={[styles.cycleGroupMetaText, { color: theme.onSurfaceVariant }]}>
+                    Spent: {formatCurrency(group.cycleSpent, curr)}
+                    {group.cycleIncome > 0 && ` • Income: ${formatCurrency(group.cycleIncome, curr)}`}
+                  </Text>
+                </View>
+              </View>
+
+              <View
+                style={[
+                  styles.openAnalyticsActionPill,
+                  {
+                    backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.25)' : theme.primaryContainer,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.openAnalyticsActionText,
+                    { color: isDarkMode ? '#C7D2FE' : theme.onPrimaryContainer },
+                  ]}
+                >
+                  Analysis
+                </Text>
+                <MaterialCommunityIcons
+                  name="chevron-right"
+                  size={15}
+                  color={isDarkMode ? '#C7D2FE' : theme.onPrimaryContainer}
+                />
+              </View>
+            </TouchableOpacity>
+
             {/* Days and Transactions in this Cycle */}
             {group.days.map((dateStr) => {
               const dayTxs = transactionsByDate[dateStr] || [];
@@ -1066,7 +1187,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                 </View>
               );
             })}
-          </React.Fragment>
+          </View>
         ))}
       </ScrollView>
 
