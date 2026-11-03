@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,17 +6,25 @@ import {
   ScrollView,
   TouchableOpacity,
   Dimensions,
+  Animated,
+  Pressable,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
 import { formatCurrency } from '../utils/format';
+import { TransactionType } from '../types';
+import { CategoryPickerSheet } from '../components/CategoryPickerSheet';
+import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
 
 export const AnalyticsScreen: React.FC = () => {
   const {
     settings,
     transactions,
     categories,
+    wallets,
+    addTransaction,
+    addSubcategory,
     currentCycle,
     selectedAnalyticsCycle,
     setSelectedAnalyticsCycle,
@@ -33,6 +41,129 @@ export const AnalyticsScreen: React.FC = () => {
   const isDarkMode = settings.theme_mode === 'dark';
   const theme = isDarkMode ? darkTheme : lightTheme;
   const [scope, setScope] = useState<'cycle' | 'all'>('cycle');
+  const curr = settings.base_currency;
+  const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
+
+  // Floating Action Button (FAB) Speed-Dial & Add Transaction Modal states
+  const [isFabOpen, setIsFabOpen] = useState(false);
+  const [addCategorySheetVisible, setAddCategorySheetVisible] = useState(false);
+  const [addPrefilledCategoryId, setAddPrefilledCategoryId] = useState<string | undefined>(undefined);
+  const [addPrefilledSubcategoryId, setAddPrefilledSubcategoryId] = useState<string | undefined>(undefined);
+  const [addModalVisible, setAddModalVisible] = useState(false);
+  const [addModalType, setAddModalType] = useState<TransactionType>('expense');
+  const fabAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.spring(fabAnim, {
+      toValue: isFabOpen ? 1 : 0,
+      useNativeDriver: true,
+      tension: 65,
+      friction: 10,
+    }).start();
+  }, [isFabOpen]);
+
+  const fabRotate = fabAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '45deg'],
+  });
+
+  const speedDialTranslateY = fabAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [20, 0],
+  });
+
+  const speedDialScale = fabAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.85, 1],
+  });
+
+  const speedDialOpacity = fabAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 1],
+  });
+
+  const handleOpenAddFlow = (type: TransactionType) => {
+    setIsFabOpen(false);
+    setAddModalType(type);
+    setAddPrefilledCategoryId(undefined);
+    setAddPrefilledSubcategoryId(undefined);
+    setAddCategorySheetVisible(true);
+  };
+
+  const handleCategorySelectedForAdd = ({
+    categoryId,
+    subcategoryId,
+  }: {
+    categoryId?: string;
+    subcategoryId?: string;
+  }) => {
+    setAddPrefilledCategoryId(categoryId);
+    setAddPrefilledSubcategoryId(subcategoryId);
+    setAddCategorySheetVisible(false);
+    setAddModalVisible(true);
+  };
+
+  const handleSaveNewTransaction = async (txData: {
+    amount: number;
+    wallet_id: string;
+    category_id?: string;
+    subcategory_id?: string;
+    type: TransactionType;
+    currency: string;
+    date: string;
+    time?: string;
+    is_paid: boolean;
+    note?: string;
+    media_uri?: string;
+  }) => {
+    await addTransaction({
+      wallet_id: txData.wallet_id || wallets[0]?.id || '',
+      category_id: txData.category_id,
+      subcategory_id: txData.subcategory_id,
+      type: txData.type,
+      amount: txData.amount,
+      currency: txData.currency,
+      date: txData.date,
+      time: txData.time,
+      is_paid: txData.is_paid,
+      note: txData.note,
+      media_uri: txData.media_uri,
+    });
+    setAddModalVisible(false);
+  };
+
+  // Budget Cap Progress for Record Expense Badge
+  const expenseSwitcherProgress = useMemo(() => {
+    const hasTarget = overallBudgetLimit > 0;
+    const percent = hasTarget ? Math.round((spentInCycle / overallBudgetLimit) * 100) : 0;
+    const isOver = hasTarget && spentInCycle > overallBudgetLimit;
+    const remaining = Math.max(0, overallBudgetLimit - spentInCycle);
+    const overBy = Math.max(0, spentInCycle - overallBudgetLimit);
+
+    return {
+      hasTarget,
+      percent,
+      isOver,
+      remaining,
+      overBy,
+    };
+  }, [overallBudgetLimit, spentInCycle]);
+
+  // Income Goal Progress for Record Income Badge
+  const incomeSwitcherProgress = useMemo(() => {
+    const goal = currentCycle?.target_income && currentCycle.target_income > 0 ? currentCycle.target_income : 0;
+    const hasGoal = goal > 0;
+    const percent = hasGoal ? Math.round((incomeInCycle / goal) * 100) : 0;
+    const isReached = hasGoal && incomeInCycle >= goal;
+    const remaining = Math.max(0, goal - incomeInCycle);
+
+    return {
+      hasGoal,
+      percent,
+      isReached,
+      remaining,
+    };
+  }, [currentCycle, incomeInCycle]);
 
   // Effective cycle being analyzed
   const effectiveCycle = selectedAnalyticsCycle || currentCycle;
@@ -656,6 +787,181 @@ export const AnalyticsScreen: React.FC = () => {
           </View>
         )}
       </ScrollView>
+
+      {/* FAB OVERLAY BACKDROP */}
+      {isFabOpen && (
+        <Pressable
+          style={styles.fabBackdrop}
+          onPress={() => setIsFabOpen(false)}
+        />
+      )}
+
+      {/* FLOATING SPEED DIAL ACTION BUTTONS (FLOATING VERTICAL, EXPENSE ON TOP) */}
+      <Animated.View
+        pointerEvents={isFabOpen ? 'auto' : 'none'}
+        style={[
+          styles.fabSpeedDialContainer,
+          {
+            opacity: speedDialOpacity,
+            transform: [{ translateY: speedDialTranslateY }, { scale: speedDialScale }],
+          },
+        ]}
+      >
+        {/* Record Expense Button (Top) */}
+        <TouchableOpacity
+          style={[
+            styles.fabRecordBtn,
+            {
+              backgroundColor: theme.errorContainer,
+              borderColor: theme.error,
+            },
+            M3Elevation.level3,
+          ]}
+          onPress={() => handleOpenAddFlow('expense')}
+          activeOpacity={0.85}
+          accessibilityLabel="Record Expense"
+        >
+          <View style={styles.fabRecordBtnContent}>
+            <View style={styles.fabRecordHeaderRow}>
+              <MaterialCommunityIcons name="minus-circle" size={16} color={theme.error} />
+              <Text
+                style={[styles.fabRecordBtnTitle, { color: theme.onErrorContainer }]}
+                numberOfLines={1}
+              >
+                Record Expense
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.fabRecordBadge,
+                {
+                  backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.85)',
+                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.fabRecordBadgeText,
+                  { color: isDarkMode ? '#FCA5A5' : '#B91C1C' },
+                ]}
+                numberOfLines={1}
+              >
+                {expenseSwitcherProgress.hasTarget
+                  ? expenseSwitcherProgress.isOver
+                    ? `Over: ${formatCurrency(expenseSwitcherProgress.overBy, curr)}`
+                    : `Remain: ${formatCurrency(expenseSwitcherProgress.remaining, curr)}`
+                  : `Total: ${formatCurrency(spentInCycle, curr)}`}
+              </Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+
+        {/* Record Income Button (Bottom - Below Expense, Above FAB) */}
+        <TouchableOpacity
+          style={[
+            styles.fabRecordBtn,
+            {
+              backgroundColor: theme.successContainer,
+              borderColor: theme.success,
+            },
+            M3Elevation.level3,
+          ]}
+          onPress={() => handleOpenAddFlow('income')}
+          activeOpacity={0.85}
+          accessibilityLabel="Record Income"
+        >
+          <View style={styles.fabRecordBtnContent}>
+            <View style={styles.fabRecordHeaderRow}>
+              <MaterialCommunityIcons name="plus-circle" size={16} color={theme.success} />
+              <Text
+                style={[styles.fabRecordBtnTitle, { color: theme.onSuccessContainer }]}
+                numberOfLines={1}
+              >
+                Record Income
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.fabRecordBadge,
+                {
+                  backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.85)',
+                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.fabRecordBadgeText,
+                  { color: isDarkMode ? '#6EE7B7' : '#047857' },
+                ]}
+                numberOfLines={1}
+              >
+                {incomeSwitcherProgress.hasGoal
+                  ? incomeSwitcherProgress.isReached
+                    ? '🎉 Reached'
+                    : `Remain: ${formatCurrency(incomeSwitcherProgress.remaining, curr)}`
+                  : `Total: ${formatCurrency(incomeInCycle, curr)}`}
+              </Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Animated.View>
+
+      {/* FLOATING ACTION BUTTON (BOTTOM RIGHT) */}
+      <TouchableOpacity
+        style={[
+          styles.fabMainBtn,
+          {
+            backgroundColor: theme.primary,
+          },
+          M3Elevation.level3,
+        ]}
+        onPress={() => setIsFabOpen(!isFabOpen)}
+        activeOpacity={0.85}
+        accessibilityLabel={isFabOpen ? 'Close record menu' : 'Add transaction'}
+      >
+        <Animated.View style={{ transform: [{ rotate: fabRotate }] }}>
+          <MaterialCommunityIcons name="plus" size={28} color={theme.onPrimary} />
+        </Animated.View>
+      </TouchableOpacity>
+
+      {/* CATEGORY PICKER SHEET (STEP 1: OPENS FIRST ON RECORD) */}
+      <CategoryPickerSheet
+        visible={addCategorySheetVisible}
+        txType={addModalType}
+        amount={0}
+        walletId={wallets[0]?.id || ''}
+        wallets={wallets}
+        categories={categories}
+        theme={theme}
+        baseCurrency={settings.base_currency}
+        selectOnly={true}
+        confirmButtonText="Next"
+        onClose={() => setAddCategorySheetVisible(false)}
+        onSave={handleCategorySelectedForAdd}
+        onOpenMoreOptions={handleCategorySelectedForAdd}
+        onAddSubcategory={addSubcategory}
+      />
+
+      {/* ADD TRANSACTION MODAL (STEP 2: FOCUSED AMOUNT FIELD) */}
+      <TransactionDetailsModal
+        visible={addModalVisible}
+        txType={addModalType}
+        initialAmount={0}
+        initialWalletId={wallets[0]?.id || ''}
+        initialCategoryId={addPrefilledCategoryId}
+        initialSubcategoryId={addPrefilledSubcategoryId}
+        initialDate={todayStr}
+        isEditing={false}
+        wallets={wallets}
+        categories={categories}
+        theme={theme}
+        baseCurrency={settings.base_currency}
+        onClose={() => setAddModalVisible(false)}
+        onSave={handleSaveNewTransaction}
+        onAddSubcategory={addSubcategory}
+      />
     </View>
   );
 };
@@ -666,7 +972,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
-    paddingBottom: 40,
+    paddingBottom: 85,
   },
   focusTabBar: {
     flexDirection: 'row',
@@ -933,5 +1239,67 @@ const styles = StyleSheet.create({
   selectedCycleAlertClearBtn: {
     paddingHorizontal: 8,
     paddingVertical: 3,
+  },
+  fabBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
+    zIndex: 90,
+  },
+  fabSpeedDialContainer: {
+    position: 'absolute',
+    right: 18,
+    bottom: 84,
+    zIndex: 95,
+    gap: 10,
+    alignItems: 'flex-end',
+  },
+  fabRecordBtn: {
+    borderRadius: M3Shape.large,
+    borderWidth: 1.5,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    minWidth: 165,
+    justifyContent: 'center',
+  },
+  fabRecordBtnContent: {
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    gap: 3,
+  },
+  fabRecordHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  fabRecordBtnTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  fabRecordBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 1.5,
+    borderRadius: M3Shape.full,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginTop: 1,
+  },
+  fabRecordBadgeText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+  },
+  fabMainBtn: {
+    position: 'absolute',
+    right: 18,
+    bottom: 18,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 100,
   },
 });

@@ -20,9 +20,9 @@ export const BottomTabs: React.FC<BottomTabsProps> = ({ currentTab, onSelectTab 
 
   const tabs: { key: TabType; label: string; icon: keyof typeof MaterialCommunityIcons.glyphMap }[] = [
     { key: 'home', label: 'Home', icon: 'view-dashboard-outline' },
-    { key: 'calendar', label: 'Calendar', icon: 'calendar-month-outline' },
-    { key: 'wallets', label: 'Wallets', icon: 'wallet-outline' },
+    { key: 'calendar', label: 'History', icon: 'history' },
     { key: 'analytics', label: 'Analytics', icon: 'chart-box-outline' },
+    { key: 'wallets', label: 'Wallets', icon: 'wallet-outline' },
     { key: 'settings', label: 'Settings', icon: 'cog-outline' },
   ];
 
