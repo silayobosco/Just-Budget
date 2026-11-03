@@ -24,6 +24,7 @@ export const Header: React.FC<HeaderProps> = ({
     dailyAllowanceStats,
     openCycleModal,
     totalConvertedBalance,
+    isViewingCurrentCycle,
   } = useBudget();
   const isDarkMode = settings.theme_mode === 'dark';
   const theme = isDarkMode ? darkTheme : lightTheme;
@@ -32,6 +33,9 @@ export const Header: React.FC<HeaderProps> = ({
 
   const isCalendarTab = currentTab === 'calendar';
   const isRegularMode = settings.cycle_mode === 'regular';
+
+  // Only show alternate Cycle Type switcher & Total Wallets balance when browsing a non-current cycle
+  const showCycleTypeSwitch = isCalendarTab && !isViewingCurrentCycle;
 
   const cycleDisplayRange = currentCycle?.start_date && currentCycle?.end_date
     ? formatCycleDateRange(currentCycle.start_date, currentCycle.end_date)
@@ -48,7 +52,7 @@ export const Header: React.FC<HeaderProps> = ({
           />
           <View>
             <Text style={[styles.title, { color: theme.onSurface }]}>just budget</Text>
-            {isCalendarTab ? (
+            {showCycleTypeSwitch ? (
               <TouchableOpacity
                 onPress={() => setModeModalVisible(true)}
                 activeOpacity={0.7}
@@ -89,8 +93,8 @@ export const Header: React.FC<HeaderProps> = ({
           </View>
         </View>
 
-        {/* Right Chip: Total Wallets Balance on Calendar page, Remaining Days on other pages */}
-        {isCalendarTab ? (
+        {/* Right Chip: Total Wallets Balance when browsing non-current cycle; Remaining Days in current cycle */}
+        {showCycleTypeSwitch ? (
           <View
             style={[
               styles.daysBadge,

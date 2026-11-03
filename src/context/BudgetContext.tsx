@@ -54,6 +54,9 @@ interface BudgetContextType {
   setSelectedCalendarDate: (date: string) => void;
   selectedTransactionIdForCalendar: string | null;
   setSelectedTransactionIdForCalendar: (id: string | null) => void;
+  selectedCalendarCycle: BudgetCycle | null;
+  setSelectedCalendarCycle: (cycle: BudgetCycle | null) => void;
+  isViewingCurrentCycle: boolean;
 
   // Computed
   totalConvertedBalance: number;
@@ -186,6 +189,14 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [analyticsFocus, setAnalyticsFocus] = useState<'overview' | 'expense' | 'income'>('overview');
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [selectedTransactionIdForCalendar, setSelectedTransactionIdForCalendar] = useState<string | null>(null);
+  const [selectedCalendarCycle, setSelectedCalendarCycle] = useState<BudgetCycle | null>(null);
+
+  const isViewingCurrentCycle = useMemo(() => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const target = selectedCalendarCycle || currentCycle;
+    if (!target?.start_date || !target?.end_date) return true;
+    return todayStr >= target.start_date && todayStr <= target.end_date;
+  }, [selectedCalendarCycle, currentCycle]);
 
   const openCycleModal = useCallback(() => setIsCycleModalOpen(true), []);
   const closeCycleModal = useCallback(() => setIsCycleModalOpen(false), []);
@@ -1333,6 +1344,9 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setSelectedCalendarDate,
         selectedTransactionIdForCalendar,
         setSelectedTransactionIdForCalendar,
+        selectedCalendarCycle,
+        setSelectedCalendarCycle,
+        isViewingCurrentCycle,
         totalConvertedBalance,
         spentInCycle,
         incomeInCycle,

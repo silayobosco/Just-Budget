@@ -40,6 +40,12 @@ export const CalendarScreen: React.FC = () => {
     setSelectedCalendarDate,
     selectedTransactionIdForCalendar,
     setSelectedTransactionIdForCalendar,
+    selectedCalendarCycle,
+    setSelectedCalendarCycle,
+    isViewingCurrentCycle,
+    dailyAllowanceStats,
+    overallBudgetLimit,
+    addWallet,
     updateTransaction,
     deleteTransaction,
     addSubcategory,
@@ -47,10 +53,19 @@ export const CalendarScreen: React.FC = () => {
 
   const isDarkMode = settings.theme_mode === 'dark';
   const theme = isDarkMode ? darkTheme : lightTheme;
+  const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
   // Selected date on calendar (bound to global calendar date)
   const selectedDate = selectedCalendarDate;
   const setSelectedDate = setSelectedCalendarDate;
+
+  // Selected wallet filter in calendar view
+  const [selectedWalletFilterId, setSelectedWalletFilterId] = useState<string | null>(null);
+
+  // Quick Wallet modal state
+  const [quickWalletModalVisible, setQuickWalletModalVisible] = useState(false);
+  const [newWalletName, setNewWalletName] = useState('');
+  const [newWalletBal, setNewWalletBal] = useState('0');
 
   // Transaction Detail & Edit Modal states
   const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
@@ -168,10 +183,7 @@ export const CalendarScreen: React.FC = () => {
           (c) => c.id === regId || (c.start_date === reg.startDate && c.end_date === reg.endDate)
         );
 
-        // Active cycle matches currentCycle start_date or today's cycle
-        const isActive = currentCycle
-          ? currentCycle.start_date === reg.startDate
-          : (now >= new Date(reg.startDate) && now <= new Date(reg.endDate));
+        const isCurrent = now >= new Date(reg.startDate) && now <= new Date(reg.endDate);
 
         list.push({
           id: existing?.id || regId,
@@ -180,7 +192,7 @@ export const CalendarScreen: React.FC = () => {
           end_date: reg.endDate,
           target_budget: existing?.target_budget ?? (settings.cycle_default_budget !== undefined ? Number(settings.cycle_default_budget) : undefined),
           target_income: existing?.target_income ?? (settings.cycle_default_income !== undefined ? Number(settings.cycle_default_income) : undefined),
-          is_active: isActive,
+          is_active: isCurrent,
         });
       }
 
@@ -194,70 +206,20 @@ export const CalendarScreen: React.FC = () => {
     isRegularMode,
     startDay,
     allCycles,
-    currentCycle,
     settings.cycle_default_budget,
     settings.cycle_default_income,
   ]);
 
-  const cycleScrollRef = useRef<any>(null);
+  // Effective cycle currently being displayed (defaults to current cycle containing today)
+  const effectiveCycle = selectedCalendarCycle || currentCycle;
 
-  useEffect(() => {
-    if (cycleList.length > 0) {
-      const activeIdx = cycleList.findIndex(
-        (c) => c.is_active || (currentCycle && c.start_date === currentCycle.start_date)
-      );
-      if (activeIdx >= 0) {
-        // Center the active chip horizontally
-        const chipEstimatedWidth = 145;
-        const targetX = Math.max(0, activeIdx * chipEstimatedWidth - 110);
-        setTimeout(() => {
-          cycleScrollRef.current?.scrollTo({ x: targetX, animated: true });
-        }, 150);
-      }
-    }
-  }, [cycleList, currentCycle, isRegularMode]);
-
-  const handlePressCycleChip = async (c: BudgetCycle, isActive: boolean) => {
-    if (isActive) {
-      // Tapping the active chip opens the Shift Mode Switcher (only shift btn regular and custom, no editing)
-      setModeSwitcherVisible(true);
-      return;
-    }
-
-    if (isRegularMode) {
-      // Regular mode: Activate this month's regular cycle
-      const existing = allCycles.find((item) => item.id === c.id || item.start_date === c.start_date);
-      if (existing) {
-        await setActiveBudgetCycle(existing.id);
-      } else {
-        await updateBudgetCycle({
-          id: c.id,
-          name: c.name,
-          start_date: c.start_date,
-          end_date: c.end_date,
-          target_budget: c.target_budget,
-          target_income: c.target_income,
-        });
-        await setActiveBudgetCycle(c.id);
-      }
-      setSelectedDate(c.start_date);
-    } else {
-      // Custom mode: Activate selected custom cycle
-      await setActiveBudgetCycle(c.id);
-      setSelectedDate(c.start_date);
-    }
-  };
-
-  // Collapsible Calendar View state: Collapsed to 1-week row by default for maximum transaction list space
-  const [isCalendarCollapsed, setIsCalendarCollapsed] = useState<boolean>(true);
-
-  // Active cycle date boundaries (for showing the WHOLE active cycle in the calendar)
+  // Active cycle date boundaries (for showing the WHOLE displayed cycle in the calendar)
   const activeCycleRange = useMemo(() => {
-    if (currentCycle?.start_date && currentCycle?.end_date) {
+    if (effectiveCycle?.start_date && effectiveCycle?.end_date) {
       return {
-        startDate: currentCycle.start_date,
-        endDate: currentCycle.end_date,
-        name: currentCycle.name || formatCycleDateRange(currentCycle.start_date, currentCycle.end_date),
+        startDate: effectiveCycle.start_date,
+        endDate: effectiveCycle.end_date,
+        name: effectiveCycle.name || formatCycleDateRange(effectiveCycle.start_date, effectiveCycle.end_date),
       };
     }
     const reg = getRegularCycleDates(settings.cycle_month_start_day || 1);
@@ -266,25 +228,94 @@ export const CalendarScreen: React.FC = () => {
       endDate: reg.endDate,
       name: reg.name,
     };
-  }, [currentCycle, settings.cycle_month_start_day]);
+  }, [effectiveCycle, settings.cycle_month_start_day]);
+
+  // Effective cycle budget calculations
+  const effectiveSpent = useMemo(() => {
+    return transactions
+      .filter(
+        (t) =>
+          t.type === 'expense' &&
+          t.date >= activeCycleRange.startDate &&
+          t.date <= activeCycleRange.endDate
+      )
+      .reduce((sum, t) => sum + t.base_amount, 0);
+  }, [transactions, activeCycleRange]);
+
+  const effectiveTarget = effectiveCycle?.target_budget ?? (settings.cycle_default_budget !== undefined ? Number(settings.cycle_default_budget) : totalConvertedBalance);
+  const effectiveRemaining = Math.max(0, effectiveTarget - effectiveSpent);
+
+  const cycleScrollRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (cycleList.length > 0) {
+      const activeIdx = cycleList.findIndex(
+        (c) => c.start_date === activeCycleRange.startDate
+      );
+      if (activeIdx >= 0) {
+        const chipEstimatedWidth = 145;
+        const targetX = Math.max(0, activeIdx * chipEstimatedWidth - 110);
+        setTimeout(() => {
+          cycleScrollRef.current?.scrollTo({ x: targetX, animated: true });
+        }, 150);
+      }
+    }
+  }, [cycleList, activeCycleRange.startDate]);
+
+  // Handle cycle chip selection: if cycle doesn't contain current date, highlight as selected cycle (NOT current)
+  const handlePressCycleChip = async (c: BudgetCycle, isCurrent: boolean, isSelected: boolean) => {
+    if (isSelected) {
+      setModeSwitcherVisible(true);
+      return;
+    }
+
+    const isContToday = todayStr >= c.start_date && todayStr <= c.end_date;
+
+    if (isContToday) {
+      // Contains today's date -> It is the current cycle
+      setSelectedCalendarCycle(null);
+      setSelectedDate(todayStr);
+    } else {
+      // Does NOT contain today's date -> Do not make it current cycle in DB, just highlight as selected
+      setSelectedCalendarCycle(c);
+      setSelectedDate(c.start_date);
+    }
+  };
+
+  // Collapsible Calendar View state: Collapsed to 1-week row by default for maximum transaction list space
+  const [isCalendarCollapsed, setIsCalendarCollapsed] = useState<boolean>(true);
 
   // Navigate to previous cycle (moving calendar left)
   const goToPreviousCycle = () => {
-    const currentStart = currentCycle?.start_date || activeCycleRange.startDate;
+    const currentStart = effectiveCycle?.start_date || activeCycleRange.startDate;
     const activeIdx = cycleList.findIndex((c) => c.start_date === currentStart);
     if (activeIdx > 0) {
       const prev = cycleList[activeIdx - 1];
-      handlePressCycleChip(prev, false);
+      const isContToday = todayStr >= prev.start_date && todayStr <= prev.end_date;
+      if (isContToday) {
+        setSelectedCalendarCycle(null);
+        setSelectedDate(todayStr);
+      } else {
+        setSelectedCalendarCycle(prev);
+        setSelectedDate(prev.start_date);
+      }
     }
   };
 
   // Navigate to next cycle (moving calendar right)
   const goToNextCycle = () => {
-    const currentStart = currentCycle?.start_date || activeCycleRange.startDate;
+    const currentStart = effectiveCycle?.start_date || activeCycleRange.startDate;
     const activeIdx = cycleList.findIndex((c) => c.start_date === currentStart);
     if (activeIdx >= 0 && activeIdx < cycleList.length - 1) {
       const next = cycleList[activeIdx + 1];
-      handlePressCycleChip(next, false);
+      const isContToday = todayStr >= next.start_date && todayStr <= next.end_date;
+      if (isContToday) {
+        setSelectedCalendarCycle(null);
+        setSelectedDate(todayStr);
+      } else {
+        setSelectedCalendarCycle(next);
+        setSelectedDate(next.start_date);
+      }
     }
   };
 
@@ -448,11 +479,12 @@ export const CalendarScreen: React.FC = () => {
     const map: Record<string, number> = {};
     transactions
       .filter((t) => t.type === 'expense')
+      .filter((t) => !selectedWalletFilterId || t.wallet_id === selectedWalletFilterId)
       .forEach((t) => {
         map[t.date] = (map[t.date] || 0) + t.base_amount;
       });
     return map;
-  }, [transactions]);
+  }, [transactions, selectedWalletFilterId]);
 
   // Generate continuous feed days: includes previous cycle, current cycle, and next cycle
   const feedDays = useMemo(() => {
@@ -540,8 +572,13 @@ export const CalendarScreen: React.FC = () => {
         const targetCycle = cycleList.find(
           (c) => closestDate >= c.start_date && closestDate <= c.end_date
         );
-        if (targetCycle && targetCycle.id !== currentCycle?.id) {
-          handlePressCycleChip(targetCycle, false);
+        if (targetCycle && targetCycle.id !== effectiveCycle?.id) {
+          const isContToday = todayStr >= targetCycle.start_date && todayStr <= targetCycle.end_date;
+          if (isContToday) {
+            setSelectedCalendarCycle(null);
+          } else {
+            setSelectedCalendarCycle(targetCycle);
+          }
         }
       }
     }
@@ -576,134 +613,358 @@ export const CalendarScreen: React.FC = () => {
           M3Elevation.level1,
         ]}
       >
-        {/* Horizontal List of Cycles with Current Centered on a Chip */}
-        <View style={styles.cycleChipsWrapper}>
-          <ScrollView
-            ref={cycleScrollRef}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={[
-              styles.cycleChipsScroll,
-              cycleList.length <= 2 && { justifyContent: 'center', minWidth: '100%' },
-            ]}
-          >
-            {cycleList.length === 0 && !isRegularMode ? (
-              <TouchableOpacity
+        {isViewingCurrentCycle ? (
+          /* CURRENT CYCLE VIEW: Available for Today + Wallets Row */
+          <View style={styles.currentCycleBannerContent}>
+            {/* Available for Today Row */}
+            <View style={styles.todayBalanceRow}>
+              <View>
+                <Text
+                  style={[styles.todayBalanceLabel, { color: theme.onSurfaceVariant }]}
+                  maxFontSizeMultiplier={1.2}
+                >
+                  AVAILABLE FOR TODAY
+                </Text>
+                <Text
+                  style={[
+                    styles.todayBalanceAmount,
+                    { color: dailyAllowanceStats.remainingToday >= 0 ? theme.primary : theme.error },
+                  ]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.7}
+                  maxFontSizeMultiplier={1.2}
+                >
+                  {wallets.length === 0 && overallBudgetLimit === 0
+                    ? formatCurrency(0, settings.base_currency)
+                    : formatCurrency(dailyAllowanceStats.remainingToday, settings.base_currency)}
+                </Text>
+              </View>
+
+              {/* Wallet summary pill */}
+              <View
                 style={[
-                  styles.cycleChip,
+                  styles.walletSumPill,
                   {
-                    backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.25)' : theme.primaryContainer,
-                    borderColor: theme.primary,
+                    backgroundColor: theme.pillBg,
                   },
                 ]}
-                onPress={() => openCycleModal()}
-                activeOpacity={0.75}
               >
-                <MaterialCommunityIcons name="calendar-plus" size={15} color={theme.primary} />
-                <Text style={[styles.cycleChipText, { color: theme.onPrimaryContainer, fontWeight: '700' }]}>
-                  + Create Custom Period
+                <MaterialCommunityIcons
+                  name="wallet-outline"
+                  size={14}
+                  color={theme.primary}
+                />
+                <Text
+                  style={[
+                    styles.walletSumText,
+                    {
+                      color: theme.onSurface,
+                      fontWeight: '700',
+                    },
+                  ]}
+                >
+                  {formatCurrency(totalConvertedBalance, settings.base_currency)}
+                </Text>
+              </View>
+            </View>
+
+            {/* Wallets Horizontal Row */}
+            <View style={styles.walletRowContainer}>
+              <View style={styles.chipRowWrap}>
+                <Text style={[styles.chipSectionLabel, { color: theme.onSurfaceVariant }]}>WALLET</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.walletScrollContent}>
+                  {wallets.length === 0 ? (
+                    <TouchableOpacity
+                      style={[
+                        styles.chipItem,
+                        {
+                          backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.22)' : theme.primaryContainer,
+                          borderColor: theme.primary,
+                          borderWidth: 1,
+                        },
+                      ]}
+                      onPress={() => {
+                        setNewWalletName('');
+                        setNewWalletBal('0');
+                        setQuickWalletModalVisible(true);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <MaterialCommunityIcons name="wallet-plus" size={14} color={theme.primary} />
+                      <Text
+                        style={[
+                          styles.chipText,
+                          {
+                            color: isDarkMode ? '#C7D2FE' : theme.onPrimaryContainer,
+                            fontWeight: '800',
+                          },
+                        ]}
+                      >
+                        + Register First Wallet
+                      </Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <>
+                      <TouchableOpacity
+                        style={[
+                          styles.chipItem,
+                          {
+                            backgroundColor: !selectedWalletFilterId ? theme.primaryContainer : theme.pillBg,
+                            borderColor: !selectedWalletFilterId ? theme.primary : 'transparent',
+                          },
+                        ]}
+                        onPress={() => setSelectedWalletFilterId(null)}
+                        activeOpacity={0.7}
+                      >
+                        <MaterialCommunityIcons
+                          name="wallet-outline"
+                          size={14}
+                          color={!selectedWalletFilterId ? theme.onPrimaryContainer : theme.onSurface}
+                        />
+                        <Text
+                          style={[
+                            styles.chipText,
+                            {
+                              color: !selectedWalletFilterId ? theme.onPrimaryContainer : theme.onSurface,
+                              fontWeight: !selectedWalletFilterId ? '700' : '500',
+                            },
+                          ]}
+                        >
+                          All
+                        </Text>
+                      </TouchableOpacity>
+
+                      {wallets.map((w) => {
+                        const isSelected = w.id === selectedWalletFilterId;
+                        return (
+                          <TouchableOpacity
+                            key={w.id}
+                            style={[
+                              styles.chipItem,
+                              {
+                                backgroundColor: isSelected ? theme.primaryContainer : theme.pillBg,
+                                borderColor: isSelected ? theme.primary : 'transparent',
+                              },
+                            ]}
+                            onPress={() => setSelectedWalletFilterId(isSelected ? null : w.id)}
+                            activeOpacity={0.7}
+                          >
+                            <MaterialCommunityIcons
+                              name={(w.icon as any) || 'wallet'}
+                              size={14}
+                              color={isSelected ? theme.onPrimaryContainer : theme.onSurface}
+                            />
+                            <Text
+                              style={[
+                                styles.chipText,
+                                {
+                                  color: isSelected ? theme.onPrimaryContainer : theme.onSurface,
+                                  fontWeight: isSelected ? '700' : '500',
+                                },
+                              ]}
+                            >
+                              {w.name}
+                            </Text>
+                            <Text
+                              style={[
+                                styles.walletBalText,
+                                {
+                                  color: isSelected ? theme.onPrimaryContainer : theme.onSurfaceVariant,
+                                },
+                              ]}
+                            >
+                              {formatCurrency(w.current_balance, w.currency || settings.base_currency)}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </>
+                  )}
+
+                  {wallets.length > 0 && (
+                    <TouchableOpacity
+                      style={[styles.addChipBtn, { backgroundColor: theme.primaryContainer }]}
+                      onPress={() => {
+                        setNewWalletName('');
+                        setNewWalletBal('0');
+                        setQuickWalletModalVisible(true);
+                      }}
+                    >
+                      <MaterialCommunityIcons name="plus" size={15} color={theme.onPrimaryContainer} />
+                    </TouchableOpacity>
+                  )}
+                </ScrollView>
+              </View>
+            </View>
+          </View>
+        ) : (
+          /* NON-CURRENT CYCLE VIEW: Horizontal list of cycles with selected highlighted (not current) */
+          <View>
+            <View style={styles.nonCurrentHeaderRow}>
+              <View style={styles.nonCurrentTitleLeft}>
+                <MaterialCommunityIcons name="history" size={15} color={theme.primary} />
+                <Text style={[styles.nonCurrentBrowsingLabel, { color: theme.onSurfaceVariant }]}>
+                  Browsing Cycles • Tap to View
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={[styles.returnToTodayBtn, { backgroundColor: theme.primaryContainer }]}
+                onPress={() => {
+                  setSelectedCalendarCycle(null);
+                  setSelectedDate(todayStr);
+                }}
+                activeOpacity={0.7}
+              >
+                <MaterialCommunityIcons name="arrow-u-left-top" size={13} color={theme.onPrimaryContainer} />
+                <Text style={[styles.returnToTodayText, { color: theme.onPrimaryContainer }]}>
+                  Return to Current
                 </Text>
               </TouchableOpacity>
-            ) : (
-              cycleList.map((c) => {
-                const isActive = Boolean(c.is_active || (currentCycle && c.start_date === currentCycle.start_date));
-                const displayName = c.name || formatCycleDateRange(c.start_date, c.end_date);
-                const dateSub = formatCycleDateRange(c.start_date, c.end_date);
+            </View>
 
-                return (
+            <View style={styles.cycleChipsWrapper}>
+              <ScrollView
+                ref={cycleScrollRef}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={[
+                  styles.cycleChipsScroll,
+                  cycleList.length <= 2 && { justifyContent: 'center', minWidth: '100%' },
+                ]}
+              >
+                {cycleList.length === 0 && !isRegularMode ? (
                   <TouchableOpacity
-                    key={c.id}
                     style={[
                       styles.cycleChip,
                       {
-                        backgroundColor: isActive
-                          ? (isDarkMode ? 'rgba(99, 102, 241, 0.25)' : theme.primaryContainer)
-                          : theme.pillBg,
-                        borderColor: isActive ? theme.primary : 'transparent',
+                        backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.25)' : theme.primaryContainer,
+                        borderColor: theme.primary,
                       },
-                      isActive && M3Elevation.level1,
                     ]}
-                    onPress={() => handlePressCycleChip(c, isActive)}
-                    onLongPress={() => openCycleModal()}
-                    delayLongPress={350}
+                    onPress={() => openCycleModal()}
                     activeOpacity={0.75}
                   >
-                    <MaterialCommunityIcons
-                      name={isActive ? 'calendar-check' : 'calendar-outline'}
-                      size={15}
-                      color={isActive ? (isDarkMode ? '#A5B4FC' : theme.primary) : theme.onSurfaceVariant}
-                    />
-                    <View style={styles.chipTextCol}>
-                      <Text
-                        style={[
-                          styles.cycleChipText,
-                          {
-                            color: isActive ? (isDarkMode ? '#E0E7FF' : theme.onPrimaryContainer) : theme.onSurface,
-                            fontWeight: isActive ? '800' : '600',
-                          },
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {displayName}
-                      </Text>
-                      {c.name && c.name !== dateSub && (
-                        <Text
-                          style={[
-                            styles.cycleChipSubText,
-                            {
-                              color: isActive ? (isDarkMode ? '#C7D2FE' : theme.primary) : theme.onSurfaceVariant,
-                            },
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {dateSub}
-                        </Text>
-                      )}
-                    </View>
-                    {isActive && (
-                      <View
-                        style={[
-                          styles.activeBadgePill,
-                          { backgroundColor: isDarkMode ? '#818CF8' : theme.primary },
-                        ]}
-                      >
-                        <Text style={[styles.activeBadgeText, { color: isDarkMode ? '#0F172A' : theme.onPrimary }]}>
-                          Active
-                        </Text>
-                      </View>
-                    )}
+                    <MaterialCommunityIcons name="calendar-plus" size={15} color={theme.primary} />
+                    <Text style={[styles.cycleChipText, { color: theme.onPrimaryContainer, fontWeight: '700' }]}>
+                      + Create Custom Period
+                    </Text>
                   </TouchableOpacity>
-                );
-              })
-            )}
+                ) : (
+                  cycleList.map((c) => {
+                    const isContToday = todayStr >= c.start_date && todayStr <= c.end_date;
+                    const isSelected = effectiveCycle ? c.start_date === effectiveCycle.start_date : isContToday;
+                    const displayName = c.name || formatCycleDateRange(c.start_date, c.end_date);
+                    const dateSub = formatCycleDateRange(c.start_date, c.end_date);
 
-            {!isRegularMode && cycleList.length > 0 && (
-              <TouchableOpacity
-                style={[
-                  styles.cycleChip,
-                  {
-                    backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.06)' : theme.pillBg,
-                    borderColor: 'transparent',
-                  },
-                ]}
-                onPress={() => openCycleModal()}
-                activeOpacity={0.75}
-              >
-                <MaterialCommunityIcons name="plus" size={15} color={theme.primary} />
-                <Text style={[styles.cycleChipText, { color: theme.primary, fontWeight: '700' }]}>
-                  Add Period
-                </Text>
-              </TouchableOpacity>
-            )}
-          </ScrollView>
-        </View>
+                    return (
+                      <TouchableOpacity
+                        key={c.id}
+                        style={[
+                          styles.cycleChip,
+                          {
+                            backgroundColor: isSelected
+                              ? (isDarkMode ? 'rgba(99, 102, 241, 0.25)' : theme.primaryContainer)
+                              : theme.pillBg,
+                            borderColor: isSelected ? theme.primary : isContToday ? (isDarkMode ? '#818CF8' : theme.primary) : 'transparent',
+                          },
+                          isSelected && M3Elevation.level1,
+                        ]}
+                        onPress={() => handlePressCycleChip(c, isContToday, isSelected)}
+                        onLongPress={() => openCycleModal()}
+                        delayLongPress={350}
+                        activeOpacity={0.75}
+                      >
+                        <MaterialCommunityIcons
+                          name={isSelected ? 'calendar-check' : isContToday ? 'calendar-star' : 'calendar-outline'}
+                          size={15}
+                          color={isSelected ? (isDarkMode ? '#A5B4FC' : theme.primary) : isContToday ? theme.secondary : theme.onSurfaceVariant}
+                        />
+                        <View style={styles.chipTextCol}>
+                          <Text
+                            style={[
+                              styles.cycleChipText,
+                              {
+                                color: isSelected ? (isDarkMode ? '#E0E7FF' : theme.onPrimaryContainer) : theme.onSurface,
+                                fontWeight: isSelected || isContToday ? '800' : '600',
+                              },
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {displayName}
+                          </Text>
+                          {c.name && c.name !== dateSub && (
+                            <Text
+                              style={[
+                                styles.cycleChipSubText,
+                                {
+                                  color: isSelected ? (isDarkMode ? '#C7D2FE' : theme.primary) : theme.onSurfaceVariant,
+                                },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {dateSub}
+                            </Text>
+                          )}
+                        </View>
+                        {isContToday && !isSelected && (
+                          <View
+                            style={[
+                              styles.activeBadgePill,
+                              { backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.35)' : theme.primaryContainer },
+                            ]}
+                          >
+                            <Text style={[styles.activeBadgeText, { color: isDarkMode ? '#C7D2FE' : theme.primary }]}>
+                              Current
+                            </Text>
+                          </View>
+                        )}
+                        {isSelected && (
+                          <View
+                            style={[
+                              styles.activeBadgePill,
+                              { backgroundColor: isDarkMode ? '#818CF8' : theme.primary },
+                            ]}
+                          >
+                            <Text style={[styles.activeBadgeText, { color: isDarkMode ? '#0F172A' : theme.onPrimary }]}>
+                              {isContToday ? 'Current' : 'Selected'}
+                            </Text>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })
+                )}
+
+                {!isRegularMode && cycleList.length > 0 && (
+                  <TouchableOpacity
+                    style={[
+                      styles.cycleChip,
+                      {
+                        backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.06)' : theme.pillBg,
+                        borderColor: 'transparent',
+                      },
+                    ]}
+                    onPress={() => openCycleModal()}
+                    activeOpacity={0.75}
+                  >
+                    <MaterialCommunityIcons name="plus" size={15} color={theme.primary} />
+                    <Text style={[styles.cycleChipText, { color: theme.primary, fontWeight: '700' }]}>
+                      Add Period
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </ScrollView>
+            </View>
+          </View>
+        )}
 
         {/* Docked Balance Breakdown */}
         <View style={[styles.dockedBalanceRow, { borderTopColor: isDarkMode ? 'rgba(255, 255, 255, 0.08)' : theme.divider }]}>
           <View style={styles.balanceCol}>
             <Text style={[styles.balanceColLabel, { color: theme.onSurfaceVariant }]}>STARTING TARGET</Text>
             <Text style={[styles.balanceColVal, { color: theme.onSurface }]}>
-              {formatCurrency(currentCycle?.target_budget || totalConvertedBalance, settings.base_currency)}
+              {formatCurrency(effectiveTarget, settings.base_currency)}
             </Text>
           </View>
 
@@ -712,16 +973,16 @@ export const CalendarScreen: React.FC = () => {
           <View style={styles.balanceCol}>
             <Text style={[styles.balanceColLabel, { color: theme.error }]}>TOTAL SPENT</Text>
             <Text style={[styles.balanceColVal, { color: theme.error }]}>
-              {formatCurrency(spentInCycle, settings.base_currency)}
+              {formatCurrency(effectiveSpent, settings.base_currency)}
             </Text>
           </View>
 
           <View style={[styles.balanceDivider, { backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.08)' : theme.divider }]} />
 
           <View style={styles.balanceCol}>
-            <Text style={[styles.balanceColLabel, { color: theme.success }]}>REMAINING</Text>
-            <Text style={[styles.balanceColVal, { color: theme.success }]}>
-              {formatCurrency(remainingCycleBalance, settings.base_currency)}
+            <Text style={[styles.balanceColLabel, { color: theme.primary }]}>REMAINING</Text>
+            <Text style={[styles.balanceColVal, { color: theme.primary }]}>
+              {formatCurrency(effectiveRemaining, settings.base_currency)}
             </Text>
           </View>
         </View>
@@ -909,7 +1170,10 @@ export const CalendarScreen: React.FC = () => {
         scrollEventThrottle={16}
       >
         {feedDays.map((dateStr) => {
-          const dayTxs = transactionsByDate[dateStr] || [];
+          const rawDayTxs = transactionsByDate[dateStr] || [];
+          const dayTxs = selectedWalletFilterId
+            ? rawDayTxs.filter((tx) => tx.wallet_id === selectedWalletFilterId)
+            : rawDayTxs;
           const spend = dailySpendMap[dateStr] || 0;
           const isSelected = dateStr === selectedDate;
           const isToday = dateStr === new Date().toISOString().slice(0, 10);
@@ -1118,6 +1382,66 @@ export const CalendarScreen: React.FC = () => {
           onAddSubcategory={addSubcategory}
         />
       )}
+      {/* QUICK REGISTER WALLET MODAL */}
+      <Modal
+        visible={quickWalletModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setQuickWalletModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.quickWalletBox, { backgroundColor: theme.surface }]}>
+            <Text style={[styles.quickWalletTitle, { color: theme.onSurface }]}>Register Wallet</Text>
+            <TextInput
+              style={[
+                styles.quickWalletInput,
+                { color: theme.onSurface, borderColor: theme.divider, backgroundColor: theme.cardBg },
+              ]}
+              placeholder="Wallet Name (e.g. Cash, Bank, Card)"
+              placeholderTextColor={theme.onSurfaceVariant}
+              value={newWalletName}
+              onChangeText={setNewWalletName}
+              autoFocus
+            />
+            <TextInput
+              style={[
+                styles.quickWalletInput,
+                { color: theme.onSurface, borderColor: theme.divider, backgroundColor: theme.cardBg },
+              ]}
+              placeholder="Initial Balance"
+              placeholderTextColor={theme.onSurfaceVariant}
+              value={newWalletBal}
+              onChangeText={setNewWalletBal}
+              keyboardType="decimal-pad"
+            />
+            <View style={styles.quickWalletBtnRow}>
+              <TouchableOpacity
+                style={[styles.quickWalletBtn, { backgroundColor: theme.pillBg }]}
+                onPress={() => setQuickWalletModalVisible(false)}
+              >
+                <Text style={{ color: theme.onSurfaceVariant, fontWeight: '600' }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.quickWalletBtn, { backgroundColor: theme.primary }]}
+                onPress={async () => {
+                  if (!newWalletName.trim()) return;
+                  const bal = parseFloat(newWalletBal) || 0;
+                  await addWallet({
+                    name: newWalletName.trim(),
+                    currency: settings.base_currency,
+                    starting_balance: bal,
+                    icon: 'wallet',
+                    color: '#3B82F6',
+                  });
+                  setQuickWalletModalVisible(false);
+                }}
+              >
+                <Text style={{ color: theme.onPrimary, fontWeight: '700' }}>Save Wallet</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -1130,6 +1454,137 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     paddingTop: 6,
     paddingBottom: 8,
+  },
+  currentCycleBannerContent: {
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 2,
+  },
+  todayBalanceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  todayBalanceLabel: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    marginBottom: 2,
+  },
+  todayBalanceAmount: {
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  walletSumPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: M3Shape.full,
+  },
+  walletSumText: {
+    fontSize: 12,
+  },
+  walletRowContainer: {
+    marginTop: 2,
+    marginBottom: 4,
+  },
+  chipRowWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  chipSectionLabel: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    marginRight: 8,
+  },
+  walletScrollContent: {
+    alignItems: 'center',
+    gap: 8,
+  },
+  chipItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: M3Shape.full,
+    borderWidth: 1,
+  },
+  chipText: {
+    fontSize: 12,
+  },
+  walletBalText: {
+    fontSize: 11,
+    fontWeight: '700',
+    marginLeft: 2,
+  },
+  addChipBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  nonCurrentHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingBottom: 6,
+  },
+  nonCurrentTitleLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  nonCurrentBrowsingLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  returnToTodayBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: M3Shape.full,
+  },
+  returnToTodayText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  quickWalletBox: {
+    width: '100%',
+    maxWidth: 320,
+    borderRadius: M3Shape.large,
+    padding: 20,
+    gap: 12,
+  },
+  quickWalletTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  quickWalletInput: {
+    borderWidth: 1,
+    borderRadius: M3Shape.medium,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 14,
+  },
+  quickWalletBtnRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginTop: 6,
+  },
+  quickWalletBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: M3Shape.full,
   },
   cycleChipsWrapper: {
     paddingVertical: 2,
