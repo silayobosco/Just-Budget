@@ -34,8 +34,8 @@ export const Header: React.FC<HeaderProps> = ({
   const isCalendarTab = currentTab === 'calendar';
   const isRegularMode = settings.cycle_mode === 'regular';
 
-  // Only show alternate Cycle Type switcher & Total Wallets balance when browsing a non-current cycle
-  const showCycleTypeSwitch = isCalendarTab && !isViewingCurrentCycle;
+  // Only show Total Wallets balance when browsing a non-current cycle on calendar page
+  const showRightBalanceChip = isCalendarTab && !isViewingCurrentCycle;
 
   const cycleDisplayRange = currentCycle?.start_date && currentCycle?.end_date
     ? formatCycleDateRange(currentCycle.start_date, currentCycle.end_date)
@@ -52,21 +52,33 @@ export const Header: React.FC<HeaderProps> = ({
           />
           <View>
             <Text style={[styles.title, { color: theme.onSurface }]}>just budget</Text>
-            {showCycleTypeSwitch ? (
+            {/* Cycle Date Range under App Name (Tapping always opens Cycle Type Switcher dialog) */}
+            {currentCycle ? (
               <TouchableOpacity
                 onPress={() => setModeModalVisible(true)}
                 activeOpacity={0.7}
                 style={styles.subtitleTouch}
                 accessibilityLabel="Switch Cycle Type"
               >
+                <Text style={[styles.subtitle, { color: theme.onSurfaceVariant }]}>
+                  {cycleDisplayRange}
+                </Text>
                 <MaterialCommunityIcons
-                  name={isRegularMode ? 'calendar-month' : 'calendar-range'}
-                  size={13}
-                  color={theme.primary}
-                  style={{ marginRight: 3 }}
+                  name="chevron-down"
+                  size={14}
+                  color={theme.onSurfaceVariant}
+                  style={{ marginTop: 1, marginLeft: 2 }}
                 />
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                onPress={() => setModeModalVisible(true)}
+                activeOpacity={0.7}
+                style={styles.subtitleTouch}
+                accessibilityLabel="Switch Cycle Type"
+              >
                 <Text style={[styles.subtitle, { color: theme.primary, fontWeight: '700' }]}>
-                  {isRegularMode ? 'Regular Calendar' : 'Custom Periods'}
+                  + Set Budget Cycle
                 </Text>
                 <MaterialCommunityIcons
                   name="chevron-down"
@@ -75,26 +87,12 @@ export const Header: React.FC<HeaderProps> = ({
                   style={{ marginTop: 1, marginLeft: 2 }}
                 />
               </TouchableOpacity>
-            ) : currentCycle ? (
-              <TouchableOpacity onPress={openCycleModal} activeOpacity={0.7} style={styles.subtitleTouch}>
-                <Text style={[styles.subtitle, { color: theme.onSurfaceVariant }]}>
-                  {cycleDisplayRange}
-                </Text>
-                <MaterialCommunityIcons name="chevron-down" size={14} color={theme.onSurfaceVariant} style={{ marginTop: 1, marginLeft: 2 }} />
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity onPress={openCycleModal} activeOpacity={0.7} style={styles.subtitleTouch}>
-                <Text style={[styles.subtitle, { color: theme.primary, fontWeight: '700' }]}>
-                  + Set Budget Cycle
-                </Text>
-                <MaterialCommunityIcons name="chevron-down" size={14} color={theme.primary} style={{ marginTop: 1, marginLeft: 2 }} />
-              </TouchableOpacity>
             )}
           </View>
         </View>
 
         {/* Right Chip: Total Wallets Balance when browsing non-current cycle; Remaining Days in current cycle */}
-        {showCycleTypeSwitch ? (
+        {showRightBalanceChip ? (
           <View
             style={[
               styles.daysBadge,

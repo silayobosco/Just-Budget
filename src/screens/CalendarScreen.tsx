@@ -45,7 +45,6 @@ export const CalendarScreen: React.FC = () => {
     isViewingCurrentCycle,
     dailyAllowanceStats,
     overallBudgetLimit,
-    addWallet,
     updateTransaction,
     deleteTransaction,
     addSubcategory,
@@ -58,14 +57,6 @@ export const CalendarScreen: React.FC = () => {
   // Selected date on calendar (bound to global calendar date)
   const selectedDate = selectedCalendarDate;
   const setSelectedDate = setSelectedCalendarDate;
-
-  // Selected wallet filter in calendar view
-  const [selectedWalletFilterId, setSelectedWalletFilterId] = useState<string | null>(null);
-
-  // Quick Wallet modal state
-  const [quickWalletModalVisible, setQuickWalletModalVisible] = useState(false);
-  const [newWalletName, setNewWalletName] = useState('');
-  const [newWalletBal, setNewWalletBal] = useState('0');
 
   // Transaction Detail & Edit Modal states
   const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
@@ -242,8 +233,67 @@ export const CalendarScreen: React.FC = () => {
       .reduce((sum, t) => sum + t.base_amount, 0);
   }, [transactions, activeCycleRange]);
 
+  const effectiveIncome = useMemo(() => {
+    return transactions
+      .filter(
+        (t) =>
+          t.type === 'income' &&
+          t.date >= activeCycleRange.startDate &&
+          t.date <= activeCycleRange.endDate
+      )
+      .reduce((sum, t) => sum + (t.base_amount || t.amount || 0), 0);
+  }, [transactions, activeCycleRange]);
+
   const effectiveTarget = effectiveCycle?.target_budget ?? (settings.cycle_default_budget !== undefined ? Number(settings.cycle_default_budget) : totalConvertedBalance);
-  const effectiveRemaining = Math.max(0, effectiveTarget - effectiveSpent);
+  const curr = settings.base_currency;
+
+  // Target Cards Progress (replacing docked balance breakdown with HomeScreen top header target cards)
+  const expenseSwitcherProgress = useMemo(() => {
+    const target = effectiveTarget > 0 ? effectiveTarget : overallBudgetLimit;
+    const hasTarget = target > 0;
+    const percent = hasTarget ? Math.round((effectiveSpent / target) * 100) : 0;
+    const isOver = hasTarget && effectiveSpent > target;
+    const remaining = Math.max(0, target - effectiveSpent);
+    const overBy = Math.max(0, effectiveSpent - target);
+
+    return {
+      hasTarget,
+      percent,
+      isOver,
+      remaining,
+      overBy,
+      badgeText: hasTarget ? (isOver ? `⚠️ ${percent}%` : `${percent}%`) : '+ Set Cap',
+      subText: hasTarget
+        ? isOver
+          ? `⚠️ ${formatCurrency(overBy, curr)} over`
+          : `${formatCurrency(remaining, curr)} left`
+        : 'Tap to set budget cap',
+    };
+  }, [effectiveTarget, overallBudgetLimit, effectiveSpent, curr]);
+
+  const incomeSwitcherProgress = useMemo(() => {
+    const goal = effectiveCycle?.target_income && effectiveCycle.target_income > 0
+      ? effectiveCycle.target_income
+      : (settings.cycle_default_income !== undefined ? Number(settings.cycle_default_income) : 0);
+    const hasGoal = goal > 0;
+    const percent = hasGoal ? Math.round((effectiveIncome / goal) * 100) : 0;
+    const isReached = hasGoal && effectiveIncome >= goal;
+    const remaining = Math.max(0, goal - effectiveIncome);
+
+    return {
+      hasGoal,
+      goal,
+      percent,
+      isReached,
+      remaining,
+      badgeText: hasGoal ? (isReached ? '🎉 100%' : `${percent}%`) : '+ Set Goal',
+      subText: hasGoal
+        ? isReached
+          ? '🎉 Goal reached'
+          : `Goal: ${formatCurrency(goal, curr)}`
+        : 'Tap to set income goal',
+    };
+  }, [effectiveCycle, settings.cycle_default_income, effectiveIncome, curr]);
 
   const cycleScrollRef = useRef<any>(null);
 
@@ -479,12 +529,11 @@ export const CalendarScreen: React.FC = () => {
     const map: Record<string, number> = {};
     transactions
       .filter((t) => t.type === 'expense')
-      .filter((t) => !selectedWalletFilterId || t.wallet_id === selectedWalletFilterId)
       .forEach((t) => {
         map[t.date] = (map[t.date] || 0) + t.base_amount;
       });
     return map;
-  }, [transactions, selectedWalletFilterId]);
+  }, [transactions]);
 
   // Generate continuous feed days: includes previous cycle, current cycle, and next cycle
   const feedDays = useMemo(() => {
@@ -614,7 +663,7 @@ export const CalendarScreen: React.FC = () => {
         ]}
       >
         {isViewingCurrentCycle ? (
-          /* CURRENT CYCLE VIEW: Available for Today + Wallets Row */
+          /* CURRENT CYCLE VIEW: Available for Today */
           <View style={styles.currentCycleBannerContent}>
             {/* Available for Today Row */}
             <View style={styles.todayBalanceRow}>
@@ -666,135 +715,6 @@ export const CalendarScreen: React.FC = () => {
                 >
                   {formatCurrency(totalConvertedBalance, settings.base_currency)}
                 </Text>
-              </View>
-            </View>
-
-            {/* Wallets Horizontal Row */}
-            <View style={styles.walletRowContainer}>
-              <View style={styles.chipRowWrap}>
-                <Text style={[styles.chipSectionLabel, { color: theme.onSurfaceVariant }]}>WALLET</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.walletScrollContent}>
-                  {wallets.length === 0 ? (
-                    <TouchableOpacity
-                      style={[
-                        styles.chipItem,
-                        {
-                          backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.22)' : theme.primaryContainer,
-                          borderColor: theme.primary,
-                          borderWidth: 1,
-                        },
-                      ]}
-                      onPress={() => {
-                        setNewWalletName('');
-                        setNewWalletBal('0');
-                        setQuickWalletModalVisible(true);
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <MaterialCommunityIcons name="wallet-plus" size={14} color={theme.primary} />
-                      <Text
-                        style={[
-                          styles.chipText,
-                          {
-                            color: isDarkMode ? '#C7D2FE' : theme.onPrimaryContainer,
-                            fontWeight: '800',
-                          },
-                        ]}
-                      >
-                        + Register First Wallet
-                      </Text>
-                    </TouchableOpacity>
-                  ) : (
-                    <>
-                      <TouchableOpacity
-                        style={[
-                          styles.chipItem,
-                          {
-                            backgroundColor: !selectedWalletFilterId ? theme.primaryContainer : theme.pillBg,
-                            borderColor: !selectedWalletFilterId ? theme.primary : 'transparent',
-                          },
-                        ]}
-                        onPress={() => setSelectedWalletFilterId(null)}
-                        activeOpacity={0.7}
-                      >
-                        <MaterialCommunityIcons
-                          name="wallet-outline"
-                          size={14}
-                          color={!selectedWalletFilterId ? theme.onPrimaryContainer : theme.onSurface}
-                        />
-                        <Text
-                          style={[
-                            styles.chipText,
-                            {
-                              color: !selectedWalletFilterId ? theme.onPrimaryContainer : theme.onSurface,
-                              fontWeight: !selectedWalletFilterId ? '700' : '500',
-                            },
-                          ]}
-                        >
-                          All
-                        </Text>
-                      </TouchableOpacity>
-
-                      {wallets.map((w) => {
-                        const isSelected = w.id === selectedWalletFilterId;
-                        return (
-                          <TouchableOpacity
-                            key={w.id}
-                            style={[
-                              styles.chipItem,
-                              {
-                                backgroundColor: isSelected ? theme.primaryContainer : theme.pillBg,
-                                borderColor: isSelected ? theme.primary : 'transparent',
-                              },
-                            ]}
-                            onPress={() => setSelectedWalletFilterId(isSelected ? null : w.id)}
-                            activeOpacity={0.7}
-                          >
-                            <MaterialCommunityIcons
-                              name={(w.icon as any) || 'wallet'}
-                              size={14}
-                              color={isSelected ? theme.onPrimaryContainer : theme.onSurface}
-                            />
-                            <Text
-                              style={[
-                                styles.chipText,
-                                {
-                                  color: isSelected ? theme.onPrimaryContainer : theme.onSurface,
-                                  fontWeight: isSelected ? '700' : '500',
-                                },
-                              ]}
-                            >
-                              {w.name}
-                            </Text>
-                            <Text
-                              style={[
-                                styles.walletBalText,
-                                {
-                                  color: isSelected ? theme.onPrimaryContainer : theme.onSurfaceVariant,
-                                },
-                              ]}
-                            >
-                              {formatCurrency(w.current_balance, w.currency || settings.base_currency)}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </>
-                  )}
-
-                  {wallets.length > 0 && (
-                    <TouchableOpacity
-                      style={[styles.addChipBtn, { backgroundColor: theme.primaryContainer }]}
-                      onPress={() => {
-                        setNewWalletName('');
-                        setNewWalletBal('0');
-                        setQuickWalletModalVisible(true);
-                      }}
-                    >
-                      <MaterialCommunityIcons name="plus" size={15} color={theme.onPrimaryContainer} />
-                    </TouchableOpacity>
-                  )}
-                </ScrollView>
               </View>
             </View>
           </View>
@@ -959,32 +879,232 @@ export const CalendarScreen: React.FC = () => {
           </View>
         )}
 
-        {/* Docked Balance Breakdown */}
-        <View style={[styles.dockedBalanceRow, { borderTopColor: isDarkMode ? 'rgba(255, 255, 255, 0.08)' : theme.divider }]}>
-          <View style={styles.balanceCol}>
-            <Text style={[styles.balanceColLabel, { color: theme.onSurfaceVariant }]}>STARTING TARGET</Text>
-            <Text style={[styles.balanceColVal, { color: theme.onSurface }]}>
-              {formatCurrency(effectiveTarget, settings.base_currency)}
+        {/* DUAL DISPLAY TARGET CARDS: INCOME GOAL (LEFT) & BUDGET CAP (RIGHT) FROM HOMESCREEN */}
+        <View style={styles.dualCardsRow}>
+          {/* Income Goal Card (Left) */}
+          <TouchableOpacity
+            style={[
+              styles.heroDisplayCard,
+              {
+                backgroundColor: theme.cardBg,
+                borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.12)' : theme.divider,
+              },
+              M3Elevation.level1,
+            ]}
+            onPress={openCycleModal}
+            activeOpacity={0.8}
+          >
+            {/* Background Progress Fill Track */}
+            {incomeSwitcherProgress.hasGoal && (
+              <View
+                style={[
+                  styles.cardProgressFillTrack,
+                  {
+                    width: `${Math.min(100, Math.max(0, incomeSwitcherProgress.percent))}%`,
+                    backgroundColor: isDarkMode ? 'rgba(16, 185, 129, 0.20)' : 'rgba(16, 185, 129, 0.12)',
+                  },
+                ]}
+              />
+            )}
+
+            {/* Header: Dot + Title + Badge */}
+            <View style={styles.switcherHeaderRow}>
+              <View style={styles.switcherIconTextRow}>
+                <View style={[styles.tabDot, { backgroundColor: theme.success }]} />
+                <Text style={[styles.switcherTabTitle, { color: theme.onSurfaceVariant }]}>
+                  INCOME GOAL
+                </Text>
+              </View>
+
+              {incomeSwitcherProgress.badgeText && (
+                <View
+                  style={[
+                    styles.switcherBadgePill,
+                    {
+                      backgroundColor: incomeSwitcherProgress.isReached
+                        ? (isDarkMode ? 'rgba(5, 150, 105, 0.35)' : '#D1FAE5')
+                        : (isDarkMode ? 'rgba(255, 255, 255, 0.12)' : theme.pillBg),
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.switcherBadgeText,
+                      {
+                        color: incomeSwitcherProgress.isReached
+                          ? (isDarkMode ? '#6EE7B7' : '#059669')
+                          : (isDarkMode ? '#A7F3D0' : theme.success),
+                      },
+                    ]}
+                  >
+                    {incomeSwitcherProgress.badgeText}
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {/* Main Headline: Amount To Go */}
+            <View style={styles.heroAmountRow}>
+              <Text
+                style={[styles.switcherTabAmount, { color: isDarkMode ? '#34D399' : theme.success }]}
+                numberOfLines={1}
+              >
+                {incomeSwitcherProgress.hasGoal
+                  ? formatCurrency(incomeSwitcherProgress.remaining, curr)
+                  : '+ Set Goal'}
+              </Text>
+              {incomeSwitcherProgress.hasGoal && (
+                <Text style={[styles.heroAmountCaption, { color: theme.onSurfaceVariant }]}>TO GO</Text>
+              )}
+            </View>
+
+            {/* Subtext: Target or Reached */}
+            <Text
+              style={[
+                styles.switcherProgressSubtext,
+                {
+                  color: incomeSwitcherProgress.isReached
+                    ? (isDarkMode ? '#6EE7B7' : '#059669')
+                    : theme.onSurfaceVariant,
+                },
+              ]}
+              numberOfLines={1}
+            >
+              {incomeSwitcherProgress.subText}
             </Text>
-          </View>
 
-          <View style={[styles.balanceDivider, { backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.08)' : theme.divider }]} />
+            {/* Bottom Progress Line */}
+            {incomeSwitcherProgress.hasGoal && (
+              <View style={styles.switcherBottomLineTrack}>
+                <View
+                  style={[
+                    styles.switcherBottomLineFill,
+                    {
+                      width: `${Math.min(100, Math.max(0, incomeSwitcherProgress.percent))}%`,
+                      backgroundColor: theme.success,
+                    },
+                  ]}
+                />
+              </View>
+            )}
+          </TouchableOpacity>
 
-          <View style={styles.balanceCol}>
-            <Text style={[styles.balanceColLabel, { color: theme.error }]}>TOTAL SPENT</Text>
-            <Text style={[styles.balanceColVal, { color: theme.error }]}>
-              {formatCurrency(effectiveSpent, settings.base_currency)}
+          {/* Budget Cap Card (Right) */}
+          <TouchableOpacity
+            style={[
+              styles.heroDisplayCard,
+              {
+                backgroundColor: theme.cardBg,
+                borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.12)' : theme.divider,
+              },
+              M3Elevation.level1,
+            ]}
+            onPress={openCycleModal}
+            activeOpacity={0.8}
+          >
+            {/* Background Progress Fill Track */}
+            {expenseSwitcherProgress.hasTarget && (
+              <View
+                style={[
+                  styles.cardProgressFillTrack,
+                  {
+                    width: `${Math.min(100, Math.max(0, expenseSwitcherProgress.percent))}%`,
+                    backgroundColor: expenseSwitcherProgress.isOver
+                      ? (isDarkMode ? 'rgba(239, 68, 68, 0.25)' : 'rgba(239, 68, 68, 0.15)')
+                      : (isDarkMode ? 'rgba(239, 68, 68, 0.18)' : 'rgba(239, 68, 68, 0.10)'),
+                  },
+                ]}
+              />
+            )}
+
+            {/* Header: Dot + Title + Badge */}
+            <View style={styles.switcherHeaderRow}>
+              <View style={styles.switcherIconTextRow}>
+                <View style={[styles.tabDot, { backgroundColor: theme.error }]} />
+                <Text style={[styles.switcherTabTitle, { color: theme.onSurfaceVariant }]}>
+                  BUDGET CAP
+                </Text>
+              </View>
+
+              {expenseSwitcherProgress.badgeText && (
+                <View
+                  style={[
+                    styles.switcherBadgePill,
+                    {
+                      backgroundColor: expenseSwitcherProgress.isOver
+                        ? (isDarkMode ? 'rgba(220, 38, 38, 0.35)' : '#FEE2E2')
+                        : (isDarkMode ? 'rgba(255, 255, 255, 0.12)' : theme.pillBg),
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.switcherBadgeText,
+                      {
+                        color: expenseSwitcherProgress.isOver
+                          ? (isDarkMode ? '#FCA5A5' : '#DC2626')
+                          : (isDarkMode ? '#F87171' : theme.error),
+                      },
+                    ]}
+                  >
+                    {expenseSwitcherProgress.badgeText}
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {/* Main Headline: Amount Left */}
+            <View style={styles.heroAmountRow}>
+              <Text
+                style={[
+                  styles.switcherTabAmount,
+                  { color: expenseSwitcherProgress.isOver ? (isDarkMode ? '#F87171' : '#DC2626') : (isDarkMode ? '#F87171' : theme.error) },
+                ]}
+                numberOfLines={1}
+              >
+                {expenseSwitcherProgress.hasTarget
+                  ? expenseSwitcherProgress.isOver
+                    ? `-${formatCurrency(expenseSwitcherProgress.overBy, curr)}`
+                    : formatCurrency(expenseSwitcherProgress.remaining, curr)
+                  : '+ Set Cap'}
+              </Text>
+              {expenseSwitcherProgress.hasTarget && (
+                <Text style={[styles.heroAmountCaption, { color: theme.onSurfaceVariant }]}>LEFT</Text>
+              )}
+            </View>
+
+            {/* Subtext: Cap or Over status */}
+            <Text
+              style={[
+                styles.switcherProgressSubtext,
+                {
+                  color: expenseSwitcherProgress.isOver
+                    ? (isDarkMode ? '#FCA5A5' : '#DC2626')
+                    : theme.onSurfaceVariant,
+                },
+              ]}
+              numberOfLines={1}
+            >
+              {expenseSwitcherProgress.subText}
             </Text>
-          </View>
 
-          <View style={[styles.balanceDivider, { backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.08)' : theme.divider }]} />
-
-          <View style={styles.balanceCol}>
-            <Text style={[styles.balanceColLabel, { color: theme.primary }]}>REMAINING</Text>
-            <Text style={[styles.balanceColVal, { color: theme.primary }]}>
-              {formatCurrency(effectiveRemaining, settings.base_currency)}
-            </Text>
-          </View>
+            {/* Bottom Progress Line */}
+            {expenseSwitcherProgress.hasTarget && (
+              <View style={styles.switcherBottomLineTrack}>
+                <View
+                  style={[
+                    styles.switcherBottomLineFill,
+                    {
+                      width: `${Math.min(100, Math.max(0, expenseSwitcherProgress.percent))}%`,
+                      backgroundColor: expenseSwitcherProgress.isOver
+                        ? '#EF4444'
+                        : theme.error,
+                    },
+                  ]}
+                />
+              </View>
+            )}
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -1170,10 +1290,7 @@ export const CalendarScreen: React.FC = () => {
         scrollEventThrottle={16}
       >
         {feedDays.map((dateStr) => {
-          const rawDayTxs = transactionsByDate[dateStr] || [];
-          const dayTxs = selectedWalletFilterId
-            ? rawDayTxs.filter((tx) => tx.wallet_id === selectedWalletFilterId)
-            : rawDayTxs;
+          const dayTxs = transactionsByDate[dateStr] || [];
           const spend = dailySpendMap[dateStr] || 0;
           const isSelected = dateStr === selectedDate;
           const isToday = dateStr === new Date().toISOString().slice(0, 10);
@@ -1382,66 +1499,6 @@ export const CalendarScreen: React.FC = () => {
           onAddSubcategory={addSubcategory}
         />
       )}
-      {/* QUICK REGISTER WALLET MODAL */}
-      <Modal
-        visible={quickWalletModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setQuickWalletModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.quickWalletBox, { backgroundColor: theme.surface }]}>
-            <Text style={[styles.quickWalletTitle, { color: theme.onSurface }]}>Register Wallet</Text>
-            <TextInput
-              style={[
-                styles.quickWalletInput,
-                { color: theme.onSurface, borderColor: theme.divider, backgroundColor: theme.cardBg },
-              ]}
-              placeholder="Wallet Name (e.g. Cash, Bank, Card)"
-              placeholderTextColor={theme.onSurfaceVariant}
-              value={newWalletName}
-              onChangeText={setNewWalletName}
-              autoFocus
-            />
-            <TextInput
-              style={[
-                styles.quickWalletInput,
-                { color: theme.onSurface, borderColor: theme.divider, backgroundColor: theme.cardBg },
-              ]}
-              placeholder="Initial Balance"
-              placeholderTextColor={theme.onSurfaceVariant}
-              value={newWalletBal}
-              onChangeText={setNewWalletBal}
-              keyboardType="decimal-pad"
-            />
-            <View style={styles.quickWalletBtnRow}>
-              <TouchableOpacity
-                style={[styles.quickWalletBtn, { backgroundColor: theme.pillBg }]}
-                onPress={() => setQuickWalletModalVisible(false)}
-              >
-                <Text style={{ color: theme.onSurfaceVariant, fontWeight: '600' }}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.quickWalletBtn, { backgroundColor: theme.primary }]}
-                onPress={async () => {
-                  if (!newWalletName.trim()) return;
-                  const bal = parseFloat(newWalletBal) || 0;
-                  await addWallet({
-                    name: newWalletName.trim(),
-                    currency: settings.base_currency,
-                    starting_balance: bal,
-                    icon: 'wallet',
-                    color: '#3B82F6',
-                  });
-                  setQuickWalletModalVisible(false);
-                }}
-              >
-                <Text style={{ color: theme.onPrimary, fontWeight: '700' }}>Save Wallet</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 };
@@ -1487,48 +1544,6 @@ const styles = StyleSheet.create({
   walletSumText: {
     fontSize: 12,
   },
-  walletRowContainer: {
-    marginTop: 2,
-    marginBottom: 4,
-  },
-  chipRowWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  chipSectionLabel: {
-    fontSize: 9.5,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-    marginRight: 8,
-  },
-  walletScrollContent: {
-    alignItems: 'center',
-    gap: 8,
-  },
-  chipItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: M3Shape.full,
-    borderWidth: 1,
-  },
-  chipText: {
-    fontSize: 12,
-  },
-  walletBalText: {
-    fontSize: 11,
-    fontWeight: '700',
-    marginLeft: 2,
-  },
-  addChipBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   nonCurrentHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1557,34 +1572,94 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
   },
-  quickWalletBox: {
-    width: '100%',
-    maxWidth: 320,
-    borderRadius: M3Shape.large,
-    padding: 20,
-    gap: 12,
-  },
-  quickWalletTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  quickWalletInput: {
-    borderWidth: 1,
-    borderRadius: M3Shape.medium,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 14,
-  },
-  quickWalletBtnRow: {
+  dualCardsRow: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
     gap: 10,
     marginTop: 6,
-  },
-  quickWalletBtn: {
+    marginBottom: 4,
     paddingHorizontal: 16,
+  },
+  heroDisplayCard: {
+    flex: 1,
     paddingVertical: 8,
+    paddingHorizontal: 11,
+    borderRadius: M3Shape.large,
+    position: 'relative',
+    overflow: 'hidden',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+  },
+  cardProgressFillTrack: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 0,
+  },
+  switcherHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 2,
+    zIndex: 2,
+  },
+  switcherIconTextRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  tabDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  switcherTabTitle: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  switcherBadgePill: {
+    paddingHorizontal: 5,
+    paddingVertical: 1,
     borderRadius: M3Shape.full,
+  },
+  switcherBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
+  heroAmountRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 4,
+    zIndex: 2,
+  },
+  switcherTabAmount: {
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+  },
+  heroAmountCaption: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  switcherProgressSubtext: {
+    fontSize: 9,
+    fontWeight: '600',
+    marginTop: 1,
+    zIndex: 2,
+  },
+  switcherBottomLineTrack: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+    backgroundColor: 'rgba(0, 0, 0, 0.08)',
+  },
+  switcherBottomLineFill: {
+    height: '100%',
   },
   cycleChipsWrapper: {
     paddingVertical: 2,
@@ -1623,14 +1698,6 @@ const styles = StyleSheet.create({
   activeBadgeText: {
     fontSize: 9,
     fontWeight: '800',
-  },
-  dockedBalanceRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingTop: 8,
-    marginTop: 4,
-    borderTopWidth: 1,
-    paddingHorizontal: 16,
   },
   dockedCalendarContainer: {
     paddingHorizontal: 16,
@@ -1696,25 +1763,6 @@ const styles = StyleSheet.create({
   },
   compactEmptyDayText: {
     fontSize: 11.5,
-  },
-  balanceCol: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  balanceDivider: {
-    width: 1,
-    height: '80%',
-    alignSelf: 'center',
-  },
-  balanceColLabel: {
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-    marginBottom: 2,
-  },
-  balanceColVal: {
-    fontSize: 13,
-    fontWeight: '700',
   },
   monthHeaderRow: {
     flexDirection: 'row',
