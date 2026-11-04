@@ -179,7 +179,7 @@ export const SettingsScreen: React.FC = () => {
               <MaterialCommunityIcons name="calendar-sync" size={20} color="#4F46E5" />
             </View>
             <View style={styles.itemTextWrap}>
-              <Text style={[styles.itemTitle, { color: theme.onSurface }]}>Budget Cycle Manager</Text>
+              <Text style={[styles.itemTitle, { color: theme.onSurface }]}>Cycle & Budget Manager</Text>
               <Text style={[styles.itemSubtitle, { color: theme.onSurfaceVariant }]}>
                 {settings.cycle_mode === 'custom'
                   ? `Custom Periods (${allCycles.length} total) • Active: ${currentCycle?.name || 'Custom'}`

@@ -211,8 +211,8 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     theme_mode: 'light',
     app_name: 'just budget',
     cycle_mode: 'regular',
-    cycle_balance_mode: 'monthly',
-    cycle_target_mode: 'monthly',
+    cycle_balance_mode: 'accumulated',
+    cycle_target_mode: 'inherit',
     cycle_month_start_day: 1,
   });
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -233,8 +233,8 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         app_name: sMap['app_name'] || 'just budget',
         onboarding_completed: sMap['onboarding_completed'] === '1',
         cycle_mode: (sMap['cycle_mode'] as any) || 'regular',
-        cycle_balance_mode: (sMap['cycle_balance_mode'] as any) || 'monthly',
-        cycle_target_mode: (sMap['cycle_target_mode'] as any) || 'monthly',
+        cycle_balance_mode: (sMap['cycle_balance_mode'] as any) || 'accumulated',
+        cycle_target_mode: (sMap['cycle_target_mode'] as any) || 'inherit',
         cycle_month_start_day: sMap['cycle_month_start_day'] ? parseInt(sMap['cycle_month_start_day'], 10) : 1,
         cycle_default_budget: sMap['cycle_default_budget'] ? parseFloat(sMap['cycle_default_budget']) : undefined,
         cycle_default_income: sMap['cycle_default_income'] ? parseFloat(sMap['cycle_default_income']) : undefined,
@@ -1431,7 +1431,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const db = getDB();
     const curr = params.currency || 'USD';
     const cMode = params.cycleMode || 'regular';
-    const cBalMode = params.cycleBalanceMode || 'monthly';
+    const cBalMode = params.cycleBalanceMode || 'accumulated';
     const cStartDay = params.cycleMonthStartDay || 1;
 
     db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('base_currency', ?)`, [curr]);

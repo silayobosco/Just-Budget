@@ -49,8 +49,8 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
   const [activeTab, setActiveTab] = useState<CycleMode>('regular');
 
   // REGULAR CALENDAR STATE
-  const [balanceMode, setBalanceMode] = useState<CycleBalanceMode>('monthly');
-  const [targetMode, setTargetMode] = useState<CycleTargetMode>('monthly');
+  const [balanceMode, setBalanceMode] = useState<CycleBalanceMode>('accumulated');
+  const [targetMode, setTargetMode] = useState<CycleTargetMode>('inherit');
   const [startDay, setStartDay] = useState<string>('1');
   const [regBudget, setRegBudget] = useState<string>('');
   const [regIncome, setRegIncome] = useState<string>('');
@@ -62,7 +62,7 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
   const [customName, setCustomName] = useState<string>('');
   const [customStart, setCustomStart] = useState<string>('');
   const [customEnd, setCustomEnd] = useState<string>('');
-  const [customTargetMode, setCustomTargetMode] = useState<'inherit' | 'custom'>('custom');
+  const [customTargetMode, setCustomTargetMode] = useState<'inherit' | 'custom'>('inherit');
   const [customBudget, setCustomBudget] = useState<string>('');
   const [customIncome, setCustomIncome] = useState<string>('');
   const [isRangePickerOpen, setIsRangePickerOpen] = useState<boolean>(false);
@@ -71,8 +71,8 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
   useEffect(() => {
     if (visible) {
       setActiveTab(settings.cycle_mode || 'regular');
-      setBalanceMode(settings.cycle_balance_mode || 'monthly');
-      setTargetMode(settings.cycle_target_mode || 'monthly');
+      setBalanceMode(settings.cycle_balance_mode || 'accumulated');
+      setTargetMode(settings.cycle_target_mode || 'inherit');
       setStartDay(settings.cycle_month_start_day ? settings.cycle_month_start_day.toString() : '1');
       setDefaultBudget(settings.cycle_default_budget ? formatTypingNumber(settings.cycle_default_budget.toString()) : '2,000');
       setDefaultIncome(settings.cycle_default_income ? formatTypingNumber(settings.cycle_default_income.toString()) : '2,500');
@@ -84,86 +84,20 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
         setCustomName(currentCycle.name);
         setCustomStart(currentCycle.start_date);
         setCustomEnd(currentCycle.end_date);
+        const hasCustomTargets =
+          (currentCycle.target_budget !== undefined && currentCycle.target_budget !== settings.cycle_default_budget) ||
+          (currentCycle.target_income !== undefined && currentCycle.target_income !== settings.cycle_default_income);
+        setCustomTargetMode(hasCustomTargets ? 'custom' : 'inherit');
         setCustomBudget(currentCycle.target_budget ? formatTypingNumber(currentCycle.target_budget.toString()) : '');
         setCustomIncome(currentCycle.target_income ? formatTypingNumber(currentCycle.target_income.toString()) : '');
       }
     }
   }, [visible, settings, currentCycle]);
 
-  // Preview dates for regular calendar
-  const regularPreview = useMemo(() => {
-    const dayNum = parseInt(startDay, 10);
-    const validDay = isNaN(dayNum) ? 1 : Math.min(31, Math.max(1, dayNum));
-    return getRegularCycleDates(validDay);
-  }, [startDay]);
-
   // Custom cycles only (filter out regular calendar records)
   const customCycles = useMemo(() => {
     return allCycles.filter((c) => !c.id.startsWith('cycle-reg-'));
   }, [allCycles]);
-
-  // Generate list of regular cycle months (-6 to +12 months) based on startDay
-  const regularCyclesList = useMemo(() => {
-    const list: BudgetCycle[] = [];
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth();
-    const dayNum = parseInt(startDay, 10);
-    const validDay = isNaN(dayNum) ? (settings.cycle_month_start_day || 1) : Math.min(31, Math.max(1, dayNum));
-
-    for (let offset = -6; offset <= 12; offset++) {
-      const d = new Date(currentYear, currentMonth + offset, validDay);
-      const reg = getRegularCycleDates(validDay, d);
-      const regId = `cycle-reg-${reg.startDate}`;
-
-      const existing = allCycles.find(
-        (c) => c.id === regId || (c.start_date === reg.startDate && c.end_date === reg.endDate)
-      );
-
-      const isActive = currentCycle
-        ? (currentCycle.start_date === reg.startDate)
-        : (now >= new Date(reg.startDate) && now <= new Date(reg.endDate));
-
-      list.push({
-        id: existing?.id || regId,
-        name: existing?.name || reg.name,
-        start_date: reg.startDate,
-        end_date: reg.endDate,
-        target_budget: existing?.target_budget ?? (settings.cycle_default_budget !== undefined ? Number(settings.cycle_default_budget) : undefined),
-        target_income: existing?.target_income ?? (settings.cycle_default_income !== undefined ? Number(settings.cycle_default_income) : undefined),
-        is_active: isActive,
-      });
-    }
-
-    return list;
-  }, [
-    startDay,
-    settings.cycle_month_start_day,
-    settings.cycle_default_budget,
-    settings.cycle_default_income,
-    allCycles,
-    currentCycle,
-  ]);
-
-  const handleSelectRegularCycle = async (c: BudgetCycle) => {
-    await updateSettings({ cycle_mode: 'regular' });
-    const existing = allCycles.find((item) => item.id === c.id || item.start_date === c.start_date);
-    if (existing) {
-      await setActiveBudgetCycle(existing.id);
-    } else {
-      await updateBudgetCycle({
-        id: c.id,
-        name: c.name,
-        start_date: c.start_date,
-        end_date: c.end_date,
-        target_budget: c.target_budget,
-        target_income: c.target_income,
-      });
-      await setActiveBudgetCycle(c.id);
-    }
-    setSelectedCalendarDate(c.start_date);
-    onClose();
-  };
 
   // Save Regular Calendar Settings
   const handleSaveRegular = async () => {
@@ -218,6 +152,10 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
     setCustomName(cycle.name);
     setCustomStart(cycle.start_date);
     setCustomEnd(cycle.end_date);
+    const hasCustomTargets =
+      (cycle.target_budget !== undefined && cycle.target_budget !== settings.cycle_default_budget) ||
+      (cycle.target_income !== undefined && cycle.target_income !== settings.cycle_default_income);
+    setCustomTargetMode(hasCustomTargets ? 'custom' : 'inherit');
     setCustomBudget(cycle.target_budget ? formatTypingNumber(cycle.target_budget.toString()) : '');
     setCustomIncome(cycle.target_income ? formatTypingNumber(cycle.target_income.toString()) : '');
   };
@@ -234,6 +172,7 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
     setCustomName('New Custom Period');
     setCustomStart(todayStr);
     setCustomEnd(todayStr);
+    setCustomTargetMode('inherit');
     setCustomBudget(settings.cycle_default_budget ? formatTypingNumber(settings.cycle_default_budget.toString()) : '2,000');
     setCustomIncome(settings.cycle_default_income ? formatTypingNumber(settings.cycle_default_income.toString()) : '2,500');
     setIsRangePickerOpen(true);
@@ -246,12 +185,12 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
       return;
     }
 
-    const bNum = customTargetMode === 'inherit' && settings.cycle_default_budget
-      ? settings.cycle_default_budget
+    const bNum = customTargetMode === 'inherit'
+      ? (settings.cycle_default_budget ?? 2000)
       : parseCleanNumber(customBudget);
 
-    const iNum = customTargetMode === 'inherit' && settings.cycle_default_income
-      ? settings.cycle_default_income
+    const iNum = customTargetMode === 'inherit'
+      ? (settings.cycle_default_income ?? 2500)
       : parseCleanNumber(customIncome);
 
     await updateSettings({
@@ -369,25 +308,10 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
             {/* OPTION 1: REGULAR CALENDAR FORM */}
             {activeTab === 'regular' && (
               <View style={styles.sectionContainer}>
-                {/* 1A. Balance Mode: Monthly vs Accumulated */}
+                {/* 1A. Balance Mode: Accumulated vs Monthly */}
                 <View style={styles.groupCard}>
                   <Text style={[styles.groupTitle, { color: theme.onSurface }]}>Balance Mode</Text>
                   <View style={[styles.toggleRow, { backgroundColor: theme.pillBg }]}>
-                    <TouchableOpacity
-                      style={[styles.toggleBtn, balanceMode === 'monthly' && { backgroundColor: theme.primary }]}
-                      onPress={() => setBalanceMode('monthly')}
-                      activeOpacity={0.8}
-                    >
-                      <Text
-                        style={[
-                          styles.toggleBtnText,
-                          { color: balanceMode === 'monthly' ? theme.onPrimary : theme.onSurfaceVariant },
-                        ]}
-                      >
-                        Monthly (Fresh)
-                      </Text>
-                    </TouchableOpacity>
-
                     <TouchableOpacity
                       style={[styles.toggleBtn, balanceMode === 'accumulated' && { backgroundColor: theme.primary }]}
                       onPress={() => setBalanceMode('accumulated')}
@@ -402,11 +326,26 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
                         Accumulated (Rollover)
                       </Text>
                     </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.toggleBtn, balanceMode === 'monthly' && { backgroundColor: theme.primary }]}
+                      onPress={() => setBalanceMode('monthly')}
+                      activeOpacity={0.8}
+                    >
+                      <Text
+                        style={[
+                          styles.toggleBtnText,
+                          { color: balanceMode === 'monthly' ? theme.onPrimary : theme.onSurfaceVariant },
+                        ]}
+                      >
+                        Monthly (Fresh)
+                      </Text>
+                    </TouchableOpacity>
                   </View>
                   <Text style={[styles.subHint, { color: theme.onSurfaceVariant }]}>
-                    {balanceMode === 'monthly'
-                      ? 'Calculates available daily funds strictly within this month’s cycle budget.'
-                      : 'Carries forward unspent savings or overspending deficit into this cycle.'}
+                    {balanceMode === 'accumulated'
+                      ? 'Carries forward unspent savings or overspending deficit into this cycle.'
+                      : 'Calculates available daily funds strictly within this month’s cycle budget.'}
                   </Text>
                 </View>
 
@@ -425,7 +364,7 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
                           { color: targetMode === 'inherit' ? theme.onPrimary : theme.onSurfaceVariant },
                         ]}
                       >
-                        Inherit Recurring
+                        Inherit Defaults
                       </Text>
                     </TouchableOpacity>
 
@@ -523,98 +462,6 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
                     theme={theme}
                     isDarkMode={isDarkMode}
                   />
-                </View>
-
-                {/* 1D. Regular Cycles Vertical List (Navigate & Activate Any Month) */}
-                <View style={styles.groupCard}>
-                  <View style={styles.rowBetween}>
-                    <Text style={[styles.groupTitle, { color: theme.onSurface }]}>Regular Cycle Months</Text>
-                    <Text style={[styles.subHint, { color: theme.primary, fontWeight: '700' }]}>
-                      Tap to switch
-                    </Text>
-                  </View>
-                  <Text style={[styles.subHint, { color: theme.onSurfaceVariant, marginBottom: 10 }]}>
-                    All regular cycles repeating on day {startDay || 1}. Tap any month below to navigate to it.
-                  </Text>
-
-                  <View style={styles.regularCyclesContainer}>
-                    {regularCyclesList.map((c) => {
-                      const isActive = Boolean(
-                        c.is_active || (currentCycle && c.start_date === currentCycle.start_date)
-                      );
-                      const dateRangeLabel = formatCycleDateRange(c.start_date, c.end_date);
-                      return (
-                        <TouchableOpacity
-                          key={c.id}
-                          style={[
-                            styles.regularCycleRow,
-                            {
-                              backgroundColor: isActive
-                                ? (isDarkMode ? 'rgba(99, 102, 241, 0.22)' : theme.primaryContainer)
-                                : (isDarkMode ? 'rgba(255, 255, 255, 0.04)' : theme.pillBg),
-                              borderColor: isActive ? theme.primary : 'transparent',
-                            },
-                            isActive && M3Elevation.level1,
-                          ]}
-                          onPress={() => handleSelectRegularCycle(c)}
-                          activeOpacity={0.75}
-                        >
-                          <View style={styles.regularCycleRowLeft}>
-                            <MaterialCommunityIcons
-                              name={isActive ? 'calendar-check' : 'calendar-month-outline'}
-                              size={20}
-                              color={isActive ? (isDarkMode ? '#A5B4FC' : theme.primary) : theme.onSurfaceVariant}
-                            />
-                            <View style={{ marginLeft: 10, flex: 1 }}>
-                              <Text
-                                style={[
-                                  styles.regularCycleRowTitle,
-                                  {
-                                    color: isActive
-                                      ? (isDarkMode ? '#E0E7FF' : theme.onPrimaryContainer)
-                                      : theme.onSurface,
-                                    fontWeight: isActive ? '800' : '600',
-                                  },
-                                ]}
-                                numberOfLines={1}
-                              >
-                                {dateRangeLabel}
-                              </Text>
-                              <Text style={[styles.regularCycleRowSub, { color: theme.onSurfaceVariant }]}>
-                                {c.target_budget
-                                  ? `Budget: ${formatCurrency(c.target_budget, curr)}`
-                                  : 'Standard default budget'}
-                              </Text>
-                            </View>
-                          </View>
-
-                          {isActive ? (
-                            <View
-                              style={[
-                                styles.activeBadgePill,
-                                { backgroundColor: isDarkMode ? '#818CF8' : theme.primary },
-                              ]}
-                            >
-                              <Text
-                                style={[
-                                  styles.activeBadgeText,
-                                  { color: isDarkMode ? '#0F172A' : theme.onPrimary },
-                                ]}
-                              >
-                                Active
-                              </Text>
-                            </View>
-                          ) : (
-                            <MaterialCommunityIcons
-                              name="chevron-right"
-                              size={18}
-                              color={theme.onSurfaceVariant}
-                            />
-                          )}
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
                 </View>
               </View>
             )}
@@ -759,7 +606,14 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
                     </TouchableOpacity>
                   </View>
 
-                  {customTargetMode === 'custom' && (
+                  {customTargetMode === 'inherit' ? (
+                    <View style={[styles.inheritInfoCard, { backgroundColor: theme.pillBg }]}>
+                      <MaterialCommunityIcons name="shield-sync-outline" size={18} color={theme.primary} />
+                      <Text style={[styles.inheritInfoText, { color: theme.onSurfaceVariant }]}>
+                        Inherits default budget ({formatCurrency(settings.cycle_default_budget || 2000, curr)}) and income goal ({formatCurrency(settings.cycle_default_income || 2500, curr)}).
+                      </Text>
+                    </View>
+                  ) : (
                     <View style={styles.inputsRow}>
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>
@@ -1123,5 +977,18 @@ const styles = StyleSheet.create({
   activeBadgeText: {
     fontSize: 10,
     fontWeight: '800',
+  },
+  inheritInfoCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 12,
+    borderRadius: M3Shape.medium,
+    marginTop: 8,
+  },
+  inheritInfoText: {
+    fontSize: 12,
+    flex: 1,
+    lineHeight: 17,
   },
 });

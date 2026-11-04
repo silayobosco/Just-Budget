@@ -120,7 +120,7 @@ export const OnboardingModal: React.FC = () => {
   // Step 2: Cycle Management
   const [cycleMode, setCycleMode] = useState<'regular' | 'custom'>('regular');
   const [cycleStartDayStr, setCycleStartDayStr] = useState<string>('1');
-  const [cycleBalanceMode, setCycleBalanceMode] = useState<'monthly' | 'accumulated'>('monthly');
+  const [cycleBalanceMode, setCycleBalanceMode] = useState<'monthly' | 'accumulated'>('accumulated');
 
   // Custom cycle dates
   const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
@@ -698,40 +698,6 @@ export const OnboardingModal: React.FC = () => {
                         style={[
                           styles.balanceModeCard,
                           {
-                            backgroundColor: cycleBalanceMode === 'monthly' ? theme.primaryContainer : theme.pillBg,
-                            borderColor: cycleBalanceMode === 'monthly' ? theme.primary : 'transparent',
-                          },
-                        ]}
-                        onPress={() => setCycleBalanceMode('monthly')}
-                        activeOpacity={0.7}
-                      >
-                        <MaterialCommunityIcons
-                          name="restart"
-                          size={22}
-                          color={cycleBalanceMode === 'monthly' ? theme.onPrimaryContainer : theme.onSurfaceVariant}
-                        />
-                        <Text
-                          style={[
-                            styles.balanceModeTitle,
-                            { color: cycleBalanceMode === 'monthly' ? theme.onPrimaryContainer : theme.onSurface },
-                          ]}
-                        >
-                          Monthly Reset
-                        </Text>
-                        <Text
-                          style={[
-                            styles.balanceModeSub,
-                            { color: cycleBalanceMode === 'monthly' ? theme.onPrimaryContainer : theme.onSurfaceVariant },
-                          ]}
-                        >
-                          Allowance & budget start fresh each cycle
-                        </Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[
-                          styles.balanceModeCard,
-                          {
                             backgroundColor: cycleBalanceMode === 'accumulated' ? theme.primaryContainer : theme.pillBg,
                             borderColor: cycleBalanceMode === 'accumulated' ? theme.primary : 'transparent',
                           },
@@ -759,6 +725,40 @@ export const OnboardingModal: React.FC = () => {
                           ]}
                         >
                           Unspent allowance rolls into next cycle
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[
+                          styles.balanceModeCard,
+                          {
+                            backgroundColor: cycleBalanceMode === 'monthly' ? theme.primaryContainer : theme.pillBg,
+                            borderColor: cycleBalanceMode === 'monthly' ? theme.primary : 'transparent',
+                          },
+                        ]}
+                        onPress={() => setCycleBalanceMode('monthly')}
+                        activeOpacity={0.7}
+                      >
+                        <MaterialCommunityIcons
+                          name="restart"
+                          size={22}
+                          color={cycleBalanceMode === 'monthly' ? theme.onPrimaryContainer : theme.onSurfaceVariant}
+                        />
+                        <Text
+                          style={[
+                            styles.balanceModeTitle,
+                            { color: cycleBalanceMode === 'monthly' ? theme.onPrimaryContainer : theme.onSurface },
+                          ]}
+                        >
+                          Monthly Reset
+                        </Text>
+                        <Text
+                          style={[
+                            styles.balanceModeSub,
+                            { color: cycleBalanceMode === 'monthly' ? theme.onPrimaryContainer : theme.onSurfaceVariant },
+                          ]}
+                        >
+                          Allowance & budget start fresh each cycle
                         </Text>
                       </TouchableOpacity>
                     </View>
