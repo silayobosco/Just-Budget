@@ -563,7 +563,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (isOverDaily) {
           status = 'over_daily';
           headlineLabel = 'OVERSPENT TODAY';
-          badgeLabel = 'Daily Limit Exceeded';
+          badgeLabel = 'Exceeded';
           const overToday = Math.abs(remainingToday);
           const remainingCycle = Math.max(0, targetBudget - spentInCycle);
           subText = `Over daily limit by ${formatCurrency(overToday, curr)} • ${formatCurrency(remainingCycle, curr)} left in cycle`;

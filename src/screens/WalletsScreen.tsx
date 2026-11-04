@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -9,13 +9,16 @@ import {
   Modal,
   Alert,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
-import { Wallet } from '../types';
+import { Wallet, Transaction } from '../types';
 import { formatCurrency, formatTypingNumber, parseCleanNumber } from '../utils/format';
+import { TransactionDetailModal } from '../components/TransactionDetailModal';
 
 export const WalletsScreen: React.FC = () => {
+  const insets = useSafeAreaInsets();
   const {
     wallets,
     totalConvertedBalance,
@@ -24,6 +27,9 @@ export const WalletsScreen: React.FC = () => {
     updateWallet,
     deleteWallet,
     transferBetweenWallets,
+    transactions,
+    categories,
+    deleteTransaction,
   } = useBudget();
 
   const theme = settings.theme_mode === 'dark' ? darkTheme : lightTheme;
@@ -32,6 +38,95 @@ export const WalletsScreen: React.FC = () => {
   const [walletModalVisible, setWalletModalVisible] = useState(false);
   const [transferModalVisible, setTransferModalVisible] = useState(false);
   const [editingWallet, setEditingWallet] = useState<Wallet | null>(null);
+
+  // Selected Wallet Detail & Transaction Viewer States
+  const [selectedWallet, setSelectedWallet] = useState<Wallet | null>(null);
+  const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
+
+  const currentSelectedWallet = wallets.find((w) => w.id === selectedWallet?.id) || selectedWallet;
+
+  // Transactions belonging to the currently viewed wallet
+  const walletTransactions = useMemo(() => {
+    if (!currentSelectedWallet) return [];
+    return transactions
+      .filter((t) => t.wallet_id === currentSelectedWallet.id)
+      .sort((a, b) => {
+        if (a.date !== b.date) return b.date.localeCompare(a.date);
+        const timeA = a.time || '';
+        const timeB = b.time || '';
+        return timeB.localeCompare(timeA);
+      });
+  }, [transactions, currentSelectedWallet]);
+
+  // Wallet stats: total inflow, total outflow, net activity
+  const walletStats = useMemo(() => {
+    if (!currentSelectedWallet) return { inflow: 0, outflow: 0, net: 0 };
+    let inflow = 0;
+    let outflow = 0;
+    for (const t of walletTransactions) {
+      const amt = t.amount || t.base_amount || 0;
+      if (t.type === 'income') {
+        inflow += amt;
+      } else if (t.type === 'expense' || t.type === 'transfer') {
+        outflow += amt;
+      }
+    }
+    return {
+      inflow,
+      outflow,
+      net: inflow - outflow,
+    };
+  }, [walletTransactions, currentSelectedWallet]);
+
+  // Grouped wallet transactions by date
+  const groupedWalletTransactions = useMemo(() => {
+    const map = new Map<string, Transaction[]>();
+    walletTransactions.forEach((tx) => {
+      const d = tx.date;
+      if (!map.has(d)) {
+        map.set(d, []);
+      }
+      map.get(d)!.push(tx);
+    });
+
+    const groups: {
+      date: string;
+      displayDate: string;
+      totalSpent: number;
+      totalIncome: number;
+      items: Transaction[];
+    }[] = [];
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().slice(0, 10);
+
+    Array.from(map.entries())
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .forEach(([d, items]) => {
+        let displayDate = d;
+        if (d === todayStr) displayDate = 'Today';
+        else if (d === yesterdayStr) displayDate = 'Yesterday';
+
+        const daySpent = items
+          .filter((t) => t.type === 'expense' || t.type === 'transfer')
+          .reduce((sum, t) => sum + (t.amount || t.base_amount || 0), 0);
+        const dayIncome = items
+          .filter((t) => t.type === 'income')
+          .reduce((sum, t) => sum + (t.amount || t.base_amount || 0), 0);
+
+        groups.push({
+          date: d,
+          displayDate,
+          totalSpent: daySpent,
+          totalIncome: dayIncome,
+          items,
+        });
+      });
+
+    return groups;
+  }, [walletTransactions]);
 
   // New / Edit Wallet form states
   const [walletName, setWalletName] = useState('');
@@ -194,9 +289,11 @@ export const WalletsScreen: React.FC = () => {
         ) : (
           wallets.map((w) => {
             return (
-              <View
+              <TouchableOpacity
                 key={w.id}
                 style={[styles.walletCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}
+                onPress={() => setSelectedWallet(w)}
+                activeOpacity={0.7}
               >
                 <View style={styles.walletCardTop}>
                   <View style={[styles.walletIconCircle, { backgroundColor: w.color }]}>
@@ -210,21 +307,8 @@ export const WalletsScreen: React.FC = () => {
                     </Text>
                   </View>
 
-                  <View style={styles.cardActions}>
-                    <TouchableOpacity
-                      style={[styles.cardActionIcon, { backgroundColor: theme.pillBg }]}
-                      onPress={() => handleOpenEditWallet(w)}
-                    >
-                      <MaterialCommunityIcons name="pencil-outline" size={16} color={theme.onSurface} />
-                    </TouchableOpacity>
-                    {wallets.length > 1 && (
-                      <TouchableOpacity
-                        style={[styles.cardActionIcon, { backgroundColor: theme.errorContainer }]}
-                        onPress={() => deleteWallet(w.id)}
-                      >
-                        <MaterialCommunityIcons name="trash-can-outline" size={16} color={theme.onErrorContainer} />
-                      </TouchableOpacity>
-                    )}
+                  <View style={styles.cardChevronWrap}>
+                    <MaterialCommunityIcons name="chevron-right" size={24} color={theme.onSurfaceVariant} />
                   </View>
                 </View>
 
@@ -250,7 +334,7 @@ export const WalletsScreen: React.FC = () => {
                     </Text>
                   </View>
                 </View>
-              </View>
+              </TouchableOpacity>
             );
           })
         )}
@@ -471,6 +555,298 @@ export const WalletsScreen: React.FC = () => {
           </View>
         </View>
       </Modal>
+
+      {/* WALLET DETAIL MODAL */}
+      <Modal
+        visible={Boolean(selectedWallet)}
+        animationType="slide"
+        onRequestClose={() => setSelectedWallet(null)}
+      >
+        <View style={[styles.detailContainer, { backgroundColor: theme.background, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+          {/* TOP NAV BAR */}
+          <View style={[styles.detailNavBar, { borderBottomColor: theme.divider, backgroundColor: theme.surface }]}>
+            <TouchableOpacity
+              style={styles.detailNavBackBtn}
+              onPress={() => setSelectedWallet(null)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <MaterialCommunityIcons name="arrow-left" size={24} color={theme.onSurface} />
+            </TouchableOpacity>
+
+            <View style={styles.detailNavTitleWrap}>
+              <Text style={[styles.detailNavTitle, { color: theme.onSurface }]} numberOfLines={1}>
+                {currentSelectedWallet?.name || 'Wallet Details'}
+              </Text>
+              <Text style={[styles.detailNavSubtitle, { color: theme.onSurfaceVariant }]}>
+                {settings.base_currency} Account
+              </Text>
+            </View>
+
+            <View style={styles.detailNavActions}>
+              {/* EDIT BUTTON MOVED HERE */}
+              <TouchableOpacity
+                style={[styles.detailActionBtn, { backgroundColor: theme.pillBg }]}
+                onPress={() => {
+                  if (currentSelectedWallet) {
+                    handleOpenEditWallet(currentSelectedWallet);
+                  }
+                }}
+                accessibilityLabel="Edit Wallet"
+              >
+                <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.onSurface} />
+              </TouchableOpacity>
+
+              {/* DELETE BUTTON MOVED HERE */}
+              {wallets.length > 1 && (
+                <TouchableOpacity
+                  style={[styles.detailActionBtn, { backgroundColor: theme.errorContainer }]}
+                  onPress={() => {
+                    if (!currentSelectedWallet) return;
+                    Alert.alert(
+                      'Delete Wallet',
+                      `Are you sure you want to delete "${currentSelectedWallet.name}"? Transactions associated with this wallet will be removed.`,
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        {
+                          text: 'Delete',
+                          style: 'destructive',
+                          onPress: async () => {
+                            await deleteWallet(currentSelectedWallet.id);
+                            setSelectedWallet(null);
+                          },
+                        },
+                      ]
+                    );
+                  }}
+                  accessibilityLabel="Delete Wallet"
+                >
+                  <MaterialCommunityIcons name="trash-can-outline" size={18} color={theme.onErrorContainer} />
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.detailScrollContent}>
+            {/* HERO WALLET CARD */}
+            {currentSelectedWallet && (
+              <View style={[styles.detailHeroCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level2]}>
+                <View style={styles.detailHeroTop}>
+                  <View style={[styles.detailIconCircle, { backgroundColor: currentSelectedWallet.color }]}>
+                    <MaterialCommunityIcons name={currentSelectedWallet.icon as any} size={28} color="#FFFFFF" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.detailHeroName, { color: theme.onSurface }]}>
+                      {currentSelectedWallet.name}
+                    </Text>
+                    <Text style={[styles.detailHeroCurrency, { color: theme.onSurfaceVariant }]}>
+                      Starting: {formatCurrency(currentSelectedWallet.starting_balance, settings.base_currency)}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* CURRENT BALANCE */}
+                <View style={styles.detailBalanceWrap}>
+                  <Text style={[styles.detailBalanceLabel, { color: theme.onSurfaceVariant }]}>
+                    CURRENT BALANCE
+                  </Text>
+                  <Text
+                    style={[
+                      styles.detailBalanceAmount,
+                      { color: currentSelectedWallet.current_balance < 0 ? theme.error : theme.primary },
+                    ]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                  >
+                    {formatCurrency(currentSelectedWallet.current_balance, settings.base_currency)}
+                  </Text>
+                </View>
+
+                {/* STATS TILES (INFLOW, OUTFLOW, NET) */}
+                <View style={[styles.detailStatsGrid, { borderTopColor: theme.divider }]}>
+                  <View style={styles.detailStatTile}>
+                    <View style={styles.detailStatHeader}>
+                      <MaterialCommunityIcons name="arrow-bottom-left" size={14} color={theme.success} />
+                      <Text style={[styles.detailStatLabel, { color: theme.onSurfaceVariant }]}>INFLOW</Text>
+                    </View>
+                    <Text style={[styles.detailStatValue, { color: theme.success }]} numberOfLines={1}>
+                      +{formatCurrency(walletStats.inflow, settings.base_currency)}
+                    </Text>
+                  </View>
+
+                  <View style={[styles.detailStatDivider, { backgroundColor: theme.divider }]} />
+
+                  <View style={styles.detailStatTile}>
+                    <View style={styles.detailStatHeader}>
+                      <MaterialCommunityIcons name="arrow-top-right" size={14} color={theme.error} />
+                      <Text style={[styles.detailStatLabel, { color: theme.onSurfaceVariant }]}>OUTFLOW</Text>
+                    </View>
+                    <Text style={[styles.detailStatValue, { color: theme.error }]} numberOfLines={1}>
+                      -{formatCurrency(walletStats.outflow, settings.base_currency)}
+                    </Text>
+                  </View>
+
+                  <View style={[styles.detailStatDivider, { backgroundColor: theme.divider }]} />
+
+                  <View style={styles.detailStatTile}>
+                    <View style={styles.detailStatHeader}>
+                      <MaterialCommunityIcons
+                        name={walletStats.net >= 0 ? 'trending-up' : 'trending-down'}
+                        size={14}
+                        color={walletStats.net >= 0 ? theme.success : theme.error}
+                      />
+                      <Text style={[styles.detailStatLabel, { color: theme.onSurfaceVariant }]}>NET</Text>
+                    </View>
+                    <Text
+                      style={[
+                        styles.detailStatValue,
+                        { color: walletStats.net >= 0 ? theme.success : theme.error },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {walletStats.net >= 0 ? '+' : ''}{formatCurrency(walletStats.net, settings.base_currency)}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* TRANSFER ACTION PILL */}
+                <TouchableOpacity
+                  style={[styles.detailTransferBtn, { backgroundColor: theme.pillBg }]}
+                  onPress={() => handleOpenTransfer(currentSelectedWallet.id)}
+                  activeOpacity={0.7}
+                >
+                  <MaterialCommunityIcons name="swap-horizontal" size={18} color={theme.primary} />
+                  <Text style={[styles.detailTransferBtnText, { color: theme.primary }]}>
+                    Transfer Funds From This Wallet
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* TRANSACTIONS SECTION */}
+            <View style={styles.detailTxHeaderRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <MaterialCommunityIcons name="history" size={18} color={theme.primary} />
+                <Text style={[styles.detailTxSectionTitle, { color: theme.onSurface }]}>
+                  Transactions ({walletTransactions.length})
+                </Text>
+              </View>
+            </View>
+
+            {walletTransactions.length === 0 ? (
+              <View style={[styles.detailEmptyBox, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
+                <MaterialCommunityIcons name="receipt-text-outline" size={36} color={theme.onSurfaceVariant} style={{ opacity: 0.5, marginBottom: 8 }} />
+                <Text style={[styles.detailEmptyTitle, { color: theme.onSurface }]}>
+                  No Transactions Found
+                </Text>
+                <Text style={[styles.detailEmptySub, { color: theme.onSurfaceVariant }]}>
+                  Transactions recorded with this wallet will appear here.
+                </Text>
+              </View>
+            ) : (
+              groupedWalletTransactions.map((group) => (
+                <View key={group.date} style={styles.detailDateGroup}>
+                  <View style={[styles.detailDateHeaderRow, { borderBottomColor: theme.divider }]}>
+                    <Text style={[styles.detailDateTitle, { color: theme.onSurfaceVariant }]}>
+                      {group.displayDate.toUpperCase()}
+                    </Text>
+                    <View style={styles.detailDateTotalsRow}>
+                      {group.totalSpent > 0 && (
+                        <Text style={[styles.detailDateSpent, { color: theme.error }]}>
+                          -{formatCurrency(group.totalSpent, settings.base_currency)}
+                        </Text>
+                      )}
+                      {group.totalIncome > 0 && (
+                        <Text style={[styles.detailDateIncome, { color: theme.success }]}>
+                          +{formatCurrency(group.totalIncome, settings.base_currency)}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+
+                  {group.items.map((tx) => {
+                    const cat = categories.find((c) => c.id === tx.category_id);
+                    const sub = cat?.subcategories?.find((s) => s.id === tx.subcategory_id);
+                    const isExp = tx.type === 'expense';
+                    const isTransfer = tx.type === 'transfer';
+
+                    const mainTitle = isTransfer
+                      ? 'Transfer'
+                      : sub?.name || cat?.name || 'Activity';
+
+                    const subtitle = [
+                      sub ? cat?.name : null,
+                      tx.time || null,
+                      tx.note || null,
+                    ]
+                      .filter(Boolean)
+                      .join(' • ');
+
+                    return (
+                      <TouchableOpacity
+                        key={tx.id}
+                        style={[styles.detailTxItem, { backgroundColor: theme.cardBg, borderColor: theme.divider }]}
+                        onPress={() => setViewingTransaction(tx)}
+                        activeOpacity={0.7}
+                      >
+                        <View
+                          style={[
+                            styles.detailTxIconCircle,
+                            { backgroundColor: isTransfer ? theme.primary : (cat?.color || (isExp ? '#EF4444' : '#10B981')) },
+                          ]}
+                        >
+                          <MaterialCommunityIcons
+                            name={isTransfer ? 'swap-horizontal' : ((cat?.icon as any) || 'tag-outline')}
+                            size={18}
+                            color="#FFFFFF"
+                          />
+                        </View>
+
+                        <View style={styles.detailTxInfo}>
+                          <Text style={[styles.detailTxMainTitle, { color: theme.onSurface }]} numberOfLines={1}>
+                            {mainTitle}
+                          </Text>
+                          {subtitle ? (
+                            <Text style={[styles.detailTxSubtitle, { color: theme.onSurfaceVariant }]}>
+                              {subtitle}
+                            </Text>
+                          ) : null}
+                        </View>
+
+                        <Text
+                          style={[
+                            styles.detailTxAmount,
+                            { color: isExp ? theme.error : theme.success },
+                          ]}
+                        >
+                          {isExp ? '-' : '+'}{formatCurrency(tx.amount || tx.base_amount || 0, settings.base_currency)}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ))
+            )}
+          </ScrollView>
+        </View>
+      </Modal>
+
+      {/* TRANSACTION FULL DETAILS MODAL */}
+      <TransactionDetailModal
+        visible={Boolean(viewingTransaction)}
+        transaction={viewingTransaction}
+        categories={categories}
+        wallets={wallets}
+        theme={theme}
+        baseCurrency={settings.base_currency}
+        onClose={() => setViewingTransaction(null)}
+        onEdit={() => {
+          setViewingTransaction(null);
+        }}
+        onDelete={async (id) => {
+          await deleteTransaction(id);
+          setViewingTransaction(null);
+        }}
+      />
     </View>
   );
 };
@@ -734,5 +1110,224 @@ const styles = StyleSheet.create({
   emptyAddBtnText: {
     fontSize: 13,
     fontWeight: '700',
+  },
+  cardChevronWrap: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingLeft: 4,
+  },
+  detailContainer: {
+    flex: 1,
+  },
+  detailNavBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    gap: 12,
+  },
+  detailNavBackBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  detailNavTitleWrap: {
+    flex: 1,
+  },
+  detailNavTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  detailNavSubtitle: {
+    fontSize: 12,
+    marginTop: 1,
+  },
+  detailNavActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  detailActionBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  detailScrollContent: {
+    padding: 16,
+    paddingBottom: 40,
+  },
+  detailHeroCard: {
+    borderWidth: 1,
+    borderRadius: M3Shape.extraLarge,
+    padding: 20,
+    marginBottom: 20,
+  },
+  detailHeroTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  detailIconCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  detailHeroName: {
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  detailHeroCurrency: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  detailBalanceWrap: {
+    marginVertical: 16,
+  },
+  detailBalanceLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1,
+    marginBottom: 4,
+  },
+  detailBalanceAmount: {
+    fontSize: 32,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+  },
+  detailStatsGrid: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    paddingTop: 14,
+    marginBottom: 16,
+  },
+  detailStatTile: {
+    flex: 1,
+  },
+  detailStatHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 4,
+  },
+  detailStatLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  detailStatValue: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  detailStatDivider: {
+    width: 1,
+    height: 28,
+    marginHorizontal: 8,
+  },
+  detailTransferBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 11,
+    borderRadius: M3Shape.full,
+  },
+  detailTransferBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  detailTxHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  detailTxSectionTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  detailEmptyBox: {
+    borderWidth: 1,
+    borderRadius: M3Shape.extraLarge,
+    padding: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  detailEmptyTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  detailEmptySub: {
+    fontSize: 12,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  detailDateGroup: {
+    marginBottom: 16,
+  },
+  detailDateHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingBottom: 6,
+    marginBottom: 8,
+    borderBottomWidth: 1,
+  },
+  detailDateTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  detailDateTotalsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  detailDateSpent: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  detailDateIncome: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  detailTxItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: M3Shape.large,
+    padding: 12,
+    marginBottom: 8,
+    gap: 12,
+  },
+  detailTxIconCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  detailTxInfo: {
+    flex: 1,
+  },
+  detailTxMainTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  detailTxSubtitle: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  detailTxAmount: {
+    fontSize: 14,
+    fontWeight: '800',
   },
 });
