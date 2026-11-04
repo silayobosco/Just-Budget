@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -9,13 +9,68 @@ import {
   Alert,
   Switch,
   Image,
+  Modal,
+  Linking,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
 import { formatCurrency } from '../utils/format';
 import { CategoryManagerModal } from '../components/CategoryManagerModal';
 import { RecurringBillsModal } from '../components/RecurringBillsModal';
+
+const CURRENCY_LIST = [
+  { code: 'USD', symbol: '$', name: 'US Dollar' },
+  { code: 'EUR', symbol: '€', name: 'Euro' },
+  { code: 'GBP', symbol: '£', name: 'British Pound' },
+  { code: 'TZS', symbol: 'TSh', name: 'Tanzanian Shilling' },
+  { code: 'KES', symbol: 'KSh', name: 'Kenyan Shilling' },
+  { code: 'UGX', symbol: 'USh', name: 'Ugandan Shilling' },
+  { code: 'RWF', symbol: 'FRw', name: 'Rwandan Franc' },
+  { code: 'ZAR', symbol: 'R', name: 'South African Rand' },
+  { code: 'INR', symbol: '₹', name: 'Indian Rupee' },
+  { code: 'CAD', symbol: 'CA$', name: 'Canadian Dollar' },
+  { code: 'AUD', symbol: 'AU$', name: 'Australian Dollar' },
+  { code: 'JPY', symbol: '¥', name: 'Japanese Yen' },
+  { code: 'CNY', symbol: '¥', name: 'Chinese Yuan' },
+  { code: 'AED', symbol: 'AED', name: 'UAE Dirham' },
+  { code: 'CHF', symbol: 'CHF', name: 'Swiss Franc' },
+  { code: 'NGN', symbol: '₦', name: 'Nigerian Naira' },
+  { code: 'GHS', symbol: 'GH₵', name: 'Ghanaian Cedi' },
+  { code: 'BRL', symbol: 'R$', name: 'Brazilian Real' },
+];
+
+const FAQ_ITEMS = [
+  {
+    q: 'How does Just Budget keep my financial data private?',
+    a: 'Just Budget is strictly offline-first. All accounts, wallets, transactions, and budgets are saved exclusively on your device using local SQLite. No accounts, ads, or external cloud servers are used.',
+  },
+  {
+    q: 'How is the Daily Allowance calculated?',
+    a: 'Your daily allowance divides your remaining cycle budget by the days remaining until your cycle ends. Spending less than your daily allowance builds savings, which can roll forward into upcoming days.',
+  },
+  {
+    q: 'What does "Overspent Today" mean?',
+    a: 'If your spending today exceeds today\'s allowance, the top card alerts you in red and recalculates a sustainable daily target for the remaining days so you stay within your overall cycle limit.',
+  },
+  {
+    q: 'What is the difference between Accumulated and Monthly Reset?',
+    a: 'Accumulated (Rollover) carries forward your unspent savings or overspent deficit into the subsequent cycle so your real-world balance is preserved. Monthly Reset starts fresh with your baseline budget every month.',
+  },
+  {
+    q: 'How do I backup or transfer to another phone?',
+    a: 'In Settings under Google Drive & Cloud Backup, tap "Export to Google Drive / Files". This creates a portable .jbbackup file that you can save or share. On a new device, tap "Restore Session from File" to load everything.',
+  },
+  {
+    q: 'How do Wallets and Transfers work?',
+    a: 'You can set up Cash, Bank, or Mobile Money wallets. When transferring money between wallets, use "Transfer Funds" so your expense budgets and daily allowance remain unaffected.',
+  },
+  {
+    q: 'How do I report a bug or request a feature?',
+    a: 'Tap "Report a Problem or Suggestion" in Settings or email juniorboss031@gmail.com directly. We value all feedback and implement user ideas regularly!',
+  },
+];
 
 export const SettingsScreen: React.FC = () => {
   const {
@@ -35,16 +90,57 @@ export const SettingsScreen: React.FC = () => {
 
   const [categoriesModalVisible, setCategoriesModalVisible] = useState(false);
   const [recurringBillsModalVisible, setRecurringBillsModalVisible] = useState(false);
+  const [currencyPickerVisible, setCurrencyPickerVisible] = useState(false);
+  const [currencySearch, setCurrencySearch] = useState('');
+  const [faqsModalVisible, setFaqsModalVisible] = useState(false);
+  const [expandedFaqIndex, setExpandedFaqIndex] = useState<number | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>('');
 
-  const currencies = ['USD', 'EUR', 'GBP', 'TZS', 'KES', 'INR', 'CAD', 'AUD', 'JPY', 'CNY', 'ZAR', 'AED'];
+  const filteredCurrencies = useMemo(() => {
+    const q = currencySearch.trim().toLowerCase();
+    if (!q) return CURRENCY_LIST;
+    return CURRENCY_LIST.filter(
+      (c) => c.code.toLowerCase().includes(q) || c.name.toLowerCase().includes(q) || c.symbol.toLowerCase().includes(q)
+    );
+  }, [currencySearch]);
 
   const handleSelectBaseCurrency = async (curr: string) => {
     await updateSettings({ base_currency: curr });
+    setCurrencyPickerVisible(false);
   };
 
   const handleToggleTheme = async (isDark: boolean) => {
     await updateSettings({ theme_mode: isDark ? 'dark' : 'light' });
+  };
+
+  const handleContactSupport = async () => {
+    const email = 'juniorboss031@gmail.com';
+    const subject = encodeURIComponent('Just Budget - Feedback / Bug Report');
+    const body = encodeURIComponent(
+      `Hi,\n\nI want to report an issue or suggest a feature for Just Budget:\n\n[Write your message here]\n\nApp Version: 1.0.0\nTheme: ${settings.theme_mode}\nCurrency: ${settings.base_currency}`
+    );
+    const mailtoUrl = `mailto:${email}?subject=${subject}&body=${body}`;
+
+    try {
+      const canOpen = await Linking.canOpenURL(mailtoUrl);
+      if (canOpen) {
+        await Linking.openURL(mailtoUrl);
+      } else {
+        await Clipboard.setStringAsync(email);
+        Alert.alert(
+          'Contact Developer',
+          `Email address copied to clipboard:\n\n${email}\n\nPlease paste it into your favorite email app.`,
+          [{ text: 'OK' }]
+        );
+      }
+    } catch {
+      await Clipboard.setStringAsync(email);
+      Alert.alert(
+        'Contact Developer',
+        `Email address copied to clipboard:\n\n${email}`,
+        [{ text: 'OK' }]
+      );
+    }
   };
 
   const handleExport = async () => {
@@ -80,51 +176,29 @@ export const SettingsScreen: React.FC = () => {
         {/* SECTION 1: PREFERENCES & CURRENCY */}
         <Text style={[styles.sectionHeader, { color: theme.primary }]}>PREFERENCES & CURRENCY</Text>
         <View style={[styles.cardGroup, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
-          {/* Base Currency Selection */}
-          <View style={styles.listItem}>
-            <View style={styles.itemHeaderRow}>
-              <View style={[styles.itemIconCircle, { backgroundColor: theme.primaryContainer }]}>
-                <MaterialCommunityIcons name="currency-usd" size={20} color={theme.onPrimaryContainer} />
-              </View>
-              <View style={styles.itemTextWrap}>
-                <Text style={[styles.itemTitle, { color: theme.onSurface }]}>Primary Base Currency</Text>
-                <Text style={[styles.itemSubtitle, { color: theme.onSurfaceVariant }]}>
-                  Active: <Text style={{ fontWeight: '700', color: theme.primary }}>{settings.base_currency}</Text> • Used for daily allowance & converted portfolio
-                </Text>
-              </View>
+          {/* Base Currency Selection (Picker) */}
+          <TouchableOpacity
+            style={styles.listItemRow}
+            onPress={() => {
+              setCurrencySearch('');
+              setCurrencyPickerVisible(true);
+            }}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.itemIconCircle, { backgroundColor: theme.primaryContainer }]}>
+              <MaterialCommunityIcons name="currency-usd" size={20} color={theme.onPrimaryContainer} />
             </View>
-
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.currSelectorScroll}>
-              {currencies.map((c) => {
-                const isSelected = c === settings.base_currency;
-                return (
-                  <TouchableOpacity
-                    key={c}
-                    style={[
-                      styles.currChip,
-                      {
-                        backgroundColor: isSelected ? theme.primary : theme.pillBg,
-                      },
-                    ]}
-                    onPress={() => handleSelectBaseCurrency(c)}
-                    activeOpacity={0.7}
-                  >
-                    <Text
-                      style={[
-                        styles.currChipText,
-                        {
-                          color: isSelected ? theme.onPrimary : theme.onSurface,
-                          fontWeight: isSelected ? '700' : '500',
-                        },
-                      ]}
-                    >
-                      {c}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </View>
+            <View style={styles.itemTextWrap}>
+              <Text style={[styles.itemTitle, { color: theme.onSurface }]}>Primary Base Currency</Text>
+              <Text style={[styles.itemSubtitle, { color: theme.onSurfaceVariant }]}>
+                Used across all wallets & calculations
+              </Text>
+            </View>
+            <View style={[styles.pickerPill, { backgroundColor: theme.pillBg, borderColor: theme.divider }]}>
+              <Text style={[styles.pickerPillText, { color: theme.primary }]}>{settings.base_currency}</Text>
+              <MaterialCommunityIcons name="chevron-down" size={16} color={theme.primary} />
+            </View>
+          </TouchableOpacity>
 
           <View style={[styles.itemDivider, { backgroundColor: theme.divider }]} />
 
@@ -210,37 +284,9 @@ export const SettingsScreen: React.FC = () => {
           </TouchableOpacity>
         </View>
 
-        {/* SECTION 2: GOOGLE DRIVE & DATA BACKUP */}
+        {/* SECTION 2: GOOGLE DRIVE & CLOUD BACKUP (Cleaned: Disclaimer & Dashboard Removed) */}
         <Text style={[styles.sectionHeader, { color: theme.primary }]}>GOOGLE DRIVE & CLOUD BACKUP</Text>
         <View style={[styles.cardGroup, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
-          {/* Info Banner */}
-          <View style={[styles.infoBanner, { backgroundColor: theme.heroBg }]}>
-            <MaterialCommunityIcons name="shield-check-outline" size={22} color={theme.primary} />
-            <Text style={[styles.infoBannerText, { color: theme.onSurface }]}>
-              All financial data stays strictly on your device. Export portable backups to Google Drive or Files and restore anytime on another device.
-            </Text>
-          </View>
-
-          {/* Session Overview Stats */}
-          <View style={styles.sessionStatsRow}>
-            <View style={styles.sessionStatCol}>
-              <Text style={[styles.sessionStatVal, { color: theme.primary }]}>{wallets.length}</Text>
-              <Text style={[styles.sessionStatLabel, { color: theme.onSurfaceVariant }]}>Wallets</Text>
-            </View>
-            <View style={[styles.sessionStatDivider, { backgroundColor: theme.divider }]} />
-            <View style={styles.sessionStatCol}>
-              <Text style={[styles.sessionStatVal, { color: theme.primary }]}>{transactions.length}</Text>
-              <Text style={[styles.sessionStatLabel, { color: theme.onSurfaceVariant }]}>Transactions</Text>
-            </View>
-            <View style={[styles.sessionStatDivider, { backgroundColor: theme.divider }]} />
-            <View style={styles.sessionStatCol}>
-              <Text style={[styles.sessionStatVal, { color: theme.primary }]}>{currentCycle?.name?.split(' ')[0] || 'Active'}</Text>
-              <Text style={[styles.sessionStatLabel, { color: theme.onSurfaceVariant }]}>Cycle</Text>
-            </View>
-          </View>
-
-          <View style={[styles.itemDivider, { backgroundColor: theme.divider }]} />
-
           {/* Export to Google Drive */}
           <TouchableOpacity style={styles.listItemRow} onPress={handleExport} activeOpacity={0.7}>
             <View style={[styles.itemIconCircle, { backgroundColor: '#E0F2FE' }]}>
@@ -278,7 +324,49 @@ export const SettingsScreen: React.FC = () => {
           ) : null}
         </View>
 
-        {/* SECTION 3: ABOUT */}
+        {/* SECTION 3: HELP & SUPPORT */}
+        <Text style={[styles.sectionHeader, { color: theme.primary }]}>HELP & SUPPORT</Text>
+        <View style={[styles.cardGroup, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
+          {/* FAQs */}
+          <TouchableOpacity
+            style={styles.listItemRow}
+            onPress={() => setFaqsModalVisible(true)}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.itemIconCircle, { backgroundColor: '#EDE9FE' }]}>
+              <MaterialCommunityIcons name="frequently-asked-questions" size={20} color="#7C3AED" />
+            </View>
+            <View style={styles.itemTextWrap}>
+              <Text style={[styles.itemTitle, { color: theme.onSurface }]}>Frequently Asked Questions (FAQs)</Text>
+              <Text style={[styles.itemSubtitle, { color: theme.onSurfaceVariant }]}>
+                Offline storage, rollover cycles, envelopes & backups
+              </Text>
+            </View>
+            <MaterialCommunityIcons name="chevron-right" size={20} color={theme.onSurfaceVariant} />
+          </TouchableOpacity>
+
+          <View style={[styles.itemDivider, { backgroundColor: theme.divider }]} />
+
+          {/* Contact & Report Problem / Suggestion */}
+          <TouchableOpacity
+            style={styles.listItemRow}
+            onPress={handleContactSupport}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.itemIconCircle, { backgroundColor: '#FEE2E2' }]}>
+              <MaterialCommunityIcons name="email-fast-outline" size={20} color="#DC2626" />
+            </View>
+            <View style={styles.itemTextWrap}>
+              <Text style={[styles.itemTitle, { color: theme.onSurface }]}>Report a Problem or Suggestion</Text>
+              <Text style={[styles.itemSubtitle, { color: theme.onSurfaceVariant }]}>
+                Contact juniorboss031@gmail.com directly
+              </Text>
+            </View>
+            <MaterialCommunityIcons name="send-outline" size={18} color={theme.primary} />
+          </TouchableOpacity>
+        </View>
+
+        {/* SECTION 4: ABOUT */}
         <Text style={[styles.sectionHeader, { color: theme.primary }]}>ABOUT</Text>
         <View style={[styles.cardGroup, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
           <View style={styles.aboutRow}>
@@ -293,12 +381,192 @@ export const SettingsScreen: React.FC = () => {
                 Version 1.0.0 • Offline-First Budget & Savings Planner
               </Text>
               <Text style={[styles.aboutNote, { color: theme.onSurfaceVariant }]}>
-                Designed with Material 3 Expressive tokens. SQLite persistence with manual Google Drive backup.
+                Designed with Material 3 Expressive tokens. All financial data is 100% offline and stored in secure device SQLite.
               </Text>
             </View>
           </View>
+
+          <View style={[styles.itemDivider, { backgroundColor: theme.divider }]} />
+
+          <TouchableOpacity
+            style={styles.developerRow}
+            onPress={handleContactSupport}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.itemIconCircle, { backgroundColor: theme.primaryContainer }]}>
+              <MaterialCommunityIcons name="email-check-outline" size={18} color={theme.primary} />
+            </View>
+            <View style={styles.itemTextWrap}>
+              <Text style={[styles.itemTitle, { color: theme.onSurface, fontSize: 13 }]}>Developer Contact</Text>
+              <Text style={[styles.developerEmail, { color: theme.primary }]}>juniorboss031@gmail.com</Text>
+            </View>
+            <MaterialCommunityIcons name="content-copy" size={16} color={theme.onSurfaceVariant} />
+          </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* CURRENCY PICKER MODAL */}
+      <Modal
+        visible={currencyPickerVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setCurrencyPickerVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.currencyModalBox, { backgroundColor: theme.surface }]}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <MaterialCommunityIcons name="currency-usd" size={22} color={theme.primary} />
+                <Text style={[styles.modalTitle, { color: theme.onSurface }]}>Select Base Currency</Text>
+              </View>
+              <TouchableOpacity onPress={() => setCurrencyPickerVisible(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <MaterialCommunityIcons name="close" size={22} color={theme.onSurface} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Search Input */}
+            <View style={[styles.currencySearchWrap, { backgroundColor: theme.pillBg }]}>
+              <MaterialCommunityIcons name="magnify" size={20} color={theme.onSurfaceVariant} />
+              <TextInput
+                style={[styles.currencySearchInput, { color: theme.onSurface }]}
+                placeholder="Search currency code or name..."
+                placeholderTextColor={theme.onSurfaceVariant}
+                value={currencySearch}
+                onChangeText={setCurrencySearch}
+                clearButtonMode="while-editing"
+              />
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} style={styles.currencyListScroll}>
+              {filteredCurrencies.map((c) => {
+                const isSelected = c.code === settings.base_currency;
+                return (
+                  <TouchableOpacity
+                    key={c.code}
+                    style={[
+                      styles.currencyItemRow,
+                      {
+                        backgroundColor: isSelected ? (theme.primaryContainer || 'rgba(99,102,241,0.15)') : 'transparent',
+                        borderColor: isSelected ? theme.primary : theme.divider,
+                      },
+                    ]}
+                    onPress={() => handleSelectBaseCurrency(c.code)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.currencySymbolCircle, { backgroundColor: isSelected ? theme.primary : theme.pillBg }]}>
+                      <Text style={[styles.currencySymbolText, { color: isSelected ? theme.onPrimary : theme.onSurface }]}>
+                        {c.symbol}
+                      </Text>
+                    </View>
+
+                    <View style={styles.currencyTextCol}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={[styles.currencyCodeText, { color: isSelected ? theme.primary : theme.onSurface }]}>
+                          {c.code}
+                        </Text>
+                        <Text style={[styles.currencySymbolBadge, { color: theme.onSurfaceVariant }]}>
+                          ({c.symbol})
+                        </Text>
+                      </View>
+                      <Text style={[styles.currencyNameText, { color: theme.onSurfaceVariant }]}>
+                        {c.name}
+                      </Text>
+                    </View>
+
+                    {isSelected && (
+                      <MaterialCommunityIcons name="check-circle" size={22} color={theme.primary} />
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* FAQS MODAL */}
+      <Modal
+        visible={faqsModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setFaqsModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.faqsModalBox, { backgroundColor: theme.surface }]}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <MaterialCommunityIcons name="frequently-asked-questions" size={22} color={theme.primary} />
+                <Text style={[styles.modalTitle, { color: theme.onSurface }]}>FAQs & Help Guide</Text>
+              </View>
+              <TouchableOpacity onPress={() => setFaqsModalVisible(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <MaterialCommunityIcons name="close" size={22} color={theme.onSurface} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.faqsScrollContent}>
+              {FAQ_ITEMS.map((faq, index) => {
+                const isExpanded = expandedFaqIndex === index;
+                return (
+                  <View
+                    key={index}
+                    style={[
+                      styles.faqCard,
+                      {
+                        backgroundColor: theme.cardBg,
+                        borderColor: isExpanded ? theme.primary : theme.divider,
+                      },
+                      M3Elevation.level1,
+                    ]}
+                  >
+                    <TouchableOpacity
+                      style={styles.faqHeaderBtn}
+                      onPress={() => setExpandedFaqIndex(isExpanded ? null : index)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={[styles.faqNumberCircle, { backgroundColor: isExpanded ? theme.primary : theme.pillBg }]}>
+                        <Text style={[styles.faqNumberText, { color: isExpanded ? theme.onPrimary : theme.onSurfaceVariant }]}>
+                          {index + 1}
+                        </Text>
+                      </View>
+                      <Text style={[styles.faqQuestion, { color: theme.onSurface }]}>
+                        {faq.q}
+                      </Text>
+                      <MaterialCommunityIcons
+                        name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                        size={20}
+                        color={theme.onSurfaceVariant}
+                      />
+                    </TouchableOpacity>
+
+                    {isExpanded && (
+                      <View style={[styles.faqAnswerWrap, { borderTopColor: theme.divider }]}>
+                        <Text style={[styles.faqAnswerText, { color: theme.onSurfaceVariant }]}>
+                          {faq.a}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
+
+              {/* Still have questions / contact footer */}
+              <TouchableOpacity
+                style={[styles.faqContactBtn, { backgroundColor: theme.primaryContainer }]}
+                onPress={() => {
+                  setFaqsModalVisible(false);
+                  setTimeout(handleContactSupport, 200);
+                }}
+                activeOpacity={0.8}
+              >
+                <MaterialCommunityIcons name="email-fast-outline" size={20} color={theme.onPrimaryContainer} />
+                <Text style={[styles.faqContactBtnText, { color: theme.onPrimaryContainer }]}>
+                  Still have questions? Email juniorboss031@gmail.com
+                </Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       {/* Category Manager Modal */}
       <CategoryManagerModal
@@ -531,5 +799,164 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 4,
     lineHeight: 15,
+  },
+  pickerPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: M3Shape.full,
+    borderWidth: 1,
+  },
+  pickerPillText: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  developerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    gap: 12,
+  },
+  developerEmail: {
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 1,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    padding: 16,
+  },
+  currencyModalBox: {
+    borderRadius: M3Shape.extraLarge,
+    padding: 20,
+    maxHeight: '80%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  currencySearchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 44,
+    borderRadius: M3Shape.medium,
+    paddingHorizontal: 12,
+    gap: 8,
+    marginBottom: 12,
+  },
+  currencySearchInput: {
+    flex: 1,
+    fontSize: 14,
+    height: 44,
+  },
+  currencyListScroll: {
+    maxHeight: 380,
+  },
+  currencyItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: M3Shape.large,
+    borderWidth: 1,
+    marginBottom: 6,
+    gap: 12,
+  },
+  currencySymbolCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  currencySymbolText: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  currencyTextCol: {
+    flex: 1,
+  },
+  currencyCodeText: {
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  currencySymbolBadge: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  currencyNameText: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  faqsModalBox: {
+    borderRadius: M3Shape.extraLarge,
+    padding: 20,
+    maxHeight: '88%',
+  },
+  faqsScrollContent: {
+    paddingBottom: 16,
+    gap: 10,
+  },
+  faqCard: {
+    borderRadius: M3Shape.large,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  faqHeaderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    gap: 10,
+  },
+  faqNumberCircle: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  faqNumberText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  faqQuestion: {
+    flex: 1,
+    fontSize: 13.5,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+  faqAnswerWrap: {
+    borderTopWidth: 1,
+    padding: 14,
+    paddingTop: 10,
+  },
+  faqAnswerText: {
+    fontSize: 12.5,
+    lineHeight: 18,
+  },
+  faqContactBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: M3Shape.full,
+    marginTop: 10,
+  },
+  faqContactBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'center',
   },
 });

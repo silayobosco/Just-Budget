@@ -56,7 +56,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
   const isCompactScreen = windowHeight < 740; // e.g. iPhone 13 mini, compact displays
 
   // Collapsed sheet snap points: default 90, with 170 / 190 / 317 depending on where user left it last
-  const COLLAPSED_SNAPS = [90, 170, 190, 317] as const;
+  const COLLAPSED_SNAPS = [90, 170, 200, 317] as const;
 
   const [collapsedHeight, setCollapsedHeight] = useState<number>(() => {
     try {
