@@ -16,7 +16,7 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
-import { formatCurrency, formatCycleDateRange, getRegularCycleDates } from '../utils/format';
+import { formatCurrency, formatCycleDateRange, getRegularCycleDates, formatTypingNumber, parseCleanNumber } from '../utils/format';
 import { DateRangePickerModal } from '../components/DateRangePickerModal';
 import { CycleModeSwitcherModal } from '../components/CycleModeSwitcherModal';
 import { TransactionDetailModal } from '../components/TransactionDetailModal';
@@ -60,6 +60,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     incomeInCycle,
     addSubcategory,
     setAnalyticsFocus,
+    updateCurrentCycleTarget,
   } = useBudget();
 
   const isDarkMode = settings.theme_mode === 'dark';
@@ -78,6 +79,14 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
   const [addModalVisible, setAddModalVisible] = useState(false);
   const [addModalType, setAddModalType] = useState<TransactionType>('expense');
   const fabAnim = useRef(new Animated.Value(0)).current;
+
+  // Quick Target Dialogue State (Long-press / click when unset on Income Goal / Budget Cap)
+  const [quickTargetModalVisible, setQuickTargetModalVisible] = useState<boolean>(false);
+  const [quickTargetType, setQuickTargetType] = useState<'budget' | 'income'>('budget');
+  const [quickTargetInput, setQuickTargetInput] = useState<string>('');
+
+  // Daily Allowance Breakdown Modal State (Triggered on Tap of Available for Today Amount)
+  const [allowanceDetailVisible, setAllowanceDetailVisible] = useState<boolean>(false);
 
   useEffect(() => {
     Animated.spring(fabAnim, {
@@ -365,6 +374,34 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     if (allMatch) return allMatch;
     return effectiveCycle || todayCycle;
   }, [selectedDate, todayStr, cycleList, allCycles, effectiveCycle, todayCycle]);
+
+  const handleOpenQuickTarget = (type: 'budget' | 'income') => {
+    setQuickTargetType(type);
+    const targetCycle = focusedCycle || currentCycle;
+    if (type === 'budget') {
+      const val = targetCycle?.target_budget ? formatTypingNumber(targetCycle.target_budget.toString()) : '';
+      setQuickTargetInput(val);
+    } else {
+      const val = targetCycle?.target_income ? formatTypingNumber(targetCycle.target_income.toString()) : '';
+      setQuickTargetInput(val);
+    }
+    setQuickTargetModalVisible(true);
+  };
+
+  const handleSaveQuickTarget = async () => {
+    const num = parseCleanNumber(quickTargetInput);
+    const targetCycle = focusedCycle || currentCycle;
+    if (targetCycle?.id && targetCycle.id !== currentCycle?.id) {
+      await updateBudgetCycle({
+        ...targetCycle,
+        target_budget: quickTargetType === 'budget' ? num : targetCycle.target_budget,
+        target_income: quickTargetType === 'income' ? num : targetCycle.target_income,
+      });
+    } else {
+      await updateCurrentCycleTarget(quickTargetType, num);
+    }
+    setQuickTargetModalVisible(false);
+  };
 
   // Target Cards & Balance calculations dynamically filtered to the focused date (at end of that day)
   const focusedValues = useMemo(() => {
@@ -847,21 +884,36 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
             {/* Available for Today / Focused Date Row */}
             <View style={styles.todayBalanceRow}>
               <TouchableOpacity
-                onPress={handleGoToToday}
-                activeOpacity={focusedValues.isPast ? 0.7 : 1}
-                disabled={!focusedValues.isPast}
+                style={{ flex: 1, marginRight: 8 }}
+                activeOpacity={0.7}
+                onPress={() => setAllowanceDetailVisible(true)}
+                accessibilityRole="button"
+                accessibilityLabel="View balance breakdown and description"
               >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                   <Text
-                    style={[styles.todayBalanceLabel, { color: theme.onSurfaceVariant }]}
+                    style={[
+                      styles.todayBalanceLabel,
+                      {
+                        color: focusedValues.isPast
+                          ? (focusedValues.availableAmount < 0 ? theme.error : theme.onSurfaceVariant)
+                          : (dailyAllowanceStats.status === 'budget_over' || dailyAllowanceStats.status === 'wallet_empty'
+                            ? theme.error
+                            : dailyAllowanceStats.isOverDaily
+                            ? (isDarkMode ? '#F87171' : theme.error)
+                            : theme.onSurfaceVariant),
+                      },
+                    ]}
                     maxFontSizeMultiplier={1.2}
                   >
                     {focusedValues.isPast
                       ? `AVAILABLE AT END OF ${formatShortDate(focusedValues.targetDate).toUpperCase()}`
-                      : 'AVAILABLE FOR TODAY'}
+                      : dailyAllowanceStats.headlineLabel}
                   </Text>
-                  {focusedValues.isPast && (
-                    <View
+                  {focusedValues.isPast ? (
+                    <TouchableOpacity
+                      onPress={handleGoToToday}
+                      activeOpacity={0.7}
                       style={{
                         backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.25)' : theme.primaryContainer,
                         paddingHorizontal: 6,
@@ -878,13 +930,58 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                       >
                         Today ↩
                       </Text>
+                    </TouchableOpacity>
+                  ) : dailyAllowanceStats.badgeLabel ? (
+                    <View
+                      style={{
+                        backgroundColor:
+                          dailyAllowanceStats.status === 'budget_over' || dailyAllowanceStats.status === 'wallet_empty'
+                            ? (isDarkMode ? 'rgba(239, 68, 68, 0.25)' : '#FEE2E2')
+                            : dailyAllowanceStats.isOverDaily
+                            ? (isDarkMode ? 'rgba(239, 68, 68, 0.20)' : '#FEE2E2')
+                            : (isDarkMode ? 'rgba(99, 102, 241, 0.22)' : 'rgba(99, 102, 241, 0.12)'),
+                        paddingHorizontal: 6,
+                        paddingVertical: 1.5,
+                        borderRadius: M3Shape.full,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 9,
+                          fontWeight: '800',
+                          letterSpacing: 0.3,
+                          color:
+                            dailyAllowanceStats.status === 'budget_over' || dailyAllowanceStats.status === 'wallet_empty'
+                              ? (isDarkMode ? '#FCA5A5' : '#DC2626')
+                              : dailyAllowanceStats.isOverDaily
+                              ? (isDarkMode ? '#FCA5A5' : '#DC2626')
+                              : (isDarkMode ? '#C7D2FE' : theme.primary),
+                        }}
+                      >
+                        {dailyAllowanceStats.badgeLabel}
+                      </Text>
                     </View>
-                  )}
+                  ) : null}
+
+                  <MaterialCommunityIcons
+                    name="information-outline"
+                    size={12}
+                    color={theme.onSurfaceVariant}
+                    style={{ opacity: 0.6 }}
+                  />
                 </View>
                 <Text
                   style={[
                     styles.todayBalanceAmount,
-                    { color: focusedValues.availableAmount >= 0 ? theme.primary : theme.error },
+                    {
+                      color: focusedValues.isPast
+                        ? (focusedValues.availableAmount >= 0 ? theme.primary : theme.error)
+                        : (dailyAllowanceStats.status === 'budget_over' ||
+                          dailyAllowanceStats.status === 'wallet_empty' ||
+                          dailyAllowanceStats.remainingToday < 0
+                            ? theme.error
+                            : theme.primary),
+                    },
                   ]}
                   numberOfLines={1}
                   adjustsFontSizeToFit
@@ -954,10 +1051,16 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
               M3Elevation.level1,
             ]}
             onPress={() => {
-              setSelectedAnalyticsCycle(focusedCycle || currentCycle || undefined);
-              setAnalyticsFocus('income');
-              onNavigateTab?.('analytics');
+              if (!incomeSwitcherProgress.hasGoal) {
+                handleOpenQuickTarget('income');
+              } else {
+                setSelectedAnalyticsCycle(focusedCycle || currentCycle || undefined);
+                setAnalyticsFocus('income');
+                onNavigateTab?.('analytics');
+              }
             }}
+            onLongPress={() => handleOpenQuickTarget('income')}
+            delayLongPress={350}
             activeOpacity={0.8}
             accessibilityRole="button"
             accessibilityLabel="Open Income Analysis"
@@ -1068,10 +1171,16 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
               M3Elevation.level1,
             ]}
             onPress={() => {
-              setSelectedAnalyticsCycle(focusedCycle || currentCycle || undefined);
-              setAnalyticsFocus('expense');
-              onNavigateTab?.('analytics');
+              if (!expenseSwitcherProgress.hasTarget) {
+                handleOpenQuickTarget('budget');
+              } else {
+                setSelectedAnalyticsCycle(focusedCycle || currentCycle || undefined);
+                setAnalyticsFocus('expense');
+                onNavigateTab?.('analytics');
+              }
             }}
+            onLongPress={() => handleOpenQuickTarget('budget')}
+            delayLongPress={350}
             activeOpacity={0.8}
             accessibilityRole="button"
             accessibilityLabel="Open Budget Cap Analysis"
@@ -1706,6 +1815,248 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
         onSave={handleSaveNewTransaction}
         onAddSubcategory={addSubcategory}
       />
+
+      {/* QUICK TARGET EDIT DIALOGUE (TRIGGERED ON TAP WHEN UNSET OR LONG PRESS OF INCOME GOAL / BUDGET CAP) */}
+      <Modal
+        visible={quickTargetModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setQuickTargetModalVisible(false)}
+      >
+        <View style={styles.quickTargetOverlay}>
+          <View style={[styles.quickTargetBox, { backgroundColor: theme.surface }, M3Elevation.level3]}>
+            <View style={styles.quickTargetHeader}>
+              <View
+                style={[
+                  styles.quickTargetIconCircle,
+                  {
+                    backgroundColor: quickTargetType === 'income' ? theme.successContainer : theme.errorContainer,
+                  },
+                ]}
+              >
+                <MaterialCommunityIcons
+                  name={quickTargetType === 'income' ? 'cash-multiple' : 'bullseye-arrow'}
+                  size={20}
+                  color={quickTargetType === 'income' ? theme.success : theme.error}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.quickTargetTitle, { color: theme.onSurface }]}>
+                  {quickTargetType === 'income'
+                    ? (incomeSwitcherProgress.hasGoal ? 'Edit Income Goal' : 'Set Income Goal')
+                    : (expenseSwitcherProgress.hasTarget ? 'Edit Budget Cap' : 'Set Budget Cap')}
+                </Text>
+                <Text style={[styles.quickTargetSubtitle, { color: theme.onSurfaceVariant }]}>
+                  {focusedCycle?.name || currentCycle?.name || 'Active Cycle'}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setQuickTargetModalVisible(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <MaterialCommunityIcons name="close" size={20} color={theme.onSurfaceVariant} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={[styles.quickTargetInputWrap, { backgroundColor: theme.pillBg }]}>
+              <Text style={[styles.quickTargetCurrency, { color: quickTargetType === 'income' ? theme.success : theme.error }]}>
+                {curr}
+              </Text>
+              <TextInput
+                style={[styles.quickTargetInput, { color: theme.onSurface }]}
+                placeholder="0"
+                placeholderTextColor={theme.onSurfaceVariant}
+                keyboardType="decimal-pad"
+                autoFocus
+                value={quickTargetInput}
+                onChangeText={(text) => setQuickTargetInput(formatTypingNumber(text))}
+                selectTextOnFocus
+              />
+            </View>
+
+            <View style={styles.quickTargetBtnRow}>
+              <TouchableOpacity
+                style={[styles.quickTargetCancelBtn, { backgroundColor: theme.pillBg }]}
+                onPress={() => setQuickTargetModalVisible(false)}
+              >
+                <Text style={[styles.quickTargetBtnText, { color: theme.onSurface }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.quickTargetSaveBtn,
+                  { backgroundColor: quickTargetType === 'income' ? theme.success : theme.primary },
+                ]}
+                onPress={handleSaveQuickTarget}
+              >
+                <Text style={[styles.quickTargetBtnText, { color: theme.onPrimary }]}>Save Target</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* TODAY'S ALLOWANCE BREAKDOWN / DESCRIPTION MODAL (TRIGGERED ON TAP OF TODAY'S AMOUNT) */}
+      <Modal
+        visible={allowanceDetailVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAllowanceDetailVisible(false)}
+      >
+        <View style={styles.quickTargetOverlay}>
+          <View style={[styles.quickTargetBox, { backgroundColor: theme.surface }, M3Elevation.level3]}>
+            <View style={styles.quickTargetHeader}>
+              <View
+                style={[
+                  styles.quickTargetIconCircle,
+                  {
+                    backgroundColor:
+                      dailyAllowanceStats.status === 'budget_over' || dailyAllowanceStats.status === 'wallet_empty'
+                        ? theme.errorContainer
+                        : dailyAllowanceStats.isOverDaily
+                        ? (isDarkMode ? 'rgba(239, 68, 68, 0.25)' : '#FEE2E2')
+                        : theme.primaryContainer,
+                  },
+                ]}
+              >
+                <MaterialCommunityIcons
+                  name={
+                    dailyAllowanceStats.status === 'budget_over' || dailyAllowanceStats.status === 'wallet_empty'
+                      ? 'alert-circle-outline'
+                      : dailyAllowanceStats.isOverDaily
+                      ? 'alert-outline'
+                      : 'calendar-clock-outline'
+                  }
+                  size={20}
+                  color={
+                    dailyAllowanceStats.status === 'budget_over' ||
+                    dailyAllowanceStats.status === 'wallet_empty' ||
+                    dailyAllowanceStats.isOverDaily
+                      ? theme.error
+                      : theme.primary
+                  }
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.quickTargetTitle, { color: theme.onSurface }]}>
+                  {focusedValues.isPast
+                    ? `Available at end of ${formatShortDate(focusedValues.targetDate)}`
+                    : dailyAllowanceStats.headlineLabel}
+                </Text>
+                <Text style={[styles.quickTargetSubtitle, { color: theme.onSurfaceVariant }]}>
+                  {focusedCycle?.name || currentCycle?.name || 'Active Cycle'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setAllowanceDetailVisible(false)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <MaterialCommunityIcons name="close" size={20} color={theme.onSurfaceVariant} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Big Amount Card with Description */}
+            <View
+              style={[
+                styles.allowanceDescCard,
+                {
+                  backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.04)' : theme.pillBg,
+                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.08)' : theme.divider,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.allowanceModalAmount,
+                  {
+                    color:
+                      focusedValues.isPast
+                        ? (focusedValues.availableAmount >= 0 ? theme.primary : theme.error)
+                        : (dailyAllowanceStats.status === 'budget_over' ||
+                          dailyAllowanceStats.status === 'wallet_empty' ||
+                          dailyAllowanceStats.remainingToday < 0
+                            ? theme.error
+                            : theme.primary),
+                  },
+                ]}
+              >
+                {wallets.length === 0 && overallBudgetLimit === 0
+                  ? formatCurrency(0, curr)
+                  : formatCurrency(focusedValues.availableAmount, curr)}
+              </Text>
+              {focusedValues.isPast ? (
+                <Text style={[styles.allowanceModalDescText, { color: theme.onSurface }]}>
+                  Historical available balance as of {formatShortDate(focusedValues.targetDate)}.
+                </Text>
+              ) : dailyAllowanceStats.subText ? (
+                <Text style={[styles.allowanceModalDescText, { color: theme.onSurface }]}>
+                  {dailyAllowanceStats.subText}
+                </Text>
+              ) : null}
+            </View>
+
+            {/* Breakdown Stats Rows */}
+            <View style={styles.allowanceBreakdownWrap}>
+              <View style={styles.allowanceBreakdownRow}>
+                <Text style={[styles.allowanceBreakdownLabel, { color: theme.onSurfaceVariant }]}>
+                  {dailyAllowanceStats.hasBudget ? "Today's Budget Allowance" : "Today's Wallet Pace"}
+                </Text>
+                <Text style={[styles.allowanceBreakdownVal, { color: theme.onSurface }]}>
+                  {formatCurrency(dailyAllowanceStats.availableForDay, curr)}
+                </Text>
+              </View>
+
+              <View style={styles.allowanceBreakdownRow}>
+                <Text style={[styles.allowanceBreakdownLabel, { color: theme.onSurfaceVariant }]}>
+                  Spent Today
+                </Text>
+                <Text style={[styles.allowanceBreakdownVal, { color: theme.error }]}>
+                  {formatCurrency(dailyAllowanceStats.spentToday, curr)}
+                </Text>
+              </View>
+
+              <View style={styles.allowanceBreakdownRow}>
+                <Text style={[styles.allowanceBreakdownLabel, { color: theme.onSurfaceVariant }]}>
+                  {dailyAllowanceStats.hasBudget ? 'Remaining in Cycle Budget' : 'Total Wallet Funds'}
+                </Text>
+                <Text style={[styles.allowanceBreakdownVal, { color: theme.primary }]}>
+                  {formatCurrency(
+                    dailyAllowanceStats.hasBudget
+                      ? Math.max(0, (focusedValues.cycleCap ?? 0) - spentInCycle)
+                      : totalConvertedBalance,
+                    curr
+                  )}
+                </Text>
+              </View>
+
+              {dailyAllowanceStats.hasBudget && (
+                <View style={styles.allowanceBreakdownRow}>
+                  <Text style={[styles.allowanceBreakdownLabel, { color: theme.onSurfaceVariant }]}>
+                    Actual Wallet Balance
+                  </Text>
+                  <Text style={[styles.allowanceBreakdownVal, { color: theme.onSurface }]}>
+                    {formatCurrency(totalConvertedBalance, curr)}
+                  </Text>
+                </View>
+              )}
+
+              <View style={styles.allowanceBreakdownRow}>
+                <Text style={[styles.allowanceBreakdownLabel, { color: theme.onSurfaceVariant }]}>
+                  Cycle Timeframe
+                </Text>
+                <Text style={[styles.allowanceBreakdownVal, { color: theme.onSurfaceVariant }]}>
+                  {focusedValues.daysRemaining} days remaining
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.quickTargetBtnRow}>
+              <TouchableOpacity
+                style={[styles.allowanceCloseBtn, { backgroundColor: theme.primary }]}
+                onPress={() => setAllowanceDetailVisible(false)}
+              >
+                <Text style={[styles.quickTargetBtnText, { color: theme.onPrimary }]}>Got it</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -2337,5 +2688,121 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 100,
+  },
+  quickTargetOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  quickTargetBox: {
+    width: '100%',
+    maxWidth: 380,
+    borderRadius: M3Shape.large,
+    padding: 20,
+  },
+  quickTargetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 16,
+  },
+  quickTargetIconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickTargetTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  quickTargetSubtitle: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  quickTargetInputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: M3Shape.medium,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    marginBottom: 18,
+    gap: 8,
+  },
+  quickTargetCurrency: {
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  quickTargetInput: {
+    flex: 1,
+    fontSize: 22,
+    fontWeight: '800',
+    paddingVertical: 4,
+  },
+  quickTargetBtnRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginTop: 4,
+  },
+  quickTargetCancelBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: M3Shape.full,
+  },
+  quickTargetSaveBtn: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: M3Shape.full,
+  },
+  quickTargetBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  allowanceDescCard: {
+    padding: 14,
+    borderRadius: M3Shape.medium,
+    borderWidth: 1,
+    alignItems: 'center',
+    marginVertical: 12,
+  },
+  allowanceModalAmount: {
+    fontSize: 28,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+    marginBottom: 6,
+  },
+  allowanceModalDescText: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  allowanceBreakdownWrap: {
+    gap: 8,
+    marginBottom: 16,
+  },
+  allowanceBreakdownRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  allowanceBreakdownLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  allowanceBreakdownVal: {
+    fontSize: 12.5,
+    fontWeight: '700',
+  },
+  allowanceCloseBtn: {
+    flex: 1,
+    height: 44,
+    borderRadius: M3Shape.full,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
