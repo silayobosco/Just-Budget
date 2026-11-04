@@ -121,6 +121,14 @@ export interface AppSettings {
   cycle_default_income?: number;
 }
 
+export type DailyAllowanceStatus =
+  | 'normal'
+  | 'over_daily'
+  | 'budget_over'
+  | 'wallet_normal'
+  | 'wallet_over_daily'
+  | 'wallet_empty';
+
 export interface DailyAllowanceStats {
   daysRemaining: number;
   totalDays: number;
@@ -132,4 +140,11 @@ export interface DailyAllowanceStats {
   hasBudget: boolean;
   dailyAverage: number;
   isEnded?: boolean;
+  isBudgetOver: boolean;
+  budgetOverAmount: number;
+  walletBalance: number;
+  status: DailyAllowanceStatus;
+  headlineLabel: string;
+  badgeLabel?: string;
+  subText: string;
 }

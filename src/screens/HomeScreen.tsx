@@ -158,10 +158,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
   const handleOpenQuickTarget = (type: 'budget' | 'income') => {
     setQuickTargetType(type);
     if (type === 'budget') {
-      const val = currentCycle?.target_budget ? currentCycle.target_budget.toString() : '';
+      const val = currentCycle?.target_budget ? formatTypingNumber(currentCycle.target_budget.toString()) : '';
       setQuickTargetInput(val);
     } else {
-      const val = currentCycle?.target_income ? currentCycle.target_income.toString() : '';
+      const val = currentCycle?.target_income ? formatTypingNumber(currentCycle.target_income.toString()) : '';
       setQuickTargetInput(val);
     }
     setQuickTargetModalVisible(true);
@@ -1315,17 +1315,70 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
         <View {...panResponder.panHandlers} style={[styles.heroSection, isCompactScreen && { paddingTop: 6, paddingBottom: 6 }]}>
           {/* Available for Today Row */}
           <View style={styles.todayBalanceRow}>
-            <View>
-              <Text
-                style={[styles.todayBalanceLabel, { color: theme.onSurfaceVariant }, isCompactScreen && { fontSize: 9.5 }]}
-                maxFontSizeMultiplier={1.2}
-              >
-                AVAILABLE FOR TODAY
-              </Text>
+            <View style={{ flex: 1, marginRight: 8 }}>
+              <View style={styles.todayBalanceHeaderRow}>
+                <Text
+                  style={[
+                    styles.todayBalanceLabel,
+                    {
+                      color:
+                        dailyAllowanceStats.status === 'budget_over' || dailyAllowanceStats.status === 'wallet_empty'
+                          ? theme.error
+                          : dailyAllowanceStats.isOverDaily
+                          ? (isDarkMode ? '#F87171' : theme.error)
+                          : theme.onSurfaceVariant,
+                    },
+                    isCompactScreen && { fontSize: 9.5 },
+                  ]}
+                  maxFontSizeMultiplier={1.2}
+                >
+                  {dailyAllowanceStats.headlineLabel}
+                </Text>
+
+                {dailyAllowanceStats.badgeLabel ? (
+                  <View
+                    style={[
+                      styles.todayStatusBadge,
+                      {
+                        backgroundColor:
+                          dailyAllowanceStats.status === 'budget_over' || dailyAllowanceStats.status === 'wallet_empty'
+                            ? (isDarkMode ? 'rgba(239, 68, 68, 0.25)' : '#FEE2E2')
+                            : dailyAllowanceStats.isOverDaily
+                            ? (isDarkMode ? 'rgba(239, 68, 68, 0.20)' : '#FEE2E2')
+                            : (isDarkMode ? 'rgba(99, 102, 241, 0.22)' : 'rgba(99, 102, 241, 0.12)'),
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.todayStatusBadgeText,
+                        {
+                          color:
+                            dailyAllowanceStats.status === 'budget_over' || dailyAllowanceStats.status === 'wallet_empty'
+                              ? (isDarkMode ? '#FCA5A5' : '#DC2626')
+                              : dailyAllowanceStats.isOverDaily
+                              ? (isDarkMode ? '#FCA5A5' : '#DC2626')
+                              : (isDarkMode ? '#C7D2FE' : theme.primary),
+                        },
+                      ]}
+                    >
+                      {dailyAllowanceStats.badgeLabel}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+
               <Text
                 style={[
                   styles.todayBalanceAmount,
-                  { color: dailyAllowanceStats.remainingToday >= 0 ? theme.primary : theme.error },
+                  {
+                    color:
+                      dailyAllowanceStats.status === 'budget_over' ||
+                      dailyAllowanceStats.status === 'wallet_empty' ||
+                      dailyAllowanceStats.remainingToday < 0
+                        ? theme.error
+                        : theme.primary,
+                  },
                   isCompactScreen && { fontSize: 21 },
                 ]}
                 numberOfLines={1}
@@ -1337,6 +1390,26 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
                   ? formatCurrency(0, curr)
                   : formatCurrency(dailyAllowanceStats.remainingToday, curr)}
               </Text>
+
+              {dailyAllowanceStats.subText ? (
+                <Text
+                  style={[
+                    styles.todaySubText,
+                    {
+                      color:
+                        dailyAllowanceStats.status === 'budget_over' ||
+                        dailyAllowanceStats.status === 'wallet_empty' ||
+                        dailyAllowanceStats.isOverDaily
+                          ? (isDarkMode ? '#FCA5A5' : '#DC2626')
+                          : theme.onSurfaceVariant,
+                    },
+                    isCompactScreen && { fontSize: 9.5 },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {dailyAllowanceStats.subText}
+                </Text>
+              ) : null}
             </View>
 
             {/* Days Left chip - Tap to open Cycle Type picker */}
@@ -1392,8 +1465,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
                 M3Elevation.level1,
               ]}
               onPress={() => {
-                setAnalyticsFocus('income');
-                onNavigateTab?.('analytics');
+                if (!incomeSwitcherProgress.hasGoal) {
+                  handleOpenQuickTarget('income');
+                } else {
+                  setAnalyticsFocus('income');
+                  onNavigateTab?.('analytics');
+                }
               }}
               onLongPress={() => handleOpenQuickTarget('income')}
               delayLongPress={350}
@@ -1505,8 +1582,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
                 M3Elevation.level1,
               ]}
               onPress={() => {
-                setAnalyticsFocus('expense');
-                onNavigateTab?.('analytics');
+                if (!expenseSwitcherProgress.hasTarget) {
+                  handleOpenQuickTarget('budget');
+                } else {
+                  setAnalyticsFocus('expense');
+                  onNavigateTab?.('analytics');
+                }
               }}
               onLongPress={() => handleOpenQuickTarget('budget')}
               delayLongPress={350}
@@ -1861,7 +1942,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.quickTargetTitle, { color: theme.onSurface }]}>
-                  {quickTargetType === 'income' ? 'Edit Income Goal' : 'Edit Budget Cap'}
+                  {quickTargetType === 'income'
+                    ? (incomeSwitcherProgress.hasGoal ? 'Edit Income Goal' : 'Set Income Goal')
+                    : (expenseSwitcherProgress.hasTarget ? 'Edit Budget Cap' : 'Set Budget Cap')}
                 </Text>
                 <Text style={[styles.quickTargetSubtitle, { color: theme.onSurfaceVariant }]}>
                   {currentCycle?.name || 'Active Cycle'}
@@ -2191,16 +2274,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 6,
   },
+  todayBalanceHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 2,
+  },
   todayBalanceLabel: {
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 1,
-    marginBottom: 2,
+  },
+  todayStatusBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: M3Shape.full,
+  },
+  todayStatusBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.3,
   },
   todayBalanceAmount: {
     fontSize: 24,
     fontWeight: '800',
     letterSpacing: -0.5,
+  },
+  todaySubText: {
+    fontSize: 10.5,
+    fontWeight: '600',
+    marginTop: 2,
   },
   walletSumPill: {
     flexDirection: 'row',

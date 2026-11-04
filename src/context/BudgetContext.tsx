@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { getDB, initDatabase, ensureDefaultWallets, ensureDefaultExpenseCategories, ensureDefaultIncomeCategories, restoreAllDefaultCategories } from '../services/db';
 import { exportBackupData, importBackupData } from '../services/backup';
-import { formatCycleDateRange, getRegularCycleDates } from '../utils/format';
+import { formatCycleDateRange, getRegularCycleDates, formatCurrency } from '../utils/format';
 import {
   Wallet,
   Category,
@@ -10,6 +10,7 @@ import {
   BudgetCycle,
   AppSettings,
   DailyAllowanceStats,
+  DailyAllowanceStatus,
   TransactionType,
   RecurringBill,
   BillFrequency,
@@ -524,20 +525,89 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       .filter((t) => t.type === 'expense' && t.date === todayStr)
       .reduce((sum, t) => sum + (t.amount || t.base_amount || 0), 0);
 
-    const hasTargetBudget = (currentCycle?.target_budget ?? 0) > 0;
+    const curr = settings.base_currency || 'USD';
+    const targetBudget = currentCycle?.target_budget ?? 0;
+    const hasTargetBudget = targetBudget > 0;
+    const isBudgetOver = hasTargetBudget && spentInCycle > targetBudget;
+    const budgetOverAmount = isBudgetOver ? spentInCycle - targetBudget : 0;
 
     // Daily Allowance ("Available for Day") formula:
     // Pool is divided by the number of daily spending buckets remaining including today (minimum 1 bucket)
-    // e.g. On Nov 3: today + 27 future days = 28 buckets.
-    // On Nov 30: today = 1 bucket.
     const daysForAllowance = Math.max(1, isPast ? 1 : diffDays + 1);
-    const pool = hasTargetBudget
-      ? Math.max(0, remainingCycleBalance + todayExpenses)
-      : Math.max(0, totalConvertedBalance + todayExpenses);
 
-    const baselineDaily = daysForAllowance > 0 ? pool / daysForAllowance : 0;
-    const availableForDay = Math.max(0, baselineDaily);
-    const remainingToday = availableForDay - todayExpenses;
+    let availableForDay = 0;
+    let remainingToday = 0;
+    let isOverDaily = false;
+    let status: DailyAllowanceStatus = 'normal';
+    let headlineLabel = 'AVAILABLE FOR TODAY';
+    let badgeLabel: string | undefined = undefined;
+    let subText = '';
+
+    if (hasTargetBudget) {
+      if (isBudgetOver) {
+        status = 'budget_over';
+        headlineLabel = 'BUDGET OVERSPENT';
+        badgeLabel = 'Over Budget';
+        availableForDay = 0;
+        remainingToday = -budgetOverAmount;
+        isOverDaily = true;
+        subText = totalConvertedBalance > 0
+          ? `Over cap by ${formatCurrency(budgetOverAmount, curr)} • Wallet has ${formatCurrency(totalConvertedBalance, curr)}`
+          : `Over cap by ${formatCurrency(budgetOverAmount, curr)} • Wallet empty`;
+      } else {
+        const pool = Math.max(0, (targetBudget - spentInCycle) + todayExpenses);
+        availableForDay = daysForAllowance > 0 ? pool / daysForAllowance : 0;
+        remainingToday = availableForDay - todayExpenses;
+        isOverDaily = todayExpenses > availableForDay;
+
+        if (isOverDaily) {
+          status = 'over_daily';
+          headlineLabel = 'OVERSPENT TODAY';
+          badgeLabel = 'Daily Limit Exceeded';
+          const overToday = Math.abs(remainingToday);
+          const remainingCycle = Math.max(0, targetBudget - spentInCycle);
+          subText = `Over daily limit by ${formatCurrency(overToday, curr)} • ${formatCurrency(remainingCycle, curr)} left in cycle`;
+        } else {
+          status = 'normal';
+          headlineLabel = 'AVAILABLE FOR TODAY';
+          badgeLabel = undefined;
+          subText = todayExpenses > 0
+            ? `${formatCurrency(todayExpenses, curr)} spent today of ${formatCurrency(availableForDay, curr)} limit`
+            : `Daily allowance: ${formatCurrency(availableForDay, curr)}`;
+        }
+      }
+    } else {
+      // No budget set: App is running on actual wallet
+      const walletPool = Math.max(0, totalConvertedBalance + todayExpenses);
+      if (totalConvertedBalance <= 0) {
+        status = 'wallet_empty';
+        headlineLabel = 'WALLET DEPLETED';
+        badgeLabel = 'No Budget • Wallet Empty';
+        availableForDay = 0;
+        remainingToday = totalConvertedBalance;
+        isOverDaily = todayExpenses > 0;
+        subText = 'Running on actual wallet • No funds available';
+      } else {
+        availableForDay = daysForAllowance > 0 ? walletPool / daysForAllowance : 0;
+        remainingToday = availableForDay - todayExpenses;
+        isOverDaily = todayExpenses > availableForDay;
+
+        if (isOverDaily) {
+          status = 'wallet_over_daily';
+          headlineLabel = "OVER TODAY'S PACE";
+          badgeLabel = 'From Wallet';
+          const overToday = Math.abs(remainingToday);
+          subText = `Over pace by ${formatCurrency(overToday, curr)} • Wallet: ${formatCurrency(totalConvertedBalance, curr)}`;
+        } else {
+          status = 'wallet_normal';
+          headlineLabel = 'AVAILABLE FOR TODAY';
+          badgeLabel = 'From Wallet';
+          subText = todayExpenses > 0
+            ? `Wallet pace: ${formatCurrency(availableForDay, curr)} • ${formatCurrency(todayExpenses, curr)} spent today`
+            : `Paced across ${daysRemaining} days • Wallet: ${formatCurrency(totalConvertedBalance, curr)}`;
+        }
+      }
+    }
 
     // Daily average spent so far in this cycle
     const daysElapsed = Math.max(1, dayIndex);
@@ -550,12 +620,19 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       availableForDay,
       spentToday: todayExpenses,
       remainingToday,
-      isOverDaily: todayExpenses > availableForDay && availableForDay > 0,
+      isOverDaily,
       hasBudget: hasTargetBudget,
       dailyAverage,
       isEnded: isPast,
+      isBudgetOver,
+      budgetOverAmount,
+      walletBalance: totalConvertedBalance,
+      status,
+      headlineLabel,
+      badgeLabel,
+      subText,
     };
-  }, [currentCycle, transactions, remainingCycleBalance, spentInCycle, totalConvertedBalance]);
+  }, [currentCycle, transactions, remainingCycleBalance, spentInCycle, totalConvertedBalance, settings.base_currency]);
 
   // Overall Budget metrics
   const overallBudgetLimit = currentCycle?.target_budget || 0;
@@ -1243,12 +1320,30 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const updateCurrentCycleTarget = async (type: 'budget' | 'income', amount: number) => {
-    if (!currentCycle) return;
     const db = getDB();
-    if (type === 'budget') {
-      db.runSync(`UPDATE budget_cycles SET target_budget = ? WHERE id = ?`, [amount, currentCycle.id]);
+    if (!currentCycle) {
+      const reg = getRegularCycleDates(settings.cycle_month_start_day || 1);
+      const regId = `cycle-reg-${reg.startDate}`;
+      const targetB = type === 'budget' ? amount : null;
+      const targetI = type === 'income' ? amount : null;
+      db.runSync(
+        `INSERT OR REPLACE INTO budget_cycles (id, name, start_date, end_date, target_budget, target_income, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+        [regId, reg.name, reg.startDate, reg.endDate, targetB, targetI]
+      );
     } else {
-      db.runSync(`UPDATE budget_cycles SET target_income = ? WHERE id = ?`, [amount, currentCycle.id]);
+      if (type === 'budget') {
+        db.runSync(`UPDATE budget_cycles SET target_budget = ? WHERE id = ?`, [amount, currentCycle.id]);
+      } else {
+        db.runSync(`UPDATE budget_cycles SET target_income = ? WHERE id = ?`, [amount, currentCycle.id]);
+      }
+    }
+    // Sync default targets so future cycles inherit this setting
+    if (settings.cycle_mode === 'regular') {
+      if (type === 'budget') {
+        db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('cycle_default_budget', ?)`, [amount.toString()]);
+      } else {
+        db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('cycle_default_income', ?)`, [amount.toString()]);
+      }
     }
     await loadData();
   };
