@@ -143,17 +143,17 @@ export const importBackupData = async (): Promise<{ success: boolean; message: s
       // Restore budget cycles
       for (const b of parsed.budget_cycles) {
         db.runSync(
-          `INSERT INTO budget_cycles (id, name, start_date, end_date, target_budget, is_active)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [b.id, b.name, b.start_date, b.end_date, b.target_budget || null, b.is_active ? 1 : 0]
+          `INSERT OR REPLACE INTO budget_cycles (id, name, start_date, end_date, target_budget, target_income, is_active)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [b.id, b.name, b.start_date, b.end_date, b.target_budget ?? null, b.target_income ?? null, b.is_active ? 1 : 0]
         );
       }
 
       // Restore transactions
       for (const t of parsed.transactions) {
         db.runSync(
-          `INSERT INTO transactions (id, wallet_id, category_id, subcategory_id, type, amount, currency, base_amount, date, note, to_wallet_id, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT OR REPLACE INTO transactions (id, wallet_id, category_id, subcategory_id, type, amount, currency, base_amount, date, time, is_paid, media_uri, note, to_wallet_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             t.id,
             t.wallet_id,
@@ -164,6 +164,9 @@ export const importBackupData = async (): Promise<{ success: boolean; message: s
             t.currency,
             t.base_amount,
             t.date,
+            t.time || null,
+            t.is_paid !== undefined ? (t.is_paid ? 1 : 0) : 1,
+            t.media_uri || null,
             t.note || null,
             t.to_wallet_id || null,
             t.created_at || new Date().toISOString(),
@@ -175,8 +178,8 @@ export const importBackupData = async (): Promise<{ success: boolean; message: s
       if (parsed.recurring_bills) {
         for (const b of parsed.recurring_bills) {
           db.runSync(
-            `INSERT INTO recurring_bills (id, name, amount, currency, frequency, due_day, next_due_date, category_id, wallet_id, reminder_enabled, is_active, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT OR REPLACE INTO recurring_bills (id, name, amount, currency, frequency, due_day, next_due_date, category_id, wallet_id, reminder_enabled, is_active, end_type, end_occurrences, end_date, occurrences_count, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               b.id,
               b.name,
@@ -189,6 +192,10 @@ export const importBackupData = async (): Promise<{ success: boolean; message: s
               b.wallet_id,
               b.reminder_enabled ? 1 : 0,
               b.is_active ? 1 : 0,
+              b.end_type || 'never',
+              b.end_occurrences ?? null,
+              b.end_date || null,
+              b.occurrences_count ?? 0,
               b.created_at || new Date().toISOString(),
             ]
           );
