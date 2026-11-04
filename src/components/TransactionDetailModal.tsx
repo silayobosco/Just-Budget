@@ -313,20 +313,22 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
         {/* Action Buttons Footer */}
         <View style={[styles.footerBar, { backgroundColor: theme.surface, borderTopColor: theme.divider }]}>
           <TouchableOpacity
-            style={[styles.editActionBtn, { backgroundColor: theme.primary }, M3Elevation.level2]}
-            onPress={() => onEdit(transaction)}
-            activeOpacity={0.85}
-          >
-            <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.onPrimary} />
-            <Text style={[styles.editActionBtnText, { color: theme.onPrimary }]}>Edit Transaction</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
             style={[styles.deleteActionBtn, { borderColor: theme.error, backgroundColor: theme.pillBg }]}
             onPress={handleDeletePrompt}
             activeOpacity={0.7}
+            accessibilityLabel="Delete Transaction"
           >
             <MaterialCommunityIcons name="trash-can-outline" size={18} color={theme.error} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.editActionBtn, { backgroundColor: theme.primary }, M3Elevation.level2]}
+            onPress={() => onEdit(transaction)}
+            activeOpacity={0.85}
+            accessibilityLabel="Edit Transaction"
+          >
+            <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.onPrimary} />
+            <Text style={[styles.editActionBtnText, { color: theme.onPrimary }]}>Edit Transaction</Text>
           </TouchableOpacity>
         </View>
 

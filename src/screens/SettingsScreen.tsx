@@ -28,6 +28,8 @@ export const SettingsScreen: React.FC = () => {
     categories,
     recurringBills,
     currentCycle,
+    allCycles,
+    openCycleModal,
   } = useBudget();
   const theme = settings.theme_mode === 'dark' ? darkTheme : lightTheme;
 
@@ -160,6 +162,28 @@ export const SettingsScreen: React.FC = () => {
               <Text style={[styles.itemTitle, { color: theme.onSurface }]}>Category & Budget Manager</Text>
               <Text style={[styles.itemSubtitle, { color: theme.onSurfaceVariant }]}>
                 Envelopes, categories & spending limits across all wallets
+              </Text>
+            </View>
+            <MaterialCommunityIcons name="chevron-right" size={20} color={theme.onSurfaceVariant} />
+          </TouchableOpacity>
+
+          <View style={[styles.itemDivider, { backgroundColor: theme.divider }]} />
+
+          {/* Budget Cycle Manager */}
+          <TouchableOpacity
+            style={styles.listItemRow}
+            onPress={openCycleModal}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.itemIconCircle, { backgroundColor: '#E0E7FF' }]}>
+              <MaterialCommunityIcons name="calendar-sync" size={20} color="#4F46E5" />
+            </View>
+            <View style={styles.itemTextWrap}>
+              <Text style={[styles.itemTitle, { color: theme.onSurface }]}>Budget Cycle Manager</Text>
+              <Text style={[styles.itemSubtitle, { color: theme.onSurfaceVariant }]}>
+                {settings.cycle_mode === 'custom'
+                  ? `Custom Periods (${allCycles.length} total) • Active: ${currentCycle?.name || 'Custom'}`
+                  : `Monthly Calendar (${currentCycle?.name || 'Active'}) • Start day & targets`}
               </Text>
             </View>
             <MaterialCommunityIcons name="chevron-right" size={20} color={theme.onSurfaceVariant} />

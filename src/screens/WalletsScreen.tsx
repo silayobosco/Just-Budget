@@ -8,6 +8,7 @@ import {
   TextInput,
   Modal,
   Alert,
+  SafeAreaView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -193,6 +194,32 @@ export const WalletsScreen: React.FC = () => {
       });
     }
     setWalletModalVisible(false);
+  };
+
+  const handleDeleteWalletPrompt = (walletToDelete?: Wallet | null) => {
+    const target = walletToDelete || currentSelectedWallet;
+    if (!target) return;
+    if (wallets.length <= 1) {
+      Alert.alert('Cannot Delete Wallet', 'You must have at least one active wallet in your portfolio.');
+      return;
+    }
+    Alert.alert(
+      'Delete Wallet',
+      `Are you sure you want to delete "${target.name}"? Transactions associated with this wallet will be removed.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            await deleteWallet(target.id);
+            if (selectedWallet?.id === target.id) {
+              setSelectedWallet(null);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleOpenTransfer = (defaultFromId?: string) => {
@@ -562,7 +589,7 @@ export const WalletsScreen: React.FC = () => {
         animationType="slide"
         onRequestClose={() => setSelectedWallet(null)}
       >
-        <View style={[styles.detailContainer, { backgroundColor: theme.background, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+        <SafeAreaView style={[styles.detailContainer, { backgroundColor: theme.background }]}>
           {/* TOP NAV BAR */}
           <View style={[styles.detailNavBar, { borderBottomColor: theme.divider, backgroundColor: theme.surface }]}>
             <TouchableOpacity
@@ -583,7 +610,17 @@ export const WalletsScreen: React.FC = () => {
             </View>
 
             <View style={styles.detailNavActions}>
-              {/* EDIT BUTTON MOVED HERE */}
+              {/* DELETE BUTTON (LEFT OF EDIT) */}
+              <TouchableOpacity
+                style={[styles.detailActionBtn, { backgroundColor: theme.errorContainer }]}
+                onPress={() => handleDeleteWalletPrompt(currentSelectedWallet)}
+                accessibilityLabel="Delete Wallet"
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <MaterialCommunityIcons name="trash-can-outline" size={18} color={theme.onErrorContainer} />
+              </TouchableOpacity>
+
+              {/* EDIT BUTTON (RIGHT OF DELETE) */}
               <TouchableOpacity
                 style={[styles.detailActionBtn, { backgroundColor: theme.pillBg }]}
                 onPress={() => {
@@ -592,37 +629,10 @@ export const WalletsScreen: React.FC = () => {
                   }
                 }}
                 accessibilityLabel="Edit Wallet"
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
                 <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.onSurface} />
               </TouchableOpacity>
-
-              {/* DELETE BUTTON MOVED HERE */}
-              {wallets.length > 1 && (
-                <TouchableOpacity
-                  style={[styles.detailActionBtn, { backgroundColor: theme.errorContainer }]}
-                  onPress={() => {
-                    if (!currentSelectedWallet) return;
-                    Alert.alert(
-                      'Delete Wallet',
-                      `Are you sure you want to delete "${currentSelectedWallet.name}"? Transactions associated with this wallet will be removed.`,
-                      [
-                        { text: 'Cancel', style: 'cancel' },
-                        {
-                          text: 'Delete',
-                          style: 'destructive',
-                          onPress: async () => {
-                            await deleteWallet(currentSelectedWallet.id);
-                            setSelectedWallet(null);
-                          },
-                        },
-                      ]
-                    );
-                  }}
-                  accessibilityLabel="Delete Wallet"
-                >
-                  <MaterialCommunityIcons name="trash-can-outline" size={18} color={theme.onErrorContainer} />
-                </TouchableOpacity>
-              )}
             </View>
           </View>
 
@@ -827,7 +837,33 @@ export const WalletsScreen: React.FC = () => {
               ))
             )}
           </ScrollView>
-        </View>
+
+          {/* Action Buttons Footer */}
+          <View style={[styles.detailFooterBar, { backgroundColor: theme.surface, borderTopColor: theme.divider }]}>
+            <TouchableOpacity
+              style={[styles.detailDeleteActionBtn, { borderColor: theme.error, backgroundColor: theme.pillBg }]}
+              onPress={() => handleDeleteWalletPrompt(currentSelectedWallet)}
+              activeOpacity={0.7}
+              accessibilityLabel="Delete Wallet"
+            >
+              <MaterialCommunityIcons name="trash-can-outline" size={18} color={theme.error} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.detailEditActionBtn, { backgroundColor: theme.primary }, M3Elevation.level2]}
+              onPress={() => {
+                if (currentSelectedWallet) {
+                  handleOpenEditWallet(currentSelectedWallet);
+                }
+              }}
+              activeOpacity={0.85}
+              accessibilityLabel="Edit Wallet"
+            >
+              <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.onPrimary} />
+              <Text style={[styles.detailEditActionBtnText, { color: theme.onPrimary }]}>Edit Wallet</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
       </Modal>
 
       {/* TRANSACTION FULL DETAILS MODAL */}
@@ -1120,10 +1156,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   detailNavBar: {
+    height: 56,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 12,
     borderBottomWidth: 1,
     gap: 12,
   },
@@ -1329,5 +1365,33 @@ const styles = StyleSheet.create({
   detailTxAmount: {
     fontSize: 14,
     fontWeight: '800',
+  },
+  detailFooterBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderTopWidth: 1,
+    gap: 12,
+  },
+  detailDeleteActionBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  detailEditActionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    height: 48,
+    borderRadius: M3Shape.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  detailEditActionBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
   },
 });
