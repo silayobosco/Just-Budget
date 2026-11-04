@@ -14,7 +14,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
 import { TransactionType } from '../types';
-import { formatTypingNumber, formatCurrency } from '../utils/format';
+import { formatTypingNumber, formatCurrency, parseCleanNumber } from '../utils/format';
 import { CategoryManagerModal } from './CategoryManagerModal';
 
 interface AddTransactionModalProps {
@@ -651,7 +651,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
               placeholder="0.00"
               placeholderTextColor={theme.onSurfaceVariant}
               value={newWalletBal}
-              onChangeText={setNewWalletBal}
+              onChangeText={(t) => setNewWalletBal(formatTypingNumber(t))}
             />
 
             <View style={styles.inlineModalActions}>
@@ -665,7 +665,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
                 style={[styles.inlineSaveBtn, { backgroundColor: theme.primary }]}
                 onPress={async () => {
                   if (!newWalletName.trim()) return;
-                  const startBal = parseFloat(newWalletBal) || 0;
+                  const startBal = parseCleanNumber(newWalletBal);
                   await addWallet({
                     name: newWalletName.trim(),
                     currency: settings.base_currency,

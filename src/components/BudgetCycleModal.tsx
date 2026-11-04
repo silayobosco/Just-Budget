@@ -13,7 +13,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { BudgetCycle, CycleMode, CycleBalanceMode, CycleTargetMode } from '../types';
 import { useBudget } from '../context/BudgetContext';
 import { M3Shape, M3Elevation } from '../theme';
-import { getRegularCycleDates, formatCycleDateRange, formatCurrency } from '../utils/format';
+import { getRegularCycleDates, formatCycleDateRange, formatCurrency, formatTypingNumber, parseCleanNumber } from '../utils/format';
 import { DateRangePickerModal } from './DateRangePickerModal';
 import { CycleStartDayCalendar } from './CycleStartDayCalendar';
 
@@ -74,18 +74,18 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
       setBalanceMode(settings.cycle_balance_mode || 'monthly');
       setTargetMode(settings.cycle_target_mode || 'monthly');
       setStartDay(settings.cycle_month_start_day ? settings.cycle_month_start_day.toString() : '1');
-      setDefaultBudget(settings.cycle_default_budget ? settings.cycle_default_budget.toString() : '2000');
-      setDefaultIncome(settings.cycle_default_income ? settings.cycle_default_income.toString() : '2500');
+      setDefaultBudget(settings.cycle_default_budget ? formatTypingNumber(settings.cycle_default_budget.toString()) : '2,000');
+      setDefaultIncome(settings.cycle_default_income ? formatTypingNumber(settings.cycle_default_income.toString()) : '2,500');
 
       if (currentCycle) {
-        setRegBudget(currentCycle.target_budget ? currentCycle.target_budget.toString() : '');
-        setRegIncome(currentCycle.target_income ? currentCycle.target_income.toString() : '');
+        setRegBudget(currentCycle.target_budget ? formatTypingNumber(currentCycle.target_budget.toString()) : '');
+        setRegIncome(currentCycle.target_income ? formatTypingNumber(currentCycle.target_income.toString()) : '');
         setSelectedCycleId(currentCycle.id);
         setCustomName(currentCycle.name);
         setCustomStart(currentCycle.start_date);
         setCustomEnd(currentCycle.end_date);
-        setCustomBudget(currentCycle.target_budget ? currentCycle.target_budget.toString() : '');
-        setCustomIncome(currentCycle.target_income ? currentCycle.target_income.toString() : '');
+        setCustomBudget(currentCycle.target_budget ? formatTypingNumber(currentCycle.target_budget.toString()) : '');
+        setCustomIncome(currentCycle.target_income ? formatTypingNumber(currentCycle.target_income.toString()) : '');
       }
     }
   }, [visible, settings, currentCycle]);
@@ -170,18 +170,18 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
     const dayNum = parseInt(startDay, 10);
     const validDay = isNaN(dayNum) ? 1 : Math.min(31, Math.max(1, dayNum));
 
-    const defBudgetNum = parseFloat(defaultBudget);
-    const defIncomeNum = parseFloat(defaultIncome);
-    const thisBudgetNum = parseFloat(regBudget);
-    const thisIncomeNum = parseFloat(regIncome);
+    const defBudgetNum = parseCleanNumber(defaultBudget);
+    const defIncomeNum = parseCleanNumber(defaultIncome);
+    const thisBudgetNum = parseCleanNumber(regBudget);
+    const thisIncomeNum = parseCleanNumber(regIncome);
 
     const targetB = targetMode === 'inherit'
-      ? (!isNaN(defBudgetNum) ? defBudgetNum : undefined)
-      : (!isNaN(thisBudgetNum) ? thisBudgetNum : undefined);
+      ? (defBudgetNum > 0 ? defBudgetNum : undefined)
+      : (thisBudgetNum > 0 ? thisBudgetNum : undefined);
 
     const targetI = targetMode === 'inherit'
-      ? (!isNaN(defIncomeNum) ? defIncomeNum : undefined)
-      : (!isNaN(thisIncomeNum) ? thisIncomeNum : undefined);
+      ? (defIncomeNum > 0 ? defIncomeNum : undefined)
+      : (thisIncomeNum > 0 ? thisIncomeNum : undefined);
 
     // Save app settings
     await updateSettings({
@@ -218,8 +218,8 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
     setCustomName(cycle.name);
     setCustomStart(cycle.start_date);
     setCustomEnd(cycle.end_date);
-    setCustomBudget(cycle.target_budget ? cycle.target_budget.toString() : '');
-    setCustomIncome(cycle.target_income ? cycle.target_income.toString() : '');
+    setCustomBudget(cycle.target_budget ? formatTypingNumber(cycle.target_budget.toString()) : '');
+    setCustomIncome(cycle.target_income ? formatTypingNumber(cycle.target_income.toString()) : '');
   };
 
   // Start creating a new custom period
@@ -234,8 +234,8 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
     setCustomName('New Custom Period');
     setCustomStart(todayStr);
     setCustomEnd(todayStr);
-    setCustomBudget(settings.cycle_default_budget ? settings.cycle_default_budget.toString() : '2000');
-    setCustomIncome(settings.cycle_default_income ? settings.cycle_default_income.toString() : '2500');
+    setCustomBudget(settings.cycle_default_budget ? formatTypingNumber(settings.cycle_default_budget.toString()) : '2,000');
+    setCustomIncome(settings.cycle_default_income ? formatTypingNumber(settings.cycle_default_income.toString()) : '2,500');
     setIsRangePickerOpen(true);
   };
 
@@ -248,11 +248,11 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
 
     const bNum = customTargetMode === 'inherit' && settings.cycle_default_budget
       ? settings.cycle_default_budget
-      : parseFloat(customBudget);
+      : parseCleanNumber(customBudget);
 
     const iNum = customTargetMode === 'inherit' && settings.cycle_default_income
       ? settings.cycle_default_income
-      : parseFloat(customIncome);
+      : parseCleanNumber(customIncome);
 
     await updateSettings({
       cycle_mode: 'custom',
@@ -457,7 +457,7 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
                           placeholderTextColor={theme.onSurfaceVariant}
                           keyboardType="decimal-pad"
                           value={defaultBudget}
-                          onChangeText={setDefaultBudget}
+                          onChangeText={(t) => setDefaultBudget(formatTypingNumber(t))}
                         />
                       </View>
                       <View style={{ flex: 1 }}>
@@ -466,11 +466,11 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
                         </Text>
                         <TextInput
                           style={[styles.input, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
-                          placeholder="e.g. 2500"
+                          placeholder="e.g. 2,500"
                           placeholderTextColor={theme.onSurfaceVariant}
                           keyboardType="decimal-pad"
                           value={defaultIncome}
-                          onChangeText={setDefaultIncome}
+                          onChangeText={(t) => setDefaultIncome(formatTypingNumber(t))}
                         />
                       </View>
                     </View>
@@ -482,11 +482,11 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
                         </Text>
                         <TextInput
                           style={[styles.input, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
-                          placeholder="e.g. 2000"
+                          placeholder="e.g. 2,000"
                           placeholderTextColor={theme.onSurfaceVariant}
                           keyboardType="decimal-pad"
                           value={regBudget}
-                          onChangeText={setRegBudget}
+                          onChangeText={(t) => setRegBudget(formatTypingNumber(t))}
                         />
                       </View>
                       <View style={{ flex: 1 }}>
@@ -495,11 +495,11 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
                         </Text>
                         <TextInput
                           style={[styles.input, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
-                          placeholder="e.g. 2500"
+                          placeholder="e.g. 2,500"
                           placeholderTextColor={theme.onSurfaceVariant}
                           keyboardType="decimal-pad"
                           value={regIncome}
-                          onChangeText={setRegIncome}
+                          onChangeText={(t) => setRegIncome(formatTypingNumber(t))}
                         />
                       </View>
                     </View>
@@ -771,7 +771,7 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
                           placeholderTextColor={theme.onSurfaceVariant}
                           keyboardType="decimal-pad"
                           value={customBudget}
-                          onChangeText={setCustomBudget}
+                          onChangeText={(t) => setCustomBudget(formatTypingNumber(t))}
                         />
                       </View>
                       <View style={{ flex: 1 }}>
@@ -780,11 +780,11 @@ export const BudgetCycleModal: React.FC<BudgetCycleModalProps> = ({
                         </Text>
                         <TextInput
                           style={[styles.input, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
-                          placeholder="e.g. 2500"
+                          placeholder="e.g. 2,500"
                           placeholderTextColor={theme.onSurfaceVariant}
                           keyboardType="decimal-pad"
                           value={customIncome}
-                          onChangeText={setCustomIncome}
+                          onChangeText={(t) => setCustomIncome(formatTypingNumber(t))}
                         />
                       </View>
                     </View>

@@ -1,21 +1,28 @@
 /**
- * Formats a raw number string while typing, adding commas every 3 digits
- * and preserving trailing dots and decimal digits (e.g. "1000000" -> "1,000,000", "1250." -> "1,250.")
+ * Formats a raw number or math expression string while typing, adding commas every 3 digits
+ * and preserving trailing dots, decimals, and operators (e.g. "1000000" -> "1,000,000", "1250." -> "1,250.")
  */
 export const formatTypingNumber = (raw: string): string => {
-  if (!raw || raw === '0') return '0';
+  if (raw === '' || raw === null || raw === undefined) return '';
+  const clean = raw.replace(/,/g, '');
+  if (!clean) return '';
 
-  const parts = raw.split('.');
-  const integerPart = parts[0] || '0';
-  const decimalPart = parts.length > 1 ? parts[1] : null;
+  return clean.replace(/\d+(\.\d*)?|\.\d+/g, (match) => {
+    const parts = match.split('.');
+    const intPart = parts[0] ? parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '';
+    return parts.length > 1 ? `${intPart}.${parts[1]}` : intPart;
+  });
+};
 
-  // Insert comma every 3 digits
-  const formattedInteger = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-
-  if (decimalPart !== null) {
-    return `${formattedInteger}.${decimalPart}`;
-  }
-  return formattedInteger;
+/**
+ * Strips commas and parses as float. Returns 0 if invalid or empty.
+ */
+export const parseCleanNumber = (val: string | number | undefined | null): number => {
+  if (val === undefined || val === null || val === '') return 0;
+  if (typeof val === 'number') return isNaN(val) ? 0 : val;
+  const clean = val.toString().replace(/,/g, '').trim();
+  const num = parseFloat(clean);
+  return isNaN(num) ? 0 : num;
 };
 
 /**

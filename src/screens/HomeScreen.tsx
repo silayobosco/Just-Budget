@@ -19,7 +19,7 @@ import { useBudget } from '../context/BudgetContext';
 import { getDB } from '../services/db';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
 import { Transaction, TransactionType, BillFrequency, RecurrenceEndType } from '../types';
-import { formatCurrency } from '../utils/format';
+import { formatCurrency, formatTypingNumber, parseCleanNumber } from '../utils/format';
 import { CategoryManagerModal } from '../components/CategoryManagerModal';
 import { CategoryPickerSheet } from '../components/CategoryPickerSheet';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
@@ -168,8 +168,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
   };
 
   const handleSaveQuickTarget = async () => {
-    const num = parseFloat(quickTargetInput);
-    await updateCurrentCycleTarget(quickTargetType, !isNaN(num) ? num : 0);
+    const num = parseCleanNumber(quickTargetInput);
+    await updateCurrentCycleTarget(quickTargetType, num);
     setQuickTargetModalVisible(false);
   };
 
@@ -227,8 +227,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
       setAmountSelection({ start: 1, end: 1 });
       return;
     }
-    const cleaned = text.replace(/,/g, '').replace(/[*]/g, '×').replace(/[/]/g, '÷').replace(/[^0-9.+×÷\- ]/g, '');
-    setAmountStr(cleaned || '0');
+    const cleaned = text.replace(/[*]/g, '×').replace(/[/]/g, '÷').replace(/[^0-9.+×÷\- ,]/g, '');
+    const formatted = formatTypingNumber(cleaned);
+    setAmountStr(formatted || '0');
   };
 
   // Dial Pad Keypress (Digits, Decimal, Calculation Operators & Equals)
@@ -250,10 +251,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
       if (curStart !== curEnd) {
         const before = amountStr.slice(0, curStart);
         const after = amountStr.slice(curEnd);
-        const next = before + after || '0';
+        const nextClean = (before + after).replace(/,/g, '');
+        const next = formatTypingNumber(nextClean) || '0';
         setAmountStr(next);
-        setAmountSelection({ start: curStart, end: curStart });
-        setTimeout(() => amountInputRef.current?.setSelection?.(curStart, curStart), 10);
+        const newPos = Math.min(next.length, curStart);
+        setAmountSelection({ start: newPos, end: newPos });
+        setTimeout(() => amountInputRef.current?.setSelection?.(newPos, newPos), 10);
       } else if (curStart > 0) {
         let deleteCount = 1;
         // If backspacing over a spaced operator like " + ", remove cleanly
@@ -261,12 +264,26 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
           deleteCount = 2;
         } else if (curStart >= 3 && amountStr.slice(curStart - 3, curStart).endsWith(' ')) {
           deleteCount = 3;
+        } else if (amountStr[curStart - 1] === ',') {
+          deleteCount = 2;
         }
         const before = amountStr.slice(0, Math.max(0, curStart - deleteCount));
         const after = amountStr.slice(curEnd);
-        const next = before + after || '0';
+        const nextClean = (before + after).replace(/,/g, '');
+        const next = formatTypingNumber(nextClean) || '0';
         setAmountStr(next);
-        const newPos = Math.max(0, curStart - deleteCount);
+
+        const cleanBeforeLen = before.replace(/,/g, '').length;
+        let newPos = next.length;
+        let passed = 0;
+        for (let i = 0; i < next.length; i++) {
+          if (next[i] !== ',') passed++;
+          if (passed === cleanBeforeLen) {
+            newPos = i + 1;
+            break;
+          }
+        }
+        if (cleanBeforeLen === 0) newPos = next === '0' ? 1 : 0;
         setAmountSelection({ start: newPos, end: newPos });
         setTimeout(() => amountInputRef.current?.setSelection?.(newPos, newPos), 10);
       }
@@ -276,7 +293,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
     // Equals ('=') evaluates the math expression immediately
     if (val === '=') {
       const result = evaluateMathExpression(amountStr);
-      const resStr = result.toString();
+      const resStr = formatTypingNumber(result.toString());
       setAmountStr(resStr);
       setAmountSelection({ start: resStr.length, end: resStr.length });
       setTimeout(() => amountInputRef.current?.setSelection?.(resStr.length, resStr.length), 10);
@@ -296,7 +313,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
       // If equation already has a first number and operator, solve first then chain operator
       if (/[0-9] [+\-×÷] [0-9]/.test(amountStr)) {
         const result = evaluateMathExpression(amountStr);
-        const next = `${result} ${val} `;
+        const next = `${formatTypingNumber(result.toString())} ${val} `;
         setAmountStr(next);
         setAmountSelection({ start: next.length, end: next.length });
         return;
@@ -336,17 +353,29 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
 
     const before = amountStr.slice(0, curStart);
     const after = amountStr.slice(curEnd);
-    const nextCandidate = before + val + after;
+    const rawCandidate = before + val + after;
+    const cleanCandidate = rawCandidate.replace(/,/g, '');
 
     // Check decimal constraint on current number segment
-    const segments = nextCandidate.split(/ [+\-×÷] /);
+    const segments = cleanCandidate.split(/ [+\-×÷] /);
     const currentSegment = segments[segments.length - 1] || '';
     const decParts = currentSegment.split('.');
     if (decParts.length === 2 && decParts[1].length > 2) return;
-    if (nextCandidate.replace(/[^0-9]/g, '').length >= 15) return;
+    if (cleanCandidate.replace(/[^0-9]/g, '').length >= 15) return;
 
-    setAmountStr(nextCandidate);
-    const nextPos = curStart + 1;
+    const formattedCandidate = formatTypingNumber(cleanCandidate);
+    setAmountStr(formattedCandidate);
+
+    const cleanBeforeLen = (before + val).replace(/,/g, '').length;
+    let nextPos = formattedCandidate.length;
+    let passed = 0;
+    for (let i = 0; i < formattedCandidate.length; i++) {
+      if (formattedCandidate[i] !== ',') passed++;
+      if (passed === cleanBeforeLen) {
+        nextPos = i + 1;
+        break;
+      }
+    }
     setAmountSelection({ start: nextPos, end: nextPos });
     setTimeout(() => amountInputRef.current?.setSelection?.(nextPos, nextPos), 10);
   };
@@ -572,7 +601,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
   // Quick Add Wallet
   const handleSaveQuickWallet = async () => {
     if (!newWalletName.trim()) return;
-    const initialBal = parseFloat(newWalletBal) || 0;
+    const initialBal = parseCleanNumber(newWalletBal);
     await addWallet({
       name: newWalletName.trim(),
       currency: curr,
@@ -1854,7 +1883,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
                 keyboardType="decimal-pad"
                 autoFocus
                 value={quickTargetInput}
-                onChangeText={setQuickTargetInput}
+                onChangeText={(text) => setQuickTargetInput(formatTypingNumber(text))}
                 selectTextOnFocus
               />
             </View>
@@ -1907,7 +1936,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
               placeholderTextColor={theme.onSurfaceVariant}
               keyboardType="numeric"
               value={newWalletBal}
-              onChangeText={setNewWalletBal}
+              onChangeText={(text) => setNewWalletBal(formatTypingNumber(text))}
             />
             <View style={styles.quickModalBtnRow}>
               <TouchableOpacity

@@ -13,7 +13,7 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
-import { formatCurrency } from '../utils/format';
+import { formatCurrency, formatTypingNumber, parseCleanNumber } from '../utils/format';
 import { RecurringBill, BillFrequency, RecurrenceEndType } from '../types';
 import { CalendarPickerModal } from './CalendarPickerModal';
 
@@ -85,7 +85,7 @@ export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({ visibl
   const handleOpenEdit = (bill: RecurringBill) => {
     setEditingBill(bill);
     setBillName(bill.name);
-    setBillAmount(bill.amount.toString());
+    setBillAmount(formatTypingNumber(bill.amount.toString()));
     setBillFrequency(bill.frequency);
     setBillDueDay(bill.due_day);
     setBillEndType(bill.end_type || 'never');
@@ -98,7 +98,7 @@ export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({ visibl
   };
 
   const handleSaveBill = async () => {
-    const amt = parseFloat(billAmount);
+    const amt = parseCleanNumber(billAmount);
     if (!billName.trim() || isNaN(amt) || amt <= 0) {
       Alert.alert('Invalid details', 'Please enter a valid bill name and amount.');
       return;
@@ -264,7 +264,7 @@ export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({ visibl
                 placeholder="0.00"
                 placeholderTextColor={theme.onSurfaceVariant}
                 value={billAmount}
-                onChangeText={setBillAmount}
+                onChangeText={(t) => setBillAmount(formatTypingNumber(t))}
               />
 
               {/* Frequency Picker */}

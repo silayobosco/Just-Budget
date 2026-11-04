@@ -13,7 +13,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
 import { Category, Subcategory, BudgetProgress, BudgetScope } from '../types';
-import { formatCurrency, formatTypingNumber } from '../utils/format';
+import { formatCurrency, formatTypingNumber, parseCleanNumber } from '../utils/format';
 
 interface CategoryManagerModalProps {
   visible: boolean;
@@ -121,7 +121,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
 
     // Look up current limit
     const catProgress = categoryBudgetProgressList.find((c) => c.id === cat.id);
-    setNewCatLimitStr(catProgress && catProgress.limit > 0 ? catProgress.limit.toString() : '');
+    setNewCatLimitStr(catProgress && catProgress.limit > 0 ? formatTypingNumber(catProgress.limit.toString()) : '');
     setIsAddingNew(false);
   };
 
@@ -147,7 +147,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
   const handleSaveCategory = async () => {
     if (!newCatName.trim()) return;
 
-    const limitVal = parseFloat(newCatLimitStr.replace(/,/g, '').trim()) || 0;
+    const limitVal = parseCleanNumber(newCatLimitStr);
 
     if (editingCategory) {
       await updateCategory({
@@ -184,7 +184,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
   const handleAddSub = async (catId: string) => {
     if (!newSubName.trim()) return;
 
-    const subLimitVal = parseFloat(newSubLimitStr.replace(/,/g, '').trim()) || 0;
+    const subLimitVal = parseCleanNumber(newSubLimitStr);
 
     // Check if parent category has a limit/target and subcategory exceeds it
     if (subLimitVal > 0) {
@@ -212,7 +212,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
     // Look up current subcategory limit
     const catProgress = categoryBudgetProgressList.find((c) => c.id === cat.id);
     const subProgress = catProgress?.subBudgets?.find((s) => s.id === sub.id);
-    setEditSubLimitStr(subProgress && subProgress.limit > 0 ? subProgress.limit.toString() : '');
+    setEditSubLimitStr(subProgress && subProgress.limit > 0 ? formatTypingNumber(subProgress.limit.toString()) : '');
 
     setEditingSubModalVisible(true);
   };
@@ -225,7 +225,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
 
     // 2. If expense, update or clear budget limit
     if (filterType === 'expense' && editingSubParentCat) {
-      const limitVal = parseFloat(editSubLimitStr.replace(/,/g, '').trim()) || 0;
+      const limitVal = parseCleanNumber(editSubLimitStr);
       await setBudgetLimit({
         scope: 'subcategory',
         category_id: editingSubParentCat.id,
@@ -266,7 +266,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
     setEditLimitTargetId(cat.id);
     setEditLimitParentCatId('');
     setEditLimitTargetName(cat.name);
-    setEditLimitAmountStr(catProgress && catProgress.limit > 0 ? catProgress.limit.toString() : '');
+    setEditLimitAmountStr(catProgress && catProgress.limit > 0 ? formatTypingNumber(catProgress.limit.toString()) : '');
     setEditLimitMaxAllowed(overallBudgetLimit > 0 ? overallBudgetLimit : null);
     setEditLimitVisible(true);
   };
@@ -278,7 +278,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
     setEditLimitTargetId(subId);
     setEditLimitParentCatId(cat.id);
     setEditLimitTargetName(`${cat.name} › ${subName}`);
-    setEditLimitAmountStr(subProgress && subProgress.limit > 0 ? subProgress.limit.toString() : '');
+    setEditLimitAmountStr(subProgress && subProgress.limit > 0 ? formatTypingNumber(subProgress.limit.toString()) : '');
     setEditLimitMaxAllowed(catProgress && catProgress.limit > 0 ? catProgress.limit : null);
     setEditLimitVisible(true);
   };
@@ -290,16 +290,15 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
     setEditLimitTargetName(filterType === 'expense' ? 'Overall Monthly Spending Budget' : 'Overall Monthly Income Target');
     setEditLimitAmountStr(
       filterType === 'expense'
-        ? (overallBudgetLimit > 0 ? overallBudgetLimit.toString() : '')
-        : (incomeGoal > 0 ? incomeGoal.toString() : '')
+        ? (overallBudgetLimit > 0 ? formatTypingNumber(overallBudgetLimit.toString()) : '')
+        : (incomeGoal > 0 ? formatTypingNumber(incomeGoal.toString()) : '')
     );
     setEditLimitMaxAllowed(null);
     setEditLimitVisible(true);
   };
 
   const handleSaveInlineLimit = async () => {
-    const rawVal = editLimitAmountStr.replace(/,/g, '').trim();
-    const amount = rawVal === '' ? 0 : parseFloat(rawVal);
+    const amount = parseCleanNumber(editLimitAmountStr);
 
     if (isNaN(amount) || amount < 0) {
       Alert.alert('Invalid Amount', 'Please enter a valid amount or 0 to clear.');
@@ -575,7 +574,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
                     placeholderTextColor={theme.outline}
                     keyboardType="numeric"
                     value={newCatLimitStr}
-                    onChangeText={setNewCatLimitStr}
+                    onChangeText={(t) => setNewCatLimitStr(formatTypingNumber(t))}
                   />
                 </View>
               </View>
@@ -892,7 +891,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
                               placeholderTextColor={theme.outline}
                               keyboardType="numeric"
                               value={newSubLimitStr}
-                              onChangeText={setNewSubLimitStr}
+                              onChangeText={(t) => setNewSubLimitStr(formatTypingNumber(t))}
                             />
                           </View>
                           <View style={styles.addSubBoxActions}>
@@ -979,7 +978,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
                     placeholderTextColor={theme.outline}
                     keyboardType="numeric"
                     value={editLimitAmountStr}
-                    onChangeText={setEditLimitAmountStr}
+                    onChangeText={(t) => setEditLimitAmountStr(formatTypingNumber(t))}
                     autoFocus
                   />
                 </View>
@@ -1062,7 +1061,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
                     placeholderTextColor={theme.outline}
                     keyboardType="numeric"
                     value={editSubLimitStr}
-                    onChangeText={setEditSubLimitStr}
+                    onChangeText={(t) => setEditSubLimitStr(formatTypingNumber(t))}
                   />
                 </View>
 

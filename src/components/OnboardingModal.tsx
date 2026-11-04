@@ -18,7 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
-import { getRegularCycleDates, formatCycleDateRange } from '../utils/format';
+import { getRegularCycleDates, formatCycleDateRange, formatTypingNumber, parseCleanNumber } from '../utils/format';
 import { DateRangePickerModal } from './DateRangePickerModal';
 import { CycleStartDayCalendar } from './CycleStartDayCalendar';
 
@@ -112,7 +112,7 @@ export const OnboardingModal: React.FC = () => {
   const handleBalanceChange = (val: string) => {
     setWalletBalances((prev) => ({
       ...prev,
-      [selectedWalletName]: val,
+      [selectedWalletName]: formatTypingNumber(val),
     }));
   };
 
@@ -199,16 +199,16 @@ export const OnboardingModal: React.FC = () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
-      const bCap = parseFloat(budgetCap);
-      const iGoal = parseFloat(incomeGoal);
+      const bCap = parseCleanNumber(budgetCap);
+      const iGoal = parseCleanNumber(incomeGoal);
       const dayNum = parseInt(cycleStartDayStr, 10);
       const validDay = !isNaN(dayNum) ? Math.min(31, Math.max(1, dayNum)) : 1;
 
       // Extract numeric balances for all configured wallets
       const parsedWalletBalances: Record<string, number> = {};
       for (const [wName, bStr] of Object.entries(walletBalances)) {
-        const parsed = parseFloat(bStr);
-        if (!isNaN(parsed) && parsed > 0) {
+        const parsed = parseCleanNumber(bStr);
+        if (parsed > 0) {
           parsedWalletBalances[wName] = parsed;
         }
       }
@@ -218,8 +218,8 @@ export const OnboardingModal: React.FC = () => {
         walletBalances: parsedWalletBalances,
         firstWalletName: selectedWalletName.trim() || undefined,
         startingBalance: parsedWalletBalances[selectedWalletName] || undefined,
-        budgetCap: !isNaN(bCap) ? bCap : undefined,
-        incomeGoal: !isNaN(iGoal) ? iGoal : undefined,
+        budgetCap: bCap > 0 ? bCap : undefined,
+        incomeGoal: iGoal > 0 ? iGoal : undefined,
         cycleMode,
         cycleMonthStartDay: validDay,
         cycleBalanceMode,
@@ -863,7 +863,7 @@ export const OnboardingModal: React.FC = () => {
                       placeholderTextColor={theme.onSurfaceVariant}
                       keyboardType="decimal-pad"
                       value={budgetCap}
-                      onChangeText={setBudgetCap}
+                      onChangeText={(t) => setBudgetCap(formatTypingNumber(t))}
                     />
                   </View>
 
@@ -892,7 +892,7 @@ export const OnboardingModal: React.FC = () => {
                       placeholderTextColor={theme.onSurfaceVariant}
                       keyboardType="decimal-pad"
                       value={incomeGoal}
-                      onChangeText={setIncomeGoal}
+                      onChangeText={(t) => setIncomeGoal(formatTypingNumber(t))}
                     />
                   </View>
                 </View>

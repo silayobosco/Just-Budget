@@ -22,7 +22,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Category, Subcategory, Wallet, TransactionType, BillFrequency, RecurrenceEndType } from '../types';
-import { formatCurrency } from '../utils/format';
+import { formatCurrency, formatTypingNumber, parseCleanNumber } from '../utils/format';
 import { M3Elevation, M3Shape } from '../theme';
 import { AnalogClockModal } from './AnalogClockModal';
 import { CalendarPickerModal } from './CalendarPickerModal';
@@ -231,7 +231,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   useEffect(() => {
     if (visible) {
       setCurrentType(defaultTxType);
-      setAmountStr(initialAmount > 0 ? initialAmount.toString() : '');
+      setAmountStr(initialAmount > 0 ? formatTypingNumber(initialAmount.toString()) : '');
       setSelectedWalletId(initialWalletId || (wallets.length > 0 ? wallets[0].id : ''));
       setSelectedCategoryId(initialCategoryId || '');
       setSelectedSubcategoryId(initialSubcategoryId || '');
@@ -345,7 +345,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   };
 
   const handleSave = async () => {
-    const parsed = parseFloat(amountStr);
+    const parsed = parseCleanNumber(amountStr);
     if (isNaN(parsed) || parsed <= 0) {
       Alert.alert('Invalid Amount', 'Please enter a valid amount greater than 0');
       return;
@@ -606,7 +606,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
                 placeholderTextColor={theme.onSurfaceVariant}
                 keyboardType={Platform.OS === 'android' ? 'numeric' : 'decimal-pad'}
                 value={amountStr}
-                onChangeText={setAmountStr}
+                onChangeText={(text) => setAmountStr(formatTypingNumber(text))}
                 selectTextOnFocus={true}
               />
             </View>
@@ -1014,7 +1014,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
         <CategoryPickerSheet
           visible={categorySheetVisible}
           txType={currentType}
-          amount={parseFloat(amountStr) || 0}
+          amount={parseCleanNumber(amountStr)}
           walletId={selectedWalletId}
           wallets={wallets}
           categories={categories}

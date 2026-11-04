@@ -13,7 +13,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
 import { Wallet } from '../types';
-import { formatCurrency } from '../utils/format';
+import { formatCurrency, formatTypingNumber, parseCleanNumber } from '../utils/format';
 
 export const WalletsScreen: React.FC = () => {
   const {
@@ -68,8 +68,8 @@ export const WalletsScreen: React.FC = () => {
     setEditingWallet(w);
     setWalletName(w.name);
     setWalletCurrency(w.currency);
-    setWalletStartingBalance(w.starting_balance.toString());
-    setWalletCurrentBalance(w.current_balance.toString());
+    setWalletStartingBalance(formatTypingNumber(w.starting_balance.toString()));
+    setWalletCurrentBalance(formatTypingNumber(w.current_balance.toString()));
     setWalletColor(w.color);
     setWalletIcon(w.icon as any);
     setWalletModalVisible(true);
@@ -77,8 +77,8 @@ export const WalletsScreen: React.FC = () => {
 
   const handleSaveWallet = async () => {
     if (!walletName.trim()) return;
-    const startBal = parseFloat(walletStartingBalance) || 0;
-    const currBal = parseFloat(walletCurrentBalance) || 0;
+    const startBal = parseCleanNumber(walletStartingBalance);
+    const currBal = parseCleanNumber(walletCurrentBalance);
 
     if (editingWallet) {
       await updateWallet({
@@ -116,8 +116,8 @@ export const WalletsScreen: React.FC = () => {
   };
 
   const handleExecuteTransfer = async () => {
-    const amt = parseFloat(transferAmount);
-    if (isNaN(amt) || amt <= 0) return;
+    const amt = parseCleanNumber(transferAmount);
+    if (amt <= 0) return;
     if (fromWalletId === toWalletId) return;
 
     await transferBetweenWallets({
@@ -133,8 +133,8 @@ export const WalletsScreen: React.FC = () => {
 
   // Calculate transfer preview
   const calculateTransferPreview = () => {
-    const amt = parseFloat(transferAmount);
-    if (isNaN(amt) || amt <= 0) return null;
+    const amt = parseCleanNumber(transferAmount);
+    if (amt <= 0) return null;
     return formatCurrency(amt, settings.base_currency);
   };
 
@@ -323,7 +323,7 @@ export const WalletsScreen: React.FC = () => {
                     style={[styles.input, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
                     keyboardType="decimal-pad"
                     value={walletStartingBalance}
-                    onChangeText={setWalletStartingBalance}
+                    onChangeText={(t) => setWalletStartingBalance(formatTypingNumber(t))}
                   />
                 </>
               )}
@@ -337,7 +337,7 @@ export const WalletsScreen: React.FC = () => {
                     style={[styles.input, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
                     keyboardType="decimal-pad"
                     value={walletCurrentBalance}
-                    onChangeText={setWalletCurrentBalance}
+                    onChangeText={(t) => setWalletCurrentBalance(formatTypingNumber(t))}
                   />
                 </>
               )}
@@ -467,7 +467,7 @@ export const WalletsScreen: React.FC = () => {
               placeholder="0.00"
               placeholderTextColor={theme.onSurfaceVariant}
               value={transferAmount}
-              onChangeText={setTransferAmount}
+              onChangeText={(t) => setTransferAmount(formatTypingNumber(t))}
             />
 
             {calculateTransferPreview() && (
