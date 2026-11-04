@@ -287,21 +287,12 @@ export const DEFAULT_INCOME_CATEGORIES: {
 
 export const ensureDefaultWallets = (db: SQLite.SQLiteDatabase, currency: string = 'USD') => {
   try {
-    const txCount = db.getFirstSync<{ count: number }>(`SELECT COUNT(*) as count FROM transactions`);
-    const hasZeroTransactions = !txCount || txCount.count === 0;
-
     for (const w of DEFAULT_WALLETS) {
       const existing = db.getFirstSync<{ id: string }>(`SELECT id FROM wallets WHERE id = ?`, [w.id]);
       if (!existing) {
         db.runSync(
           `INSERT INTO wallets (id, name, currency, starting_balance, current_balance, color, icon, is_default) VALUES (?, ?, ?, 0, 0, ?, ?, ?)`,
           [w.id, w.name, currency, w.color, w.icon, w.is_default]
-        );
-      } else if (hasZeroTransactions) {
-        // Reset starting & current balances to 0 if no transactions recorded yet
-        db.runSync(
-          `UPDATE wallets SET starting_balance = 0, current_balance = 0 WHERE id = ? AND (starting_balance != 0 OR current_balance != 0)`,
-          [w.id]
         );
       }
     }

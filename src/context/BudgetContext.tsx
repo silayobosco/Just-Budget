@@ -33,6 +33,7 @@ interface BudgetContextType {
     currency: string;
     firstWalletName?: string;
     startingBalance?: number;
+    walletBalances?: Record<string, number>;
     budgetCap?: number;
     incomeGoal?: number;
     cycleMode?: 'regular' | 'custom';
@@ -1322,6 +1323,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     currency: string;
     firstWalletName?: string;
     startingBalance?: number;
+    walletBalances?: Record<string, number>;
     budgetCap?: number;
     incomeGoal?: number;
     cycleMode?: 'regular' | 'custom';
@@ -1347,8 +1349,30 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     ensureDefaultWallets(db, curr);
     db.runSync(`UPDATE wallets SET currency = ?`, [curr]);
 
-    // Create first custom wallet if specified and not duplicate
-    if (params.firstWalletName && params.firstWalletName.trim()) {
+    // Apply starting balances for each wallet configured during onboarding
+    if (params.walletBalances && Object.keys(params.walletBalances).length > 0) {
+      for (const [wName, bal] of Object.entries(params.walletBalances)) {
+        const trimmed = wName.trim();
+        if (!trimmed) continue;
+        const balNum = typeof bal === 'number' && !isNaN(bal) ? Math.max(0, bal) : 0;
+        const existing = db.getFirstSync<{ id: string }>(
+          `SELECT id FROM wallets WHERE LOWER(name) = LOWER(?)`,
+          [trimmed]
+        );
+        if (existing) {
+          db.runSync(
+            `UPDATE wallets SET starting_balance = ?, current_balance = ? WHERE id = ?`,
+            [balNum, balNum, existing.id]
+          );
+        } else if (balNum > 0) {
+          const wId = `w-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+          db.runSync(
+            `INSERT INTO wallets (id, name, currency, starting_balance, current_balance, color, icon, is_default) VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+            [wId, trimmed, curr, balNum, balNum, '#10B981', 'cash']
+          );
+        }
+      }
+    } else if (params.firstWalletName && params.firstWalletName.trim()) {
       const trimmed = params.firstWalletName.trim();
       const existing = db.getFirstSync<{ id: string }>(`SELECT id FROM wallets WHERE LOWER(name) = LOWER(?)`, [trimmed]);
       if (existing) {

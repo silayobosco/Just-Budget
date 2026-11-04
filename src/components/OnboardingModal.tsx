@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,11 +7,14 @@ import {
   TouchableOpacity,
   TextInput,
   ScrollView,
-  SafeAreaView,
   Image,
   KeyboardAvoidingView,
   Platform,
+  StatusBar,
+  Dimensions,
+  Keyboard,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
@@ -56,6 +59,27 @@ export const OnboardingModal: React.FC = () => {
   const { settings, completeOnboarding } = useBudget();
   const isDarkMode = settings.theme_mode === 'dark';
   const theme = isDarkMode ? darkTheme : lightTheme;
+  const insets = useSafeAreaInsets();
+  const topInset = Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 24) : 0);
+  const [keyboardHeight, setKeyboardHeight] = useState<number>(0);
+
+  useEffect(() => {
+    const onShow = (e: any) => {
+      const coordHeight = e?.endCoordinates?.height || 0;
+      const screenY = e?.endCoordinates?.screenY;
+      const screenHeight = Dimensions.get('screen').height;
+      const fromBottom = screenY != null && screenHeight > screenY ? screenHeight - screenY : 0;
+      setKeyboardHeight(fromBottom > 0 ? fromBottom : coordHeight);
+    };
+    const onHide = () => setKeyboardHeight(0);
+
+    const s1 = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', onShow);
+    const s2 = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', onHide);
+    return () => {
+      s1.remove();
+      s2.remove();
+    };
+  }, []);
 
   // 4-step wizard: 0: Currency, 1: Wallet, 2: Cycle Calendar, 3: Cycle Targets
   const [currentStep, setCurrentStep] = useState<number>(0);
@@ -64,9 +88,33 @@ export const OnboardingModal: React.FC = () => {
   const [selectedCurrency, setSelectedCurrency] = useState<string>('USD');
   const [currencySearch, setCurrencySearch] = useState<string>('');
 
-  // Step 1: Wallet
-  const [walletName, setWalletName] = useState<string>('Cash');
-  const [startingBalance, setStartingBalance] = useState<string>('');
+  // Step 1: Wallets (Individual balances per wallet)
+  const [selectedWalletName, setSelectedWalletName] = useState<string>('Cash');
+  const [walletBalances, setWalletBalances] = useState<Record<string, string>>({
+    Cash: '',
+    Bank: '',
+    'Mobile Money': '',
+    Savings: '',
+  });
+
+  const handleWalletNameChange = (newName: string) => {
+    const oldName = selectedWalletName;
+    setSelectedWalletName(newName);
+    if (oldName !== newName) {
+      setWalletBalances((prev) => {
+        const next = { ...prev };
+        next[newName] = next[oldName] || '';
+        return next;
+      });
+    }
+  };
+
+  const handleBalanceChange = (val: string) => {
+    setWalletBalances((prev) => ({
+      ...prev,
+      [selectedWalletName]: val,
+    }));
+  };
 
   // Step 2: Cycle Management
   const [cycleMode, setCycleMode] = useState<'regular' | 'custom'>('regular');
@@ -126,8 +174,12 @@ export const OnboardingModal: React.FC = () => {
   const handleSkipToNext = () => {
     if (currentStep === 1) {
       // Clear wallet fields and advance to Step 2
-      setWalletName('');
-      setStartingBalance('');
+      setWalletBalances({
+        Cash: '',
+        Bank: '',
+        'Mobile Money': '',
+        Savings: '',
+      });
       setCurrentStep(2);
     } else if (currentStep === 2) {
       // Default to regular calendar on 1st and advance to Step 3
@@ -147,16 +199,25 @@ export const OnboardingModal: React.FC = () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
-      const startBal = parseFloat(startingBalance);
       const bCap = parseFloat(budgetCap);
       const iGoal = parseFloat(incomeGoal);
       const dayNum = parseInt(cycleStartDayStr, 10);
       const validDay = !isNaN(dayNum) ? Math.min(31, Math.max(1, dayNum)) : 1;
 
+      // Extract numeric balances for all configured wallets
+      const parsedWalletBalances: Record<string, number> = {};
+      for (const [wName, bStr] of Object.entries(walletBalances)) {
+        const parsed = parseFloat(bStr);
+        if (!isNaN(parsed) && parsed > 0) {
+          parsedWalletBalances[wName] = parsed;
+        }
+      }
+
       await completeOnboarding({
         currency: selectedCurrency,
-        firstWalletName: walletName.trim() || undefined,
-        startingBalance: !isNaN(startBal) ? startBal : undefined,
+        walletBalances: parsedWalletBalances,
+        firstWalletName: selectedWalletName.trim() || undefined,
+        startingBalance: parsedWalletBalances[selectedWalletName] || undefined,
         budgetCap: !isNaN(bCap) ? bCap : undefined,
         incomeGoal: !isNaN(iGoal) ? iGoal : undefined,
         cycleMode,
@@ -177,8 +238,21 @@ export const OnboardingModal: React.FC = () => {
 
   return (
     <>
-      <Modal visible={isVisible && !isRangePickerOpen} animationType="slide" transparent={false}>
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]}>
+      <Modal
+        visible={isVisible && !isRangePickerOpen}
+        animationType="slide"
+        statusBarTranslucent={true}
+        presentationStyle="fullScreen"
+      >
+        <View
+          style={[
+            styles.safeArea,
+            {
+              backgroundColor: theme.background,
+              paddingTop: topInset,
+            },
+          ]}
+        >
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={{ flex: 1 }}
@@ -338,26 +412,28 @@ export const OnboardingModal: React.FC = () => {
               </View>
             )}
 
-            {/* STEP 2: REGISTER FIRST WALLET (OPTIONAL) */}
+            {/* STEP 2: REGISTER WALLETS (OPTIONAL) */}
             {currentStep === 1 && (
               <View style={styles.stepContainer}>
                 <View style={styles.stepHeroBadge}>
                   <View style={[styles.stepIconCircle, { backgroundColor: theme.primaryContainer }]}>
                     <MaterialCommunityIcons name="wallet-outline" size={32} color={theme.primary} />
                   </View>
-                  <Text style={[styles.stepHeaderTitle, { color: theme.onSurface }]}>Register First Wallet</Text>
+                  <Text style={[styles.stepHeaderTitle, { color: theme.onSurface }]}>Register Wallets</Text>
                   <Text style={[styles.stepHeaderSubtitle, { color: theme.onSurfaceVariant }]}>
-                    Set up your primary wallet or starting balance. You can select a preset or type a custom name.
+                    Set up your primary wallets and starting balances. Select each wallet preset to configure its balance.
                   </Text>
                 </View>
 
                 {/* Quick Presets */}
                 <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant, marginTop: 12 }]}>
-                  QUICK PRESETS
+                  QUICK PRESETS (TAP TO SELECT & SET BALANCE)
                 </Text>
                 <View style={styles.presetsRow}>
                   {WALLET_PRESETS.map((p) => {
-                    const isPicked = walletName.toLowerCase() === p.name.toLowerCase();
+                    const isPicked = selectedWalletName.toLowerCase() === p.name.toLowerCase();
+                    const balStr = walletBalances[p.name];
+                    const hasBal = balStr && parseFloat(balStr) > 0;
                     return (
                       <TouchableOpacity
                         key={p.name}
@@ -368,7 +444,7 @@ export const OnboardingModal: React.FC = () => {
                             borderColor: isPicked ? theme.primary : 'transparent',
                           },
                         ]}
-                        onPress={() => setWalletName(p.name)}
+                        onPress={() => setSelectedWalletName(p.name)}
                         activeOpacity={0.7}
                       >
                         <MaterialCommunityIcons
@@ -387,6 +463,27 @@ export const OnboardingModal: React.FC = () => {
                         >
                           {p.name}
                         </Text>
+                        {hasBal && (
+                          <View
+                            style={[
+                              styles.presetBadge,
+                              {
+                                backgroundColor: isPicked ? theme.primary : theme.cardBg,
+                              },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.presetBadgeText,
+                                {
+                                  color: isPicked ? '#FFFFFF' : theme.primary,
+                                },
+                              ]}
+                            >
+                              {currentCurrencyObj.symbol}{balStr}
+                            </Text>
+                          </View>
+                        )}
                       </TouchableOpacity>
                     );
                   })}
@@ -400,14 +497,14 @@ export const OnboardingModal: React.FC = () => {
                       style={[styles.input, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
                       placeholder="e.g. Cash, Bank Account, Mobile Money"
                       placeholderTextColor={theme.onSurfaceVariant}
-                      value={walletName}
-                      onChangeText={setWalletName}
+                      value={selectedWalletName}
+                      onChangeText={handleWalletNameChange}
                     />
                   </View>
 
                   <View style={styles.inputGroup}>
                     <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>
-                      Starting Balance ({selectedCurrency})
+                      Starting Balance for {selectedWalletName} ({selectedCurrency})
                     </Text>
                     <View style={[styles.balanceInputWrap, { backgroundColor: theme.pillBg }]}>
                       <Text style={[styles.currencyPrefixText, { color: theme.primary }]}>
@@ -415,18 +512,67 @@ export const OnboardingModal: React.FC = () => {
                       </Text>
                       <TextInput
                         style={[styles.balanceInput, { color: theme.onSurface }]}
-                        placeholder="0"
+                        placeholder="0.00"
                         placeholderTextColor={theme.onSurfaceVariant}
                         keyboardType="decimal-pad"
-                        value={startingBalance}
-                        onChangeText={setStartingBalance}
+                        value={walletBalances[selectedWalletName] || ''}
+                        onChangeText={handleBalanceChange}
                       />
                     </View>
                     <Text style={[styles.fieldHint, { color: theme.onSurfaceVariant }]}>
-                      Leave blank or 0 to start clean.
+                      Each wallet preset saves its own starting balance independently.
                     </Text>
                   </View>
                 </View>
+
+                {/* CONFIGURED WALLETS SUMMARY CARD */}
+                {Object.entries(walletBalances).some(([_, b]) => parseFloat(b) > 0) && (
+                  <View style={[styles.walletsSummaryCard, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
+                    <View style={styles.summaryTitleRow}>
+                      <MaterialCommunityIcons name="wallet-outline" size={16} color={theme.primary} />
+                      <Text style={[styles.summaryTitle, { color: theme.onSurfaceVariant }]}>
+                        CONFIGURED WALLET BALANCES
+                      </Text>
+                    </View>
+                    <View style={styles.summaryList}>
+                      {Object.entries(walletBalances).map(([name, bStr]) => {
+                        const val = parseFloat(bStr);
+                        if (isNaN(val) || val <= 0) return null;
+                        const isSelected = selectedWalletName.toLowerCase() === name.toLowerCase();
+                        return (
+                          <TouchableOpacity
+                            key={name}
+                            style={[
+                              styles.summaryPill,
+                              {
+                                backgroundColor: isSelected ? theme.primaryContainer : theme.pillBg,
+                                borderColor: isSelected ? theme.primary : 'transparent',
+                              },
+                            ]}
+                            onPress={() => setSelectedWalletName(name)}
+                          >
+                            <Text
+                              style={[
+                                styles.summaryPillName,
+                                { color: isSelected ? theme.onPrimaryContainer : theme.onSurface },
+                              ]}
+                            >
+                              {name}:
+                            </Text>
+                            <Text
+                              style={[
+                                styles.summaryPillVal,
+                                { color: isSelected ? theme.primary : theme.onSurface },
+                              ]}
+                            >
+                              {currentCurrencyObj.symbol}{bStr}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+                )}
               </View>
             )}
 
@@ -755,7 +901,16 @@ export const OnboardingModal: React.FC = () => {
           </ScrollView>
 
           {/* Sticky Bottom Actions Bar */}
-          <View style={[styles.bottomBar, { backgroundColor: theme.surface, borderTopColor: theme.divider }]}>
+          <View
+            style={[
+              styles.bottomBar,
+              {
+                backgroundColor: theme.surface,
+                borderTopColor: theme.divider,
+                paddingBottom: keyboardHeight > 0 ? keyboardHeight + 8 : Math.max(insets.bottom + 8, 16),
+              },
+            ]}
+          >
             {currentStep < 3 ? (
               <TouchableOpacity
                 style={[styles.primaryActionBtn, { backgroundColor: theme.primary }, M3Elevation.level2]}
@@ -802,7 +957,7 @@ export const OnboardingModal: React.FC = () => {
             )}
           </View>
         </KeyboardAvoidingView>
-      </SafeAreaView>
+      </View>
     </Modal>
 
     <DateRangePickerModal
@@ -1019,6 +1174,55 @@ const styles = StyleSheet.create({
   },
   presetChipText: {
     fontSize: 13,
+  },
+  presetBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    marginLeft: 2,
+  },
+  presetBadgeText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+  },
+  walletsSummaryCard: {
+    borderRadius: M3Shape.large,
+    padding: 12,
+    borderWidth: 1,
+    marginBottom: 16,
+    gap: 8,
+  },
+  summaryTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  summaryTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  summaryList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  summaryPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  summaryPillName: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  summaryPillVal: {
+    fontSize: 12,
+    fontWeight: '800',
   },
   card: {
     borderRadius: M3Shape.extraLarge,
