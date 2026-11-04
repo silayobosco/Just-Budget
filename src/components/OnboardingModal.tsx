@@ -13,6 +13,7 @@ import {
   StatusBar,
   Dimensions,
   Keyboard,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -227,6 +228,9 @@ export const OnboardingModal: React.FC = () => {
         customCycleEndDate: cycleMode === 'custom' ? customEndDate : undefined,
         customCycleName: cycleMode === 'custom' ? customCycleName.trim() || undefined : undefined,
       });
+    } catch (err: any) {
+      console.error('Failed to complete onboarding:', err);
+      Alert.alert('Onboarding Error', err?.message || 'Could not save onboarding settings.');
     } finally {
       setIsSubmitting(false);
     }

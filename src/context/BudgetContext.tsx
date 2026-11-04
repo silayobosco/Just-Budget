@@ -292,7 +292,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             const bVal = newSettings.cycle_default_budget ?? null;
             const iVal = newSettings.cycle_default_income ?? null;
             db.runSync(
-              `INSERT INTO budget_cycles (id, name, start_date, end_date, target_budget, target_income, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+              `INSERT OR REPLACE INTO budget_cycles (id, name, start_date, end_date, target_budget, target_income, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)`,
               [regId, reg.name, reg.startDate, reg.endDate, bVal, iVal]
             );
             cycle = {
@@ -330,7 +330,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         const bVal = newSettings.cycle_default_budget ?? null;
         const iVal = newSettings.cycle_default_income ?? null;
         db.runSync(
-          `INSERT INTO budget_cycles (id, name, start_date, end_date, target_budget, target_income, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+          `INSERT OR REPLACE INTO budget_cycles (id, name, start_date, end_date, target_budget, target_income, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)`,
           [regId, reg.name, reg.startDate, reg.endDate, bVal, iVal]
         );
         cycle = {
@@ -1400,14 +1400,14 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const cId = `cycle-custom-${Date.now()}`;
       const cName = params.customCycleName || formatCycleDateRange(params.customCycleStartDate, params.customCycleEndDate);
       db.runSync(
-        `INSERT INTO budget_cycles (id, name, start_date, end_date, target_budget, target_income, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+        `INSERT OR REPLACE INTO budget_cycles (id, name, start_date, end_date, target_budget, target_income, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)`,
         [cId, cName, params.customCycleStartDate, params.customCycleEndDate, targetB, targetI]
       );
     } else {
       const reg = getRegularCycleDates(cStartDay);
       const regId = `cycle-reg-${reg.startDate}`;
       db.runSync(
-        `INSERT INTO budget_cycles (id, name, start_date, end_date, target_budget, target_income, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+        `INSERT OR REPLACE INTO budget_cycles (id, name, start_date, end_date, target_budget, target_income, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)`,
         [regId, reg.name, reg.startDate, reg.endDate, targetB, targetI]
       );
     }
