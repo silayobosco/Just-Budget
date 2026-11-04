@@ -47,7 +47,6 @@ export const WalletsScreen: React.FC = () => {
   const [transferAmount, setTransferAmount] = useState('');
   const [transferNote, setTransferNote] = useState('');
 
-  const currencies = ['USD', 'EUR', 'GBP', 'TZS', 'KES', 'INR', 'CAD', 'AUD', 'JPY', 'CNY', 'ZAR', 'AED'];
   const colors = ['#10B981', '#3B82F6', '#8B5CF6', '#F59E0B', '#EC4899', '#06B6D4', '#6366F1'];
   const icons: (keyof typeof MaterialCommunityIcons.glyphMap)[] = [
     'wallet', 'bank', 'cash', 'piggy-bank', 'credit-card-outline', 'cellphone', 'safe',
@@ -214,12 +213,6 @@ export const WalletsScreen: React.FC = () => {
                   <View style={styles.cardActions}>
                     <TouchableOpacity
                       style={[styles.cardActionIcon, { backgroundColor: theme.pillBg }]}
-                      onPress={() => handleOpenTransfer(w.id)}
-                    >
-                      <MaterialCommunityIcons name="swap-horizontal" size={16} color={theme.primary} />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.cardActionIcon, { backgroundColor: theme.pillBg }]}
                       onPress={() => handleOpenEditWallet(w)}
                     >
                       <MaterialCommunityIcons name="pencil-outline" size={16} color={theme.onSurface} />
@@ -269,7 +262,7 @@ export const WalletsScreen: React.FC = () => {
           <View style={[styles.modalBox, { backgroundColor: theme.surface }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: theme.onSurface }]}>
-                {editingWallet ? 'Edit Wallet' : 'New Multi-Currency Wallet'}
+                {editingWallet ? 'Edit Wallet' : 'New Wallet'}
               </Text>
               <TouchableOpacity onPress={() => setWalletModalVisible(false)}>
                 <MaterialCommunityIcons name="close" size={22} color={theme.onSurface} />
@@ -286,38 +279,10 @@ export const WalletsScreen: React.FC = () => {
                 onChangeText={setWalletName}
               />
 
-              <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>Currency</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalScroll}>
-                {currencies.map((c) => (
-                  <TouchableOpacity
-                    key={c}
-                    style={[
-                      styles.pillChoice,
-                      {
-                        backgroundColor: walletCurrency === c ? theme.primary : theme.pillBg,
-                      },
-                    ]}
-                    onPress={() => setWalletCurrency(c)}
-                  >
-                    <Text
-                      style={[
-                        styles.pillChoiceText,
-                        {
-                          color: walletCurrency === c ? theme.onPrimary : theme.onSurface,
-                          fontWeight: walletCurrency === c ? '700' : '500',
-                        },
-                      ]}
-                    >
-                      {c}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-
               {!editingWallet && (
                 <>
                   <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>
-                    Starting Balance ({walletCurrency})
+                    Starting Balance ({settings.base_currency})
                   </Text>
                   <TextInput
                     style={[styles.input, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
@@ -331,7 +296,7 @@ export const WalletsScreen: React.FC = () => {
               {editingWallet && (
                 <>
                   <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>
-                    Adjust Current Balance ({walletCurrency})
+                    Adjust Current Balance ({settings.base_currency})
                   </Text>
                   <TextInput
                     style={[styles.input, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
