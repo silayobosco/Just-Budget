@@ -239,7 +239,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   });
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isAppLocked, setIsAppLocked] = useState<boolean>(false);
-  const [hasInitializedLock, setHasInitializedLock] = useState<boolean>(false);
+  const hasInitializedLockRef = useRef<boolean>(false);
   const lastBackgroundTimeRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -247,10 +247,10 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (nextAppState === 'background') {
         lastBackgroundTimeRef.current = Date.now();
       } else if (nextAppState === 'active') {
-        // Only lock if the app was left in the background for more than 60 seconds.
-        // Short system interruptions (camera, photo picker, file share, quick notification check) do NOT lock the app.
+        // Only lock if the app was left in the background for more than 15 minutes (900 seconds).
+        // Regular app usage, switching between apps, or brief checks NEVER lock the app.
         const elapsed = lastBackgroundTimeRef.current ? (Date.now() - lastBackgroundTimeRef.current) / 1000 : 0;
-        if (elapsed > 60 && settings.app_lock_enabled && settings.app_pin_hash) {
+        if (elapsed > 900 && settings.app_lock_enabled && settings.app_pin_hash) {
           setIsAppLocked(true);
         }
       }
@@ -293,11 +293,6 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         evening_reminder_time: sMap['evening_reminder_time'] || '20:30',
       };
       setSettings(newSettings);
-
-      if (!hasInitializedLock && newSettings.app_lock_enabled && newSettings.app_pin_hash) {
-        setIsAppLocked(true);
-        setHasInitializedLock(true);
-      }
 
       // Ensure default wallets, expense categories, and income categories
       ensureDefaultWallets(db, newSettings.base_currency);
@@ -475,6 +470,17 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       try {
         await initDatabase();
         await loadData();
+
+        // Lock check ONLY on cold app launch
+        if (!hasInitializedLockRef.current) {
+          hasInitializedLockRef.current = true;
+          const db = getDB();
+          const lockRow = db.getFirstSync<{ value: string }>(`SELECT value FROM settings WHERE key = 'app_lock_enabled'`);
+          const pinRow = db.getFirstSync<{ value: string }>(`SELECT value FROM settings WHERE key = 'app_pin_hash'`);
+          if (lockRow?.value === '1' && pinRow?.value) {
+            setIsAppLocked(true);
+          }
+        }
       } catch (err) {
         console.error('Database initialization error:', err);
         setIsLoading(false);
