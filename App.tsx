@@ -7,6 +7,7 @@ import { Header } from './src/components/Header';
 import { BottomTabs, TabType } from './src/components/BottomTabs';
 import { BudgetCycleModal } from './src/components/BudgetCycleModal';
 import { OnboardingModal } from './src/components/OnboardingModal';
+import { AppLockOverlay } from './src/components/AppLockOverlay';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { CalendarScreen } from './src/screens/CalendarScreen';
 import { WalletsScreen } from './src/screens/WalletsScreen';
@@ -56,6 +57,9 @@ const MainApp: React.FC = () => {
 
       {/* Onboarding Currency & Setup Modal */}
       <OnboardingModal />
+
+      {/* Security App Lock Screen */}
+      <AppLockOverlay />
     </SafeAreaView>
   );
 };

@@ -119,6 +119,10 @@ export interface AppSettings {
   cycle_month_start_day?: number;
   cycle_default_budget?: number;
   cycle_default_income?: number;
+  app_lock_enabled?: boolean;
+  biometrics_enabled?: boolean;
+  app_pin_hash?: string;
+  data_encryption_enabled?: boolean;
 }
 
 export type DailyAllowanceStatus =

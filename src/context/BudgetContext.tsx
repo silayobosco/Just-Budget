@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import { AppState, AppStateStatus } from 'react-native';
 import { getDB, initDatabase, ensureDefaultWallets, ensureDefaultExpenseCategories, ensureDefaultIncomeCategories, restoreAllDefaultCategories } from '../services/db';
 import { exportBackupData, importBackupData } from '../services/backup';
+import { hashPin, verifyPin, authenticateWithBiometrics, checkBiometricsAvailable } from '../services/security';
 import { formatCycleDateRange, getRegularCycleDates, formatCurrency } from '../utils/format';
 import {
   Wallet,
@@ -174,8 +176,17 @@ interface BudgetContextType {
   updateSettings: (newSettings: Partial<AppSettings>) => Promise<void>;
   updateAllWalletsCurrency: (currency: string) => Promise<void>;
 
-  exportBackup: () => Promise<boolean>;
-  importBackup: () => Promise<{ success: boolean; message: string }>;
+  // Security & App Lock
+  isAppLocked: boolean;
+  unlockApp: () => void;
+  lockApp: () => void;
+  setAppLock: (pin: string, enableBiometrics?: boolean) => Promise<boolean>;
+  disableAppLock: () => Promise<boolean>;
+  verifyAppPin: (pin: string) => Promise<boolean>;
+  authenticateBiometrics: () => Promise<boolean>;
+
+  exportBackup: (passphrase?: string) => Promise<boolean>;
+  importBackup: (passphrase?: string) => Promise<{ success: boolean; message: string; requiresPassphrase?: boolean }>;
   reloadAllData: () => Promise<void>;
 }
 
@@ -214,8 +225,26 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     cycle_balance_mode: 'accumulated',
     cycle_target_mode: 'inherit',
     cycle_month_start_day: 1,
+    app_lock_enabled: false,
+    biometrics_enabled: false,
+    data_encryption_enabled: false,
   });
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isAppLocked, setIsAppLocked] = useState<boolean>(false);
+  const [hasInitializedLock, setHasInitializedLock] = useState<boolean>(false);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
+      if (nextAppState === 'background') {
+        if (settings.app_lock_enabled && settings.app_pin_hash) {
+          setIsAppLocked(true);
+        }
+      }
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, [settings.app_lock_enabled, settings.app_pin_hash]);
 
   const loadData = useCallback(async () => {
     try {
@@ -238,8 +267,17 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         cycle_month_start_day: sMap['cycle_month_start_day'] ? parseInt(sMap['cycle_month_start_day'], 10) : 1,
         cycle_default_budget: sMap['cycle_default_budget'] ? parseFloat(sMap['cycle_default_budget']) : undefined,
         cycle_default_income: sMap['cycle_default_income'] ? parseFloat(sMap['cycle_default_income']) : undefined,
+        app_lock_enabled: sMap['app_lock_enabled'] === '1',
+        biometrics_enabled: sMap['biometrics_enabled'] === '1',
+        app_pin_hash: sMap['app_pin_hash'] || undefined,
+        data_encryption_enabled: sMap['data_encryption_enabled'] === '1',
       };
       setSettings(newSettings);
+
+      if (!hasInitializedLock && newSettings.app_lock_enabled && newSettings.app_pin_hash) {
+        setIsAppLocked(true);
+        setHasInitializedLock(true);
+      }
 
       // Ensure default wallets, expense categories, and income categories
       ensureDefaultWallets(db, newSettings.base_currency);
@@ -1391,6 +1429,18 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (newSettings.cycle_default_income !== undefined) {
       db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('cycle_default_income', ?)`, [newSettings.cycle_default_income.toString()]);
     }
+    if (newSettings.app_lock_enabled !== undefined) {
+      db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('app_lock_enabled', ?)`, [newSettings.app_lock_enabled ? '1' : '0']);
+    }
+    if (newSettings.biometrics_enabled !== undefined) {
+      db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('biometrics_enabled', ?)`, [newSettings.biometrics_enabled ? '1' : '0']);
+    }
+    if (newSettings.app_pin_hash !== undefined) {
+      db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('app_pin_hash', ?)`, [newSettings.app_pin_hash]);
+    }
+    if (newSettings.data_encryption_enabled !== undefined) {
+      db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('data_encryption_enabled', ?)`, [newSettings.data_encryption_enabled ? '1' : '0']);
+    }
     await loadData();
   };
 
@@ -1402,12 +1452,59 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     await loadData();
   };
 
-  const exportBackup = async (): Promise<boolean> => {
-    return await exportBackupData();
+  const unlockApp = useCallback(() => {
+    setIsAppLocked(false);
+  }, []);
+
+  const lockApp = useCallback(() => {
+    if (settings.app_lock_enabled && settings.app_pin_hash) {
+      setIsAppLocked(true);
+    }
+  }, [settings.app_lock_enabled, settings.app_pin_hash]);
+
+  const setAppLock = async (pin: string, enableBiometrics?: boolean): Promise<boolean> => {
+    const pinHash = await hashPin(pin);
+    await updateSettings({
+      app_lock_enabled: true,
+      app_pin_hash: pinHash,
+      biometrics_enabled: Boolean(enableBiometrics),
+    });
+    return true;
   };
 
-  const importBackup = async (): Promise<{ success: boolean; message: string }> => {
-    const result = await importBackupData();
+  const disableAppLock = async (): Promise<boolean> => {
+    await updateSettings({
+      app_lock_enabled: false,
+      biometrics_enabled: false,
+    });
+    setIsAppLocked(false);
+    return true;
+  };
+
+  const verifyAppPin = async (pin: string): Promise<boolean> => {
+    if (!settings.app_pin_hash) return false;
+    const valid = await verifyPin(pin, settings.app_pin_hash);
+    if (valid) {
+      setIsAppLocked(false);
+    }
+    return valid;
+  };
+
+  const authenticateBiometrics = async (): Promise<boolean> => {
+    if (!settings.biometrics_enabled) return false;
+    const success = await authenticateWithBiometrics('Unlock Just Budget');
+    if (success) {
+      setIsAppLocked(false);
+    }
+    return success;
+  };
+
+  const exportBackup = async (passphrase?: string): Promise<boolean> => {
+    return await exportBackupData(passphrase);
+  };
+
+  const importBackup = async (passphrase?: string): Promise<{ success: boolean; message: string; requiresPassphrase?: boolean }> => {
+    const result = await importBackupData(passphrase);
     if (result.success) {
       await loadData();
     }
@@ -1588,6 +1685,13 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         deleteBudgetLimit,
         updateSettings,
         updateAllWalletsCurrency,
+        isAppLocked,
+        unlockApp,
+        lockApp,
+        setAppLock,
+        disableAppLock,
+        verifyAppPin,
+        authenticateBiometrics,
         exportBackup,
         importBackup,
         reloadAllData: loadData,

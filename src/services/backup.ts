@@ -3,6 +3,7 @@ import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
 import { getDB } from './db';
 import { Wallet, Category, Subcategory, Transaction, BudgetCycle, RecurringBill, BudgetLimit } from '../types';
+import { encryptBackupPayload, decryptBackupPayload } from './security';
 
 export interface BackupData {
   app: string;
@@ -18,7 +19,7 @@ export interface BackupData {
   budgets?: BudgetLimit[];
 }
 
-export const exportBackupData = async (): Promise<boolean> => {
+export const exportBackupData = async (passphrase?: string): Promise<boolean> => {
   const db = getDB();
 
   // Read all tables
@@ -50,11 +51,16 @@ export const exportBackupData = async (): Promise<boolean> => {
     budgets,
   };
 
-  const jsonString = JSON.stringify(backup, null, 2);
-  const fileName = `just_budget_backup_${new Date().toISOString().slice(0, 10)}.jbbackup`;
+  let fileData = JSON.stringify(backup, null, 2);
+  const isEncrypted = Boolean(passphrase && passphrase.trim().length > 0);
+  if (isEncrypted) {
+    fileData = await encryptBackupPayload(fileData, passphrase!.trim());
+  }
+
+  const fileName = `just_budget_backup_${new Date().toISOString().slice(0, 10)}${isEncrypted ? '_encrypted' : ''}.jbbackup`;
   const filePath = `${FileSystem.cacheDirectory}${fileName}`;
 
-  await FileSystem.writeAsStringAsync(filePath, jsonString, {
+  await FileSystem.writeAsStringAsync(filePath, fileData, {
     encoding: FileSystem.EncodingType.UTF8,
   });
 
@@ -62,7 +68,9 @@ export const exportBackupData = async (): Promise<boolean> => {
   if (canShare) {
     await Sharing.shareAsync(filePath, {
       mimeType: 'application/json',
-      dialogTitle: 'Save "just budget" Backup to Google Drive / Files',
+      dialogTitle: isEncrypted
+        ? 'Save Encrypted "just budget" Backup'
+        : 'Save "just budget" Backup to Google Drive / Files',
       UTI: 'public.json',
     });
     return true;
@@ -70,7 +78,7 @@ export const exportBackupData = async (): Promise<boolean> => {
   return false;
 };
 
-export const importBackupData = async (): Promise<{ success: boolean; message: string }> => {
+export const importBackupData = async (passphrase?: string): Promise<{ success: boolean; message: string; requiresPassphrase?: boolean }> => {
   try {
     const result = await DocumentPicker.getDocumentAsync({
       type: ['*/*'],
@@ -82,9 +90,28 @@ export const importBackupData = async (): Promise<{ success: boolean; message: s
     }
 
     const fileUri = result.assets[0].uri;
-    const fileContent = await FileSystem.readAsStringAsync(fileUri, {
+    let fileContent = await FileSystem.readAsStringAsync(fileUri, {
       encoding: FileSystem.EncodingType.UTF8,
     });
+
+    // Check if the backup is encrypted
+    if (fileContent.includes('"encrypted":true') || fileContent.includes('"encrypted": true')) {
+      if (!passphrase || !passphrase.trim()) {
+        return {
+          success: false,
+          requiresPassphrase: true,
+          message: 'This backup is encrypted with a password. Please enter the password to restore.',
+        };
+      }
+      try {
+        fileContent = await decryptBackupPayload(fileContent, passphrase.trim());
+      } catch (err: any) {
+        return {
+          success: false,
+          message: err.message || 'Incorrect decryption password.',
+        };
+      }
+    }
 
     const parsed: BackupData = JSON.parse(fileContent);
 

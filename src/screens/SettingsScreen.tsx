@@ -19,6 +19,7 @@ import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
 import { formatCurrency } from '../utils/format';
 import { CategoryManagerModal } from '../components/CategoryManagerModal';
 import { RecurringBillsModal } from '../components/RecurringBillsModal';
+import { SecuritySetupModal } from '../components/SecuritySetupModal';
 
 const CURRENCY_LIST = [
   { code: 'USD', symbol: '$', name: 'US Dollar' },
@@ -87,6 +88,7 @@ export const SettingsScreen: React.FC = () => {
     openCycleModal,
   } = useBudget();
   const theme = settings.theme_mode === 'dark' ? darkTheme : lightTheme;
+  const isDark = settings.theme_mode === 'dark';
 
   const [categoriesModalVisible, setCategoriesModalVisible] = useState(false);
   const [recurringBillsModalVisible, setRecurringBillsModalVisible] = useState(false);
@@ -94,6 +96,12 @@ export const SettingsScreen: React.FC = () => {
   const [currencySearch, setCurrencySearch] = useState('');
   const [faqsModalVisible, setFaqsModalVisible] = useState(false);
   const [expandedFaqIndex, setExpandedFaqIndex] = useState<number | null>(null);
+  const [securityModalVisible, setSecurityModalVisible] = useState(false);
+  const [backupPasswordModalVisible, setBackupPasswordModalVisible] = useState(false);
+  const [backupAction, setBackupAction] = useState<'export' | 'import'>('export');
+  const [backupPassphrase, setBackupPassphrase] = useState('');
+  const [backupPassError, setBackupPassError] = useState('');
+  const [showBackupPassword, setShowBackupPassword] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string>('');
 
   const filteredCurrencies = useMemo(() => {
@@ -143,10 +151,10 @@ export const SettingsScreen: React.FC = () => {
     }
   };
 
-  const handleExport = async () => {
+  const handleExport = async (passphrase?: string) => {
     try {
       setStatusMessage('Preparing backup file...');
-      const success = await exportBackup();
+      const success = await exportBackup(passphrase);
       if (success) {
         setStatusMessage('Backup dialog opened. Save directly to Google Drive or Files.');
       } else {
@@ -157,16 +165,46 @@ export const SettingsScreen: React.FC = () => {
     }
   };
 
-  const handleImport = async () => {
+  const onExportPress = () => {
+    if (settings.data_encryption_enabled) {
+      setBackupAction('export');
+      setBackupPassphrase('');
+      setBackupPassError('');
+      setBackupPasswordModalVisible(true);
+    } else {
+      handleExport();
+    }
+  };
+
+  const handleImport = async (passphrase?: string) => {
     try {
       setStatusMessage('Opening document picker...');
-      const result = await importBackup();
+      const result = await importBackup(passphrase);
       setStatusMessage(result.message);
       if (result.success) {
         Alert.alert('Success', 'Your budget session has been restored completely!');
+        setBackupPasswordModalVisible(false);
+      } else if (result.requiresPassphrase) {
+        setBackupAction('import');
+        setBackupPassphrase('');
+        setBackupPassError(result.message || 'Please enter decryption password.');
+        setBackupPasswordModalVisible(true);
       }
     } catch (err: any) {
       setStatusMessage(`Restore failed: ${err.message}`);
+    }
+  };
+
+  const handleBackupPasswordSubmit = async () => {
+    if (backupAction === 'export') {
+      setBackupPasswordModalVisible(false);
+      await handleExport(backupPassphrase.trim() ? backupPassphrase.trim() : undefined);
+    } else {
+      if (!backupPassphrase.trim()) {
+        setBackupPassError('Please enter the password to decrypt the backup file.');
+        return;
+      }
+      await handleImport(backupPassphrase.trim());
     }
   };
 
@@ -284,18 +322,85 @@ export const SettingsScreen: React.FC = () => {
           </TouchableOpacity>
         </View>
 
-        {/* SECTION 2: GOOGLE DRIVE & CLOUD BACKUP (Cleaned: Disclaimer & Dashboard Removed) */}
+        {/* SECTION 2: SECURITY & PRIVACY */}
+        <Text style={[styles.sectionHeader, { color: theme.primary }]}>SECURITY & PRIVACY</Text>
+        <View style={[styles.cardGroup, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
+          {/* App Lock & Biometrics */}
+          <TouchableOpacity
+            style={styles.listItemRow}
+            onPress={() => setSecurityModalVisible(true)}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.itemIconCircle, { backgroundColor: settings.app_lock_enabled ? '#DCFCE7' : (isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F9') }]}>
+              <MaterialCommunityIcons
+                name={settings.app_lock_enabled ? 'shield-lock' : 'shield-lock-outline'}
+                size={20}
+                color={settings.app_lock_enabled ? '#15803D' : theme.onSurfaceVariant}
+              />
+            </View>
+            <View style={styles.itemTextWrap}>
+              <Text style={[styles.itemTitle, { color: theme.onSurface }]}>App Lock & Biometrics</Text>
+              <Text style={[styles.itemSubtitle, { color: theme.onSurfaceVariant }]}>
+                {settings.app_lock_enabled
+                  ? (settings.biometrics_enabled ? 'Protected with Passcode & Fingerprint' : 'Protected with 4-to-6 Digit Passcode')
+                  : 'Off • Optional PIN & fingerprint protection'}
+              </Text>
+            </View>
+            <View style={[
+              styles.securityStatusBadge,
+              { backgroundColor: settings.app_lock_enabled ? (isDark ? 'rgba(34, 197, 94, 0.2)' : '#DCFCE7') : theme.pillBg }
+            ]}>
+              <Text style={{
+                fontSize: 12,
+                fontWeight: '700',
+                color: settings.app_lock_enabled ? (isDark ? '#4ADE80' : '#15803D') : theme.onSurfaceVariant
+              }}>
+                {settings.app_lock_enabled ? 'Active' : 'Setup'}
+              </Text>
+              <MaterialCommunityIcons name="chevron-right" size={16} color={settings.app_lock_enabled ? (isDark ? '#4ADE80' : '#15803D') : theme.onSurfaceVariant} />
+            </View>
+          </TouchableOpacity>
+
+          <View style={[styles.itemDivider, { backgroundColor: theme.divider }]} />
+
+          {/* Encrypted Backup Protection */}
+          <View style={styles.listItemRow}>
+            <View style={[styles.itemIconCircle, { backgroundColor: settings.data_encryption_enabled ? '#EDE9FE' : (isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F9') }]}>
+              <MaterialCommunityIcons
+                name={settings.data_encryption_enabled ? 'file-lock' : 'file-lock-outline'}
+                size={20}
+                color={settings.data_encryption_enabled ? '#7C3AED' : theme.onSurfaceVariant}
+              />
+            </View>
+            <View style={styles.itemTextWrap}>
+              <Text style={[styles.itemTitle, { color: theme.onSurface }]}>Encrypted Backup Archive</Text>
+              <Text style={[styles.itemSubtitle, { color: theme.onSurfaceVariant }]}>
+                {settings.data_encryption_enabled ? 'Active • Passphrase protection on export & restore' : 'Off • Plain JSON backup files'}
+              </Text>
+            </View>
+            <Switch
+              value={Boolean(settings.data_encryption_enabled)}
+              onValueChange={async (val) => {
+                await updateSettings({ data_encryption_enabled: val });
+              }}
+              thumbColor={settings.data_encryption_enabled ? theme.primary : '#FFFFFF'}
+              trackColor={{ false: theme.divider, true: theme.primaryContainer }}
+            />
+          </View>
+        </View>
+
+        {/* SECTION 3: GOOGLE DRIVE & CLOUD BACKUP (Cleaned: Disclaimer & Dashboard Removed) */}
         <Text style={[styles.sectionHeader, { color: theme.primary }]}>GOOGLE DRIVE & CLOUD BACKUP</Text>
         <View style={[styles.cardGroup, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
           {/* Export to Google Drive */}
-          <TouchableOpacity style={styles.listItemRow} onPress={handleExport} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.listItemRow} onPress={onExportPress} activeOpacity={0.7}>
             <View style={[styles.itemIconCircle, { backgroundColor: '#E0F2FE' }]}>
               <MaterialCommunityIcons name="google-drive" size={22} color="#0284C7" />
             </View>
             <View style={styles.itemTextWrap}>
               <Text style={[styles.itemTitle, { color: theme.onSurface }]}>Export to Google Drive / Files</Text>
               <Text style={[styles.itemSubtitle, { color: theme.onSurfaceVariant }]}>
-                Creates and shares a portable .jbbackup archive
+                {settings.data_encryption_enabled ? 'Creates encrypted .jbbackup archive' : 'Creates and shares a portable .jbbackup archive'}
               </Text>
             </View>
             <MaterialCommunityIcons name="export-variant" size={20} color={theme.primary} />
@@ -304,7 +409,7 @@ export const SettingsScreen: React.FC = () => {
           <View style={[styles.itemDivider, { backgroundColor: theme.divider }]} />
 
           {/* Restore from File */}
-          <TouchableOpacity style={styles.listItemRow} onPress={handleImport} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.listItemRow} onPress={() => handleImport()} activeOpacity={0.7}>
             <View style={[styles.itemIconCircle, { backgroundColor: '#FEF3C7' }]}>
               <MaterialCommunityIcons name="file-download-outline" size={22} color="#D97706" />
             </View>
@@ -579,6 +684,99 @@ export const SettingsScreen: React.FC = () => {
         visible={recurringBillsModalVisible}
         onClose={() => setRecurringBillsModalVisible(false)}
       />
+
+      {/* Security Setup Modal (PIN & Biometrics) */}
+      <SecuritySetupModal
+        visible={securityModalVisible}
+        onClose={() => setSecurityModalVisible(false)}
+      />
+
+      {/* Encrypted Backup Passphrase Modal */}
+      <Modal
+        visible={backupPasswordModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setBackupPasswordModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.passwordModalBox, { backgroundColor: theme.surface }]}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <MaterialCommunityIcons
+                  name={backupAction === 'export' ? 'file-lock' : 'file-key'}
+                  size={22}
+                  color={theme.primary}
+                />
+                <Text style={[styles.modalTitle, { color: theme.onSurface }]}>
+                  {backupAction === 'export' ? 'Encrypt Backup' : 'Decrypt Backup'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setBackupPasswordModalVisible(false)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <MaterialCommunityIcons name="close" size={22} color={theme.onSurface} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={[styles.passwordModalSubtitle, { color: theme.onSurfaceVariant }]}>
+              {backupAction === 'export'
+                ? 'Create a passphrase to encrypt your exported backup. You will need this passphrase to restore your data.'
+                : 'This backup is password protected. Enter the passphrase you used to export it.'}
+            </Text>
+
+            {backupPassError ? (
+              <View style={[styles.passwordErrorBox, { backgroundColor: theme.errorContainer }]}>
+                <MaterialCommunityIcons name="alert-circle-outline" size={16} color={theme.error} />
+                <Text style={[styles.passwordErrorText, { color: theme.error }]}>{backupPassError}</Text>
+              </View>
+            ) : null}
+
+            <View style={[styles.passwordInputWrap, { backgroundColor: theme.pillBg, borderColor: theme.divider }]}>
+              <MaterialCommunityIcons name="lock-outline" size={20} color={theme.onSurfaceVariant} />
+              <TextInput
+                style={[styles.passwordTextInput, { color: theme.onSurface }]}
+                placeholder={backupAction === 'export' ? 'Passphrase (or leave empty for unencrypted)' : 'Enter decryption passphrase...'}
+                placeholderTextColor={theme.onSurfaceVariant}
+                value={backupPassphrase}
+                onChangeText={(t) => {
+                  setBackupPassphrase(t);
+                  setBackupPassError('');
+                }}
+                secureTextEntry={!showBackupPassword}
+                autoFocus
+              />
+              <TouchableOpacity
+                onPress={() => setShowBackupPassword(!showBackupPassword)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <MaterialCommunityIcons
+                  name={showBackupPassword ? 'eye-off' : 'eye'}
+                  size={20}
+                  color={theme.onSurfaceVariant}
+                />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.passwordModalActions}>
+              <TouchableOpacity
+                style={[styles.passwordCancelBtn, { borderColor: theme.divider }]}
+                onPress={() => setBackupPasswordModalVisible(false)}
+              >
+                <Text style={[styles.passwordCancelText, { color: theme.onSurfaceVariant }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.passwordConfirmBtn, { backgroundColor: theme.primary }]}
+                onPress={handleBackupPasswordSubmit}
+              >
+                <Text style={[styles.passwordConfirmText, { color: theme.onPrimary }]}>
+                  {backupAction === 'export' ? 'Export' : 'Restore'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -958,5 +1156,77 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     textAlign: 'center',
+  },
+  securityStatusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: M3Shape.full,
+  },
+  passwordModalBox: {
+    borderRadius: M3Shape.extraLarge,
+    padding: 20,
+    width: '100%',
+    maxWidth: 400,
+    alignSelf: 'center',
+  },
+  passwordModalSubtitle: {
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 16,
+  },
+  passwordErrorBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 10,
+    borderRadius: M3Shape.small,
+    marginBottom: 12,
+  },
+  passwordErrorText: {
+    fontSize: 12,
+    fontWeight: '600',
+    flex: 1,
+  },
+  passwordInputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 48,
+    borderRadius: M3Shape.medium,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    gap: 10,
+    marginBottom: 20,
+  },
+  passwordTextInput: {
+    flex: 1,
+    fontSize: 14,
+    height: 48,
+  },
+  passwordModalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+  },
+  passwordCancelBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: M3Shape.full,
+    borderWidth: 1,
+  },
+  passwordCancelText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  passwordConfirmBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: M3Shape.full,
+  },
+  passwordConfirmText: {
+    fontSize: 13,
+    fontWeight: '700',
   },
 });

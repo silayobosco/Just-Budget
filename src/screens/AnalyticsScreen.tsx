@@ -8,7 +8,10 @@ import {
   Dimensions,
   Animated,
   Pressable,
+  Modal,
+  Alert,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
@@ -16,6 +19,11 @@ import { formatCurrency } from '../utils/format';
 import { TransactionType } from '../types';
 import { CategoryPickerSheet } from '../components/CategoryPickerSheet';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
+import {
+  exportAnalyticsSummaryReport,
+  exportTransactionsCSV,
+  buildAnalyticsSummaryText,
+} from '../services/exportReport';
 
 export const AnalyticsScreen: React.FC = () => {
   const {
@@ -46,6 +54,7 @@ export const AnalyticsScreen: React.FC = () => {
 
   // Floating Action Button (FAB) Speed-Dial & Add Transaction Modal states
   const [isFabOpen, setIsFabOpen] = useState(false);
+  const [exportModalVisible, setExportModalVisible] = useState(false);
   const [addCategorySheetVisible, setAddCategorySheetVisible] = useState(false);
   const [addPrefilledCategoryId, setAddPrefilledCategoryId] = useState<string | undefined>(undefined);
   const [addPrefilledSubcategoryId, setAddPrefilledSubcategoryId] = useState<string | undefined>(undefined);
@@ -262,6 +271,88 @@ export const AnalyticsScreen: React.FC = () => {
   const incomePercent = effectiveIncomeGoal > 0 ? Math.round((incomeEarned / effectiveIncomeGoal) * 100) : 0;
   const isIncomeGoalReached = effectiveIncomeGoal > 0 && incomeEarned >= effectiveIncomeGoal;
 
+  const exportPayload = useMemo(() => {
+    const timeframeLabel = scope === 'cycle'
+      ? `${effectiveCycle?.name || 'Cycle'} (${effectiveCycle?.start_date || ''} to ${effectiveCycle?.end_date || ''})`
+      : 'All Time (Complete History)';
+
+    return {
+      timeframe: timeframeLabel,
+      totalExpense,
+      totalIncome,
+      netSavings,
+      savingsRate,
+      dailyAverageSpend,
+      budgetCap: effectiveBudget > 0 ? effectiveBudget : undefined,
+      incomeGoal: effectiveIncomeGoal > 0 ? effectiveIncomeGoal : undefined,
+      baseCurrency: curr,
+      categorySpending: categorySpending.map((c) => ({
+        categoryName: c.categoryName,
+        amount: c.amount,
+        count: c.count,
+      })),
+      categoryIncome: categoryIncome.map((c) => ({
+        categoryName: c.categoryName,
+        amount: c.amount,
+        count: c.count,
+      })),
+      transactions: activeTransactions,
+      categories,
+      wallets,
+    };
+  }, [
+    scope,
+    effectiveCycle,
+    totalExpense,
+    totalIncome,
+    netSavings,
+    savingsRate,
+    dailyAverageSpend,
+    effectiveBudget,
+    effectiveIncomeGoal,
+    curr,
+    categorySpending,
+    categoryIncome,
+    activeTransactions,
+    categories,
+    wallets,
+  ]);
+
+  const handleExportReportTxt = async () => {
+    setExportModalVisible(false);
+    try {
+      const success = await exportAnalyticsSummaryReport(exportPayload);
+      if (!success) {
+        Alert.alert('Sharing Unavailable', 'Unable to open share sheet on this platform.');
+      }
+    } catch (err: any) {
+      Alert.alert('Export Failed', err.message || 'An error occurred during report export.');
+    }
+  };
+
+  const handleExportCSV = async () => {
+    setExportModalVisible(false);
+    try {
+      const success = await exportTransactionsCSV(exportPayload);
+      if (!success) {
+        Alert.alert('Sharing Unavailable', 'Unable to open share sheet on this platform.');
+      }
+    } catch (err: any) {
+      Alert.alert('Export Failed', err.message || 'An error occurred during CSV export.');
+    }
+  };
+
+  const handleCopySummary = async () => {
+    setExportModalVisible(false);
+    try {
+      const text = buildAnalyticsSummaryText(exportPayload);
+      await Clipboard.setStringAsync(text);
+      Alert.alert('Copied to Clipboard', 'Financial analytics report has been copied to your clipboard!');
+    } catch (err: any) {
+      Alert.alert('Error', 'Failed to copy summary to clipboard.');
+    }
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
@@ -359,40 +450,51 @@ export const AnalyticsScreen: React.FC = () => {
           </View>
         )}
 
-        {/* SCOPE TOGGLE PILL BAR */}
-        <View style={[styles.scopeBar, { backgroundColor: theme.pillBg }]}>
-          <TouchableOpacity
-            style={[styles.scopePill, scope === 'cycle' && { backgroundColor: theme.primaryContainer }]}
-            onPress={() => setScope('cycle')}
-          >
-            <Text
-              style={[
-                styles.scopePillText,
-                {
-                  color: scope === 'cycle' ? theme.onPrimaryContainer : theme.onSurfaceVariant,
-                  fontWeight: scope === 'cycle' ? '700' : '500',
-                },
-              ]}
+        {/* SCOPE TOGGLE PILL BAR & EXPORT BUTTON */}
+        <View style={styles.scopeRow}>
+          <View style={[styles.scopeBar, { backgroundColor: theme.pillBg }]}>
+            <TouchableOpacity
+              style={[styles.scopePill, scope === 'cycle' && { backgroundColor: theme.primaryContainer }]}
+              onPress={() => setScope('cycle')}
             >
-              Cycle ({effectiveCycle?.name || 'Cycle'})
-            </Text>
-          </TouchableOpacity>
+              <Text
+                style={[
+                  styles.scopePillText,
+                  {
+                    color: scope === 'cycle' ? theme.onPrimaryContainer : theme.onSurfaceVariant,
+                    fontWeight: scope === 'cycle' ? '700' : '500',
+                  },
+                ]}
+              >
+                Cycle ({effectiveCycle?.name || 'Cycle'})
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.scopePill, scope === 'all' && { backgroundColor: theme.primaryContainer }]}
+              onPress={() => setScope('all')}
+            >
+              <Text
+                style={[
+                  styles.scopePillText,
+                  {
+                    color: scope === 'all' ? theme.onPrimaryContainer : theme.onSurfaceVariant,
+                    fontWeight: scope === 'all' ? '700' : '500',
+                  },
+                ]}
+              >
+                All Time
+              </Text>
+            </TouchableOpacity>
+          </View>
 
           <TouchableOpacity
-            style={[styles.scopePill, scope === 'all' && { backgroundColor: theme.primaryContainer }]}
-            onPress={() => setScope('all')}
+            style={[styles.exportBtn, { backgroundColor: theme.primaryContainer }]}
+            onPress={() => setExportModalVisible(true)}
+            activeOpacity={0.7}
           >
-            <Text
-              style={[
-                styles.scopePillText,
-                {
-                  color: scope === 'all' ? theme.onPrimaryContainer : theme.onSurfaceVariant,
-                  fontWeight: scope === 'all' ? '700' : '500',
-                },
-              ]}
-            >
-              All Time
-            </Text>
+            <MaterialCommunityIcons name="export-variant" size={16} color={theme.onPrimaryContainer} />
+            <Text style={[styles.exportBtnText, { color: theme.onPrimaryContainer }]}>Export</Text>
           </TouchableOpacity>
         </View>
 
@@ -964,6 +1066,104 @@ export const AnalyticsScreen: React.FC = () => {
         onSave={handleSaveNewTransaction}
         onAddSubcategory={addSubcategory}
       />
+
+      {/* EXPORT ANALYTICS MODAL */}
+      <Modal
+        visible={exportModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setExportModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.exportModalBox, { backgroundColor: theme.surface }]}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <MaterialCommunityIcons name="export-variant" size={22} color={theme.primary} />
+                <Text style={[styles.modalTitle, { color: theme.onSurface }]}>Export Analytics</Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setExportModalVisible(false)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <MaterialCommunityIcons name="close" size={22} color={theme.onSurface} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={[styles.exportModalSubtitle, { color: theme.onSurfaceVariant }]}>
+              {exportPayload.timeframe} • {exportPayload.transactions.length} transactions
+            </Text>
+
+            <View style={styles.exportOptionsList}>
+              {/* Option 1: Financial Summary (.txt) */}
+              <TouchableOpacity
+                style={[styles.exportOptionCard, { backgroundColor: theme.pillBg, borderColor: theme.divider }]}
+                onPress={handleExportReportTxt}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.exportOptionIconCircle, { backgroundColor: theme.primaryContainer }]}>
+                  <MaterialCommunityIcons name="file-document-outline" size={22} color={theme.primary} />
+                </View>
+                <View style={styles.exportOptionTextWrap}>
+                  <Text style={[styles.exportOptionTitle, { color: theme.onSurface }]}>
+                    Financial Summary Report (.txt)
+                  </Text>
+                  <Text style={[styles.exportOptionDesc, { color: theme.onSurfaceVariant }]}>
+                    Cash flow, savings rate, budget targets & category breakdown
+                  </Text>
+                </View>
+                <MaterialCommunityIcons name="share-variant-outline" size={18} color={theme.primary} />
+              </TouchableOpacity>
+
+              {/* Option 2: Transactions CSV */}
+              <TouchableOpacity
+                style={[styles.exportOptionCard, { backgroundColor: theme.pillBg, borderColor: theme.divider }]}
+                onPress={handleExportCSV}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.exportOptionIconCircle, { backgroundColor: '#DCFCE7' }]}>
+                  <MaterialCommunityIcons name="file-delimited-outline" size={22} color="#15803D" />
+                </View>
+                <View style={styles.exportOptionTextWrap}>
+                  <Text style={[styles.exportOptionTitle, { color: theme.onSurface }]}>
+                    Transactions Spreadsheet (.csv)
+                  </Text>
+                  <Text style={[styles.exportOptionDesc, { color: theme.onSurfaceVariant }]}>
+                    Full transactions list ready for Excel, Google Sheets, or Numbers
+                  </Text>
+                </View>
+                <MaterialCommunityIcons name="share-variant-outline" size={18} color="#15803D" />
+              </TouchableOpacity>
+
+              {/* Option 3: Copy to Clipboard */}
+              <TouchableOpacity
+                style={[styles.exportOptionCard, { backgroundColor: theme.pillBg, borderColor: theme.divider }]}
+                onPress={handleCopySummary}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.exportOptionIconCircle, { backgroundColor: '#EDE9FE' }]}>
+                  <MaterialCommunityIcons name="content-copy" size={22} color="#7C3AED" />
+                </View>
+                <View style={styles.exportOptionTextWrap}>
+                  <Text style={[styles.exportOptionTitle, { color: theme.onSurface }]}>
+                    Copy Summary to Clipboard
+                  </Text>
+                  <Text style={[styles.exportOptionDesc, { color: theme.onSurfaceVariant }]}>
+                    Fast copy to paste into personal notes, messages, or emails
+                  </Text>
+                </View>
+                <MaterialCommunityIcons name="chevron-right" size={18} color="#7C3AED" />
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.exportCancelBtn, { borderColor: theme.divider }]}
+              onPress={() => setExportModalVisible(false)}
+            >
+              <Text style={[styles.exportCancelBtnText, { color: theme.onSurfaceVariant }]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -1060,11 +1260,29 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     fontWeight: '700',
   },
+  scopeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 16,
+  },
   scopeBar: {
+    flex: 1,
     flexDirection: 'row',
     borderRadius: M3Shape.full,
     padding: 3,
-    marginBottom: 16,
+  },
+  exportBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: M3Shape.full,
+  },
+  exportBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   scopePill: {
     flex: 1,
@@ -1303,5 +1521,74 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 100,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    justifyContent: 'center',
+    padding: 16,
+  },
+  exportModalBox: {
+    borderRadius: M3Shape.extraLarge,
+    padding: 20,
+    width: '100%',
+    maxWidth: 420,
+    alignSelf: 'center',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  exportModalSubtitle: {
+    fontSize: 12.5,
+    marginBottom: 16,
+  },
+  exportOptionsList: {
+    gap: 10,
+    marginBottom: 16,
+  },
+  exportOptionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: M3Shape.large,
+    borderWidth: 1,
+    gap: 12,
+  },
+  exportOptionIconCircle: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  exportOptionTextWrap: {
+    flex: 1,
+  },
+  exportOptionTitle: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  exportOptionDesc: {
+    fontSize: 11.5,
+    lineHeight: 15,
+  },
+  exportCancelBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: M3Shape.full,
+    borderWidth: 1,
+    alignSelf: 'center',
+  },
+  exportCancelBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
   },
 });
