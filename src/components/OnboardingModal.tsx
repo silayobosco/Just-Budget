@@ -24,8 +24,8 @@ import { DateRangePickerModal } from './DateRangePickerModal';
 import { CycleStartDayCalendar } from './CycleStartDayCalendar';
 
 const CURRENCIES = [
-  { code: 'USD', symbol: '$', name: 'US Dollar' },
   { code: 'TZS', symbol: 'TSh', name: 'Tanzanian Shilling' },
+  { code: 'USD', symbol: '$', name: 'US Dollar' },
   { code: 'EUR', symbol: '€', name: 'Euro' },
   { code: 'GBP', symbol: '£', name: 'British Pound' },
   { code: 'KES', symbol: 'KSh', name: 'Kenyan Shilling' },
@@ -86,7 +86,7 @@ export const OnboardingModal: React.FC = () => {
   const [currentStep, setCurrentStep] = useState<number>(0);
 
   // Step 0: Currency
-  const [selectedCurrency, setSelectedCurrency] = useState<string>('USD');
+  const [selectedCurrency, setSelectedCurrency] = useState<string>('TZS');
   const [currencySearch, setCurrencySearch] = useState<string>('');
 
   // Step 1: Wallets (Individual balances per wallet)

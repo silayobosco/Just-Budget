@@ -144,7 +144,7 @@ export const initDatabase = async () => {
   ensureDefaultExpenseCategories(db);
   ensureDefaultIncomeCategories(db);
   const currSetting = db.getFirstSync<{ value: string }>(`SELECT value FROM settings WHERE key = 'base_currency'`);
-  ensureDefaultWallets(db, currSetting?.value || 'USD');
+  ensureDefaultWallets(db, currSetting?.value || 'TZS');
 
   // Seed default data if database is empty
   seedInitialData(db);
@@ -171,7 +171,7 @@ export const DEFAULT_EXPENSE_CATEGORIES: {
     type: 'expense',
     icon: 'silverware-fork-knife',
     color: '#FF6F61',
-    subs: ['Groceries', 'Restaurants', 'Coffee & Tea', 'Snacks & Drinks', 'Delivery'],
+    subs: ['Breakfast', 'Lunch', 'Dinner', 'Drinks', 'Snacks', 'Groceries', 'Delivery', 'Restaurant'],
   },
   {
     id: 'cat-housing',
@@ -222,12 +222,35 @@ export const ensureDefaultExpenseCategories = (db: SQLite.SQLiteDatabase) => {
         `INSERT OR IGNORE INTO categories (id, name, type, icon, color, is_default) VALUES (?, ?, ?, ?, ?, 1)`,
         [cat.id, cat.name, cat.type, cat.icon, cat.color]
       );
+
+      // Clean up legacy default Food subcategories if they have no transactions
+      if (cat.id === 'cat-food') {
+        const legacyUnusedNames = ['Coffee & Tea', 'Restaurants', 'Snacks & Drinks'];
+        for (const oldName of legacyUnusedNames) {
+          const used = db.getFirstSync<{ count: number }>(`
+            SELECT COUNT(*) as count FROM transactions t 
+            JOIN subcategories s ON t.subcategory_id = s.id 
+            WHERE s.category_id = 'cat-food' AND LOWER(s.name) = LOWER(?)
+          `, [oldName]);
+          if (!used || used.count === 0) {
+            db.runSync(`DELETE FROM subcategories WHERE category_id = 'cat-food' AND LOWER(name) = LOWER(?)`, [oldName]);
+          }
+        }
+      }
+
       for (let i = 0; i < cat.subs.length; i++) {
-        const subId = `${cat.id}-sub-${i + 1}`;
-        db.runSync(
-          `INSERT OR IGNORE INTO subcategories (id, category_id, name) VALUES (?, ?, ?)`,
-          [subId, cat.id, cat.subs[i]]
+        const subName = cat.subs[i];
+        const existing = db.getFirstSync<{ id: string }>(
+          `SELECT id FROM subcategories WHERE category_id = ? AND LOWER(name) = LOWER(?)`,
+          [cat.id, subName]
         );
+        if (!existing) {
+          const subId = `${cat.id}-sub-${subName.toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
+          db.runSync(
+            `INSERT OR IGNORE INTO subcategories (id, category_id, name) VALUES (?, ?, ?)`,
+            [subId, cat.id, subName]
+          );
+        }
       }
     }
   } catch (err) {
@@ -285,7 +308,7 @@ export const DEFAULT_INCOME_CATEGORIES: {
   },
 ];
 
-export const ensureDefaultWallets = (db: SQLite.SQLiteDatabase, currency: string = 'USD') => {
+export const ensureDefaultWallets = (db: SQLite.SQLiteDatabase, currency: string = 'TZS') => {
   try {
     for (const w of DEFAULT_WALLETS) {
       const existing = db.getFirstSync<{ id: string }>(`SELECT id FROM wallets WHERE id = ?`, [w.id]);
@@ -354,11 +377,19 @@ const seedInitialData = (db: SQLite.SQLiteDatabase) => {
       db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('onboarding_completed', '0')`);
       db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('theme_mode', 'light')`);
       db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('app_name', 'just budget')`);
+      db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('base_currency', 'TZS')`);
+      db.runSync(`UPDATE wallets SET currency = 'TZS'`);
+    } else if (onboardingRow.value !== '1') {
+      const hasBase = db.getFirstSync<{ value: string }>(`SELECT value FROM settings WHERE key = 'base_currency'`);
+      if (!hasBase || hasBase.value === 'USD') {
+        db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('base_currency', 'TZS')`);
+        db.runSync(`UPDATE wallets SET currency = 'TZS'`);
+      }
     }
   }
 
   // Restore default wallets with 0 balance
-  const curr = db.getFirstSync<{ value: string }>(`SELECT value FROM settings WHERE key = 'base_currency'`)?.value || 'USD';
+  const curr = db.getFirstSync<{ value: string }>(`SELECT value FROM settings WHERE key = 'base_currency'`)?.value || 'TZS';
   ensureDefaultWallets(db, curr);
   ensureDefaultExpenseCategories(db);
   ensureDefaultIncomeCategories(db);
@@ -380,7 +411,7 @@ const seedInitialData = (db: SQLite.SQLiteDatabase) => {
         type: 'expense',
         icon: 'silverware-fork-knife',
         color: '#FF6F61',
-        subs: ['Groceries', 'Restaurants', 'Coffee & Tea', 'Snacks & Drinks', 'Delivery'],
+        subs: ['Breakfast', 'Lunch', 'Dinner', 'Drinks', 'Snacks', 'Groceries', 'Delivery', 'Restaurant'],
       },
       {
         id: 'cat-housing',

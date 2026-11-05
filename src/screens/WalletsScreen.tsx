@@ -131,7 +131,7 @@ export const WalletsScreen: React.FC = () => {
 
   // New / Edit Wallet form states
   const [walletName, setWalletName] = useState('');
-  const [walletCurrency, setWalletCurrency] = useState('USD');
+  const [walletCurrency, setWalletCurrency] = useState(settings.base_currency || 'TZS');
   const [walletStartingBalance, setWalletStartingBalance] = useState('');
   const [walletCurrentBalance, setWalletCurrentBalance] = useState('');
   const [walletColor, setWalletColor] = useState('#10B981');

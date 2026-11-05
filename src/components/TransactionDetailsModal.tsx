@@ -70,7 +70,7 @@ interface TransactionDetailsModalProps {
   onAddSubcategory?: (categoryId: string, name: string) => Promise<string>;
 }
 
-const COMMON_CURRENCIES = ['USD', 'EUR', 'GBP', 'KES', 'INR', 'JPY', 'CAD', 'AUD', 'UGX', 'TZS', 'ZAR'];
+const COMMON_CURRENCIES = ['TZS', 'USD', 'EUR', 'GBP', 'KES', 'INR', 'JPY', 'CAD', 'AUD', 'UGX', 'ZAR'];
 
 export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = ({
   visible,

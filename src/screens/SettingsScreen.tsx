@@ -22,10 +22,10 @@ import { RecurringBillsModal } from '../components/RecurringBillsModal';
 import { SecuritySetupModal } from '../components/SecuritySetupModal';
 
 const CURRENCY_LIST = [
+  { code: 'TZS', symbol: 'TSh', name: 'Tanzanian Shilling' },
   { code: 'USD', symbol: '$', name: 'US Dollar' },
   { code: 'EUR', symbol: '€', name: 'Euro' },
   { code: 'GBP', symbol: '£', name: 'British Pound' },
-  { code: 'TZS', symbol: 'TSh', name: 'Tanzanian Shilling' },
   { code: 'KES', symbol: 'KSh', name: 'Kenyan Shilling' },
   { code: 'UGX', symbol: 'USh', name: 'Ugandan Shilling' },
   { code: 'RWF', symbol: 'FRw', name: 'Rwandan Franc' },

@@ -218,7 +218,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const closeCycleModal = useCallback(() => setIsCycleModalOpen(false), []);
 
   const [settings, setSettings] = useState<AppSettings>({
-    base_currency: 'USD',
+    base_currency: 'TZS',
     theme_mode: 'light',
     app_name: 'just budget',
     cycle_mode: 'regular',
@@ -257,7 +257,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         sMap[r.key] = r.value;
       });
       const newSettings: AppSettings = {
-        base_currency: sMap['base_currency'] || 'USD',
+        base_currency: sMap['base_currency'] || 'TZS',
         theme_mode: (sMap['theme_mode'] as any) || 'light',
         app_name: sMap['app_name'] || 'just budget',
         onboarding_completed: sMap['onboarding_completed'] === '1',
@@ -563,7 +563,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       .filter((t) => t.type === 'expense' && t.date === todayStr)
       .reduce((sum, t) => sum + (t.amount || t.base_amount || 0), 0);
 
-    const curr = settings.base_currency || 'USD';
+    const curr = settings.base_currency || 'TZS';
     const targetBudget = currentCycle?.target_budget ?? 0;
     const hasTargetBudget = targetBudget > 0;
     const isBudgetOver = hasTargetBudget && spentInCycle > targetBudget;
@@ -1526,7 +1526,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     customCycleName?: string;
   }) => {
     const db = getDB();
-    const curr = params.currency || 'USD';
+    const curr = params.currency || 'TZS';
     const cMode = params.cycleMode || 'regular';
     const cBalMode = params.cycleBalanceMode || 'accumulated';
     const cStartDay = params.cycleMonthStartDay || 1;
