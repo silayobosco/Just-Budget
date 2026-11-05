@@ -176,17 +176,15 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
     }
   }, [visible]);
 
-  // Focus helper: focuses the amount input cleanly without bouncing the keyboard
+  // Focus helper: focuses the amount input cleanly without bouncing
   const focusAmountInput = () => {
-    if (amountInputRef.current && !amountInputRef.current.isFocused?.()) {
-      amountInputRef.current.focus();
-    }
+    amountInputRef.current?.focus();
   };
 
-  // Automatically focus amount input once when modal becomes visible
+  // Automatically focus amount input once modal is visible
   useEffect(() => {
     if (visible) {
-      const timer = setTimeout(focusAmountInput, 150);
+      const timer = setTimeout(focusAmountInput, 250);
       return () => clearTimeout(timer);
     }
   }, [visible]);
@@ -388,7 +386,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       presentationStyle="fullScreen"
       statusBarTranslucent={true}
       onShow={() => {
-        focusAmountInput();
+        setTimeout(focusAmountInput, 100);
       }}
     >
       <View
