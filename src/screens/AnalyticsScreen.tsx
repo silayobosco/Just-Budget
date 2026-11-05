@@ -22,6 +22,8 @@ import Svg, {
   LinearGradient,
   Stop,
   Rect,
+  Line,
+  Text as SvgText,
 } from 'react-native-svg';
 import * as Clipboard from 'expo-clipboard';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -85,41 +87,48 @@ export const GradientProgressBar: React.FC<{
 export interface DonutSlice {
   name: string;
   amount: number;
+  id?: string;
   color: string;
   percent: number;
+  isPopped?: boolean;
 }
 
-export const DonutPieChart: React.FC<{
+export const AdvancedDonutChart: React.FC<{
   slices: DonutSlice[];
   total: number;
   centerTitle: string;
   centerSubtitle: string;
-  size?: number;
-  strokeWidth?: number;
+  onSlicePress?: (sliceId: string) => void;
+  onResetPress?: () => void;
+  isZoomed?: boolean;
   theme: any;
 }> = ({
   slices,
   total,
   centerTitle,
   centerSubtitle,
-  size = 155,
-  strokeWidth = 20,
+  onSlicePress,
+  onResetPress,
+  isZoomed = false,
   theme,
 }) => {
-  const radius = size / 2;
-  const innerRadius = radius - strokeWidth;
-  const center = radius;
+  const chartWidth = Math.min(350, Dimensions.get('window').width - 32);
+  const chartHeight = 270;
+  const cx = chartWidth / 2;
+  const cy = chartHeight / 2;
+  const outerRadius = 76;
+  const innerRadius = 46;
 
   if (total <= 0 || slices.length === 0) {
     return (
-      <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-        <Svg width={size} height={size}>
+      <View style={{ width: chartWidth, height: chartHeight, alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+        <Svg width={chartWidth} height={chartHeight}>
           <Circle
-            cx={center}
-            cy={center}
-            r={radius - strokeWidth / 2}
+            cx={cx}
+            cy={cy}
+            r={outerRadius - 15}
             stroke={theme.divider}
-            strokeWidth={strokeWidth}
+            strokeWidth={30}
             fill="none"
           />
         </Svg>
@@ -130,76 +139,198 @@ export const DonutPieChart: React.FC<{
     );
   }
 
-  if (slices.length === 1 || slices[0].percent >= 99) {
-    const s = slices[0];
-    return (
-      <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-        <Svg width={size} height={size}>
-          <Circle
-            cx={center}
-            cy={center}
-            r={radius - strokeWidth / 2}
-            stroke={s.color}
-            strokeWidth={strokeWidth}
-            fill="none"
-          />
-        </Svg>
-        <View pointerEvents="none" style={[styles.pieCenterLabel, { width: innerRadius * 1.8, height: innerRadius * 1.8 }]}>
-          <Text style={[styles.pieCenterSub, { color: theme.onSurfaceVariant }]}>{centerSubtitle}</Text>
-          <Text style={[styles.pieCenterMain, { color: theme.onSurface }]} numberOfLines={1}>
-            {centerTitle}
-          </Text>
-        </View>
-      </View>
-    );
-  }
-
+  // Pre-calculate angles for each slice
   let cumulativeAngle = -Math.PI / 2;
-
-  const paths = slices.map((slice, idx) => {
-    const sliceAngle = (slice.amount / total) * (2 * Math.PI);
-    const startAngle = cumulativeAngle;
-    const endAngle = cumulativeAngle + sliceAngle;
-    cumulativeAngle = endAngle;
-
-    const x1 = center + radius * Math.cos(startAngle);
-    const y1 = center + radius * Math.sin(startAngle);
-    const x2 = center + radius * Math.cos(endAngle);
-    const y2 = center + radius * Math.sin(endAngle);
-
-    const x3 = center + innerRadius * Math.cos(endAngle);
-    const y3 = center + innerRadius * Math.sin(endAngle);
-    const x4 = center + innerRadius * Math.cos(startAngle);
-    const y4 = center + innerRadius * Math.sin(startAngle);
-
-    const largeArc = sliceAngle > Math.PI ? 1 : 0;
-    const pathData = `M ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2} L ${x3} ${y3} A ${innerRadius} ${innerRadius} 0 ${largeArc} 0 ${x4} ${y4} Z`;
-
-    return (
-      <Path
-        key={idx}
-        d={pathData}
-        fill={slice.color}
-        stroke={theme.cardBg}
-        strokeWidth={1.5}
-      />
-    );
+  const sliceAngles = slices.map((slice) => {
+    const angle = (slice.amount / total) * (2 * Math.PI);
+    const start = cumulativeAngle;
+    const end = cumulativeAngle + angle;
+    const mid = (start + end) / 2;
+    cumulativeAngle = end;
+    return { slice, angle, start, end, mid };
   });
 
   return (
-    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-      <Svg width={size} height={size}>
-        <G>{paths}</G>
+    <View style={{ width: chartWidth, height: chartHeight, alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+      <Svg width={chartWidth} height={chartHeight}>
+        {/* Slices Paths */}
+        <G>
+          {sliceAngles.map((item, idx) => {
+            const { slice, angle, start, end, mid } = item;
+            const isPopped = Boolean(slice.isPopped);
+            const popDistance = isPopped ? 8 : 0;
+            const curOuterR = isPopped ? outerRadius + 8 : outerRadius;
+            const curInnerR = innerRadius;
+
+            const sliceCx = cx + popDistance * Math.cos(mid);
+            const sliceCy = cy + popDistance * Math.sin(mid);
+
+            if (slices.length === 1 || slice.percent >= 99) {
+              return (
+                <Circle
+                  key={idx}
+                  cx={sliceCx}
+                  cy={sliceCy}
+                  r={(curOuterR + curInnerR) / 2}
+                  stroke={slice.color}
+                  strokeWidth={curOuterR - curInnerR}
+                  fill="none"
+                  onPress={() => slice.id && onSlicePress?.(slice.id)}
+                />
+              );
+            }
+
+            const x1 = sliceCx + curOuterR * Math.cos(start);
+            const y1 = sliceCy + curOuterR * Math.sin(start);
+            const x2 = sliceCx + curOuterR * Math.cos(end);
+            const y2 = sliceCy + curOuterR * Math.sin(end);
+
+            const x3 = sliceCx + curInnerR * Math.cos(end);
+            const y3 = sliceCy + curInnerR * Math.sin(end);
+            const x4 = sliceCx + curInnerR * Math.cos(start);
+            const y4 = sliceCy + curInnerR * Math.sin(start);
+
+            const largeArc = angle > Math.PI ? 1 : 0;
+            const pathData = `M ${x1} ${y1} A ${curOuterR} ${curOuterR} 0 ${largeArc} 1 ${x2} ${y2} L ${x3} ${y3} A ${curInnerR} ${curInnerR} 0 ${largeArc} 0 ${x4} ${y4} Z`;
+
+            return (
+              <Path
+                key={idx}
+                d={pathData}
+                fill={slice.color}
+                stroke={theme.cardBg}
+                strokeWidth={1.5}
+                onPress={() => slice.id && onSlicePress?.(slice.id)}
+              />
+            );
+          })}
+        </G>
+
+        {/* Slice Inside Percentages */}
+        <G pointerEvents="none">
+          {sliceAngles.map((item, idx) => {
+            const { slice, angle, mid } = item;
+            if (slice.percent < 3 || angle < 0.2) return null;
+
+            const isPopped = Boolean(slice.isPopped);
+            const popDistance = isPopped ? 8 : 0;
+            const curOuterR = isPopped ? outerRadius + 8 : outerRadius;
+            const rMid = (innerRadius + curOuterR) / 2;
+
+            const tx = cx + popDistance * Math.cos(mid) + rMid * Math.cos(mid);
+            const ty = cy + popDistance * Math.sin(mid) + rMid * Math.sin(mid);
+
+            return (
+              <SvgText
+                key={`pct-${idx}`}
+                x={tx}
+                y={ty + 3}
+                fill="#FFFFFF"
+                fontSize={slice.percent >= 10 ? 9.5 : 8.5}
+                fontWeight="800"
+                textAnchor="middle"
+              >
+                {`${slice.percent}%`}
+              </SvgText>
+            );
+          })}
+        </G>
+
+        {/* Leader Lines & Callout Labels */}
+        <G pointerEvents="none">
+          {sliceAngles.slice(0, 8).map((item, idx) => {
+            const { slice, mid } = item;
+            if (slice.percent < 1.5) return null;
+
+            const isPopped = Boolean(slice.isPopped);
+            const popDistance = isPopped ? 8 : 0;
+            const curOuterR = isPopped ? outerRadius + 8 : outerRadius;
+
+            const sliceCx = cx + popDistance * Math.cos(mid);
+            const sliceCy = cy + popDistance * Math.sin(mid);
+
+            const startR = curOuterR + 3;
+            const elbowR = startR + 13;
+
+            const pStartX = sliceCx + startR * Math.cos(mid);
+            const pStartY = sliceCy + startR * Math.sin(mid);
+            const pElbowX = sliceCx + elbowR * Math.cos(mid);
+            const pElbowY = sliceCy + elbowR * Math.sin(mid);
+
+            const isRight = Math.cos(mid) >= 0;
+            const horizontalLen = 14;
+            const pEndX = pElbowX + (isRight ? horizontalLen : -horizontalLen);
+            const pEndY = pElbowY;
+
+            const labelX = pEndX + (isRight ? 4 : -4);
+            const labelY = pEndY + 3.5;
+            const cleanName = slice.name.length > 12 ? slice.name.slice(0, 11) + '…' : slice.name;
+
+            return (
+              <G key={`leader-${idx}`}>
+                <Path
+                  d={`M ${pStartX} ${pStartY} L ${pElbowX} ${pElbowY} L ${pEndX} ${pEndY}`}
+                  stroke={slice.color}
+                  strokeWidth={1.2}
+                  fill="none"
+                  opacity={0.85}
+                />
+                <SvgText
+                  x={labelX}
+                  y={labelY}
+                  fill={theme.onSurface}
+                  fontSize={10.5}
+                  fontWeight="700"
+                  textAnchor={isRight ? 'start' : 'end'}
+                >
+                  {cleanName}
+                </SvgText>
+              </G>
+            );
+          })}
+        </G>
       </Svg>
-      <View pointerEvents="none" style={[styles.pieCenterLabel, { width: innerRadius * 1.8, height: innerRadius * 1.8 }]}>
-        <Text style={[styles.pieCenterSub, { color: theme.onSurfaceVariant }]}>{centerSubtitle}</Text>
+
+      {/* Center Circle Content */}
+      <View
+        pointerEvents="box-none"
+        style={[
+          styles.pieCenterLabel,
+          {
+            width: innerRadius * 1.8,
+            height: innerRadius * 1.8,
+            borderRadius: (innerRadius * 1.8) / 2,
+            backgroundColor: theme.cardBg,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 1 },
+            shadowOpacity: 0.1,
+            shadowRadius: 2,
+            elevation: 2,
+          },
+        ]}
+      >
+        <Text style={[styles.pieCenterSub, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
+          {centerSubtitle}
+        </Text>
         <Text style={[styles.pieCenterMain, { color: theme.onSurface }]} numberOfLines={1}>
           {centerTitle}
         </Text>
+        {isZoomed && onResetPress && (
+          <TouchableOpacity
+            style={[styles.unzoomPill, { backgroundColor: theme.primaryContainer }]}
+            onPress={onResetPress}
+            activeOpacity={0.7}
+          >
+            <MaterialCommunityIcons name="arrow-left" size={11} color={theme.onPrimaryContainer} />
+            <Text style={[styles.unzoomPillText, { color: theme.onPrimaryContainer }]}>All</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
 };
+
+export const DonutPieChart = AdvancedDonutChart;
 
 export interface SubcategorySpendingItem {
   id: string;
@@ -258,6 +389,9 @@ export const AnalyticsScreen: React.FC = () => {
 
   // Accordion state for expandable categories
   const [expandedCategoryIds, setExpandedCategoryIds] = useState<Record<string, boolean>>({});
+
+  // Zoomed category in Expense Analyzer for drilldown subcategory Donut chart
+  const [zoomedCategoryId, setZoomedCategoryId] = useState<string | null>(null);
 
   // Cash Flow Donut Pie flow selector ('expense' | 'income') and 3D Flip animation
   const [cashFlowPieType, setCashFlowPieType] = useState<'expense' | 'income'>('expense');
@@ -728,24 +862,132 @@ export const AnalyticsScreen: React.FC = () => {
     return Object.values(map).sort((a, b) => b.amount - a.amount);
   }, [activeTransactions, categories]);
 
-  // Donut Pie chart slices for cash flow
-  const expensePieSlices = useMemo<DonutSlice[]>(() => {
-    return categorySpending.map((c) => ({
-      name: c.categoryName,
-      amount: c.amount,
-      color: c.color,
-      percent: c.percentOfTotal,
-    }));
-  }, [categorySpending]);
+  // Zoomed Category object
+  const zoomedCategory = useMemo(() => {
+    if (!zoomedCategoryId) return null;
+    return categorySpending.find((c) => c.categoryId === zoomedCategoryId) || null;
+  }, [zoomedCategoryId, categorySpending]);
+
+  // Donut Pie chart slices for Expense Analyzer with Zoomable Subcategories
+  const expensePieSlicesWithZoom = useMemo<DonutSlice[]>(() => {
+    if (!zoomedCategory) {
+      // All top categories with leader lines & popped largest slice
+      return categorySpending.map((c, idx) => ({
+        id: c.categoryId,
+        name: c.categoryName,
+        amount: c.amount,
+        color: c.color,
+        percent: c.percentOfTotal,
+        isPopped: idx === 0,
+      }));
+    }
+
+    // Zoomed category: show its subcategories
+    const totalCatSpend = Math.max(1, zoomedCategory.amount);
+    if (zoomedCategory.subcategories.length === 0) {
+      return [
+        {
+          id: zoomedCategory.categoryId,
+          name: zoomedCategory.categoryName,
+          amount: zoomedCategory.amount,
+          color: zoomedCategory.color,
+          percent: 100,
+          isPopped: true,
+        },
+      ];
+    }
+
+    const subColors = [
+      zoomedCategory.color,
+      '#EC4899', // Pink
+      '#D946EF', // Fuchsia
+      '#8B5CF6', // Purple
+      '#6366F1', // Indigo
+      '#3B82F6', // Blue
+      '#0EA5E9', // Sky
+      '#14B8A6', // Teal
+      '#10B981', // Emerald
+      '#F59E0B', // Amber
+      '#F97316', // Orange
+      '#EF4444', // Red
+    ];
+
+    return zoomedCategory.subcategories.map((sub, idx) => {
+      const pct = Math.round((sub.amount / totalCatSpend) * 100);
+      return {
+        id: sub.id,
+        name: sub.name,
+        amount: sub.amount,
+        color: subColors[idx % subColors.length],
+        percent: pct,
+        isPopped: idx === 0,
+      };
+    });
+  }, [zoomedCategory, categorySpending]);
 
   const incomePieSlices = useMemo<DonutSlice[]>(() => {
-    return categoryIncome.map((c) => ({
+    return categoryIncome.map((c, idx) => ({
+      id: c.categoryName,
       name: c.categoryName,
       amount: c.amount,
       color: c.color,
       percent: totalIncome > 0 ? Math.round((c.amount / totalIncome) * 100) : 0,
+      isPopped: idx === 0,
     }));
   }, [categoryIncome, totalIncome]);
+
+  // Cash Flow Inflow vs Outflow Interaction Timeline for Overview
+  const cashFlowTimeline = useMemo(() => {
+    const datesMap: Record<string, { income: number; expense: number }> = {};
+
+    activeTransactions.forEach((t) => {
+      if (!datesMap[t.date]) {
+        datesMap[t.date] = { income: 0, expense: 0 };
+      }
+      const amt = t.amount || t.base_amount || 0;
+      if (t.type === 'income') {
+        datesMap[t.date].income += amt;
+      } else if (t.type === 'expense') {
+        datesMap[t.date].expense += amt;
+      }
+    });
+
+    const allDates = Object.keys(datesMap).sort();
+    const datesToShow = allDates.slice(-7);
+
+    let maxVal = 1;
+    datesToShow.forEach((d) => {
+      const { income, expense } = datesMap[d];
+      if (income > maxVal) maxVal = income;
+      if (expense > maxVal) maxVal = expense;
+    });
+
+    const buckets = datesToShow.map((d) => {
+      const { income, expense } = datesMap[d];
+      const dObj = new Date(d + 'T00:00:00');
+      const dayLabel = !isNaN(dObj.getTime())
+        ? dObj.toLocaleDateString(undefined, { weekday: 'short' })
+        : d.slice(-2);
+      const dayNum = d.slice(8, 10);
+
+      return {
+        date: d,
+        dayLabel,
+        dayNum,
+        income,
+        expense,
+        net: income - expense,
+        incomeHeightPct: Math.min(100, Math.max(6, Math.round((income / maxVal) * 100))),
+        expenseHeightPct: Math.min(100, Math.max(6, Math.round((expense / maxVal) * 100))),
+      };
+    });
+
+    return {
+      buckets,
+      maxVal,
+      hasData: buckets.length > 0 && (totalIncome > 0 || totalExpense > 0),
+    };
+  }, [activeTransactions, totalIncome, totalExpense]);
 
   // Daily average spending calculation
   const dailyAverageSpend = useMemo(() => {
@@ -999,6 +1241,49 @@ export const AnalyticsScreen: React.FC = () => {
         {/* 1. EXPENSE ANALYZER FOCUS VIEW */}
         {analyticsFocus === 'expense' && (
           <View style={styles.focusContainer}>
+            {/* EXPENSE DONUT PIE CARD WITH ADVANCED LEADER LINES & ZOOMABLE SUBCATEGORIES */}
+            <View style={[styles.analyzerCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
+              <View style={styles.analyzerCardHeader}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <MaterialCommunityIcons name="chart-pie" size={20} color={theme.error} />
+                  <Text style={[styles.cardHeading, { color: theme.onSurface, marginBottom: 0 }]}>
+                    {zoomedCategory ? `${zoomedCategory.categoryName} Breakdown` : 'Expenses Breakdown'}
+                  </Text>
+                </View>
+                {zoomedCategory ? (
+                  <TouchableOpacity
+                    style={[styles.unzoomPill, { backgroundColor: theme.primaryContainer }]}
+                    onPress={() => setZoomedCategoryId(null)}
+                    activeOpacity={0.7}
+                  >
+                    <MaterialCommunityIcons name="arrow-left" size={12} color={theme.onPrimaryContainer} />
+                    <Text style={[styles.unzoomPillText, { color: theme.onPrimaryContainer }]}>All Categories</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: theme.primary }}>
+                    Tap slice to zoom
+                  </Text>
+                )}
+              </View>
+
+              <AdvancedDonutChart
+                slices={expensePieSlicesWithZoom}
+                total={zoomedCategory ? zoomedCategory.amount : totalExpense}
+                centerTitle={formatCurrency(zoomedCategory ? zoomedCategory.amount : totalExpense, curr)}
+                centerSubtitle={zoomedCategory ? zoomedCategory.categoryName : 'Total Spent'}
+                onSlicePress={(sliceId) => {
+                  if (zoomedCategoryId) {
+                    setZoomedCategoryId(null);
+                  } else {
+                    setZoomedCategoryId(sliceId);
+                    toggleCategoryExpand(sliceId);
+                  }
+                }}
+                onResetPress={() => setZoomedCategoryId(null)}
+                isZoomed={Boolean(zoomedCategoryId)}
+                theme={theme}
+              />
+            </View>
             {/* Target Budget Progress Card OR Prompt to Set */}
             {effectiveBudget <= 0 ? (
               <View style={[styles.analyzerCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
@@ -1467,6 +1752,25 @@ export const AnalyticsScreen: React.FC = () => {
         {/* 2. INCOME ANALYZER FOCUS VIEW */}
         {analyticsFocus === 'income' && (
           <View style={styles.focusContainer}>
+            {/* INCOME DONUT PIE CARD WITH ADVANCED LEADER LINES */}
+            <View style={[styles.analyzerCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
+              <View style={styles.analyzerCardHeader}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <MaterialCommunityIcons name="chart-pie" size={20} color={theme.success} />
+                  <Text style={[styles.cardHeading, { color: theme.onSurface, marginBottom: 0 }]}>
+                    Income Sources Distribution
+                  </Text>
+                </View>
+              </View>
+
+              <AdvancedDonutChart
+                slices={incomePieSlices}
+                total={totalIncome}
+                centerTitle={formatCurrency(totalIncome, curr)}
+                centerSubtitle="Total Income"
+                theme={theme}
+              />
+            </View>
             {/* Target Income Progress Card OR Prompt to Set */}
             {effectiveIncomeGoal <= 0 ? (
               <View style={[styles.analyzerCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
@@ -1606,21 +1910,17 @@ export const AnalyticsScreen: React.FC = () => {
         {/* 3. CASH FLOW OVERVIEW VIEW */}
         {analyticsFocus === 'overview' && (
           <View style={styles.focusContainer}>
-            {/* CASH FLOW COMPARISON HERO WITH 3D FLIP PIE CARD */}
-            <Animated.View
+            {/* CASH FLOW INTERACTION HERO CARD (INFLOW VS OUTFLOW DYNAMICS) */}
+            <View
               style={[
                 styles.cashflowCard,
-                {
-                  backgroundColor: theme.cardBg,
-                  borderColor: theme.divider,
-                  transform: [{ perspective: 1000 }, { rotateY: cardRotateY }],
-                },
+                { backgroundColor: theme.cardBg, borderColor: theme.divider },
                 M3Elevation.level1,
               ]}
             >
-              {/* Card Top Header: Left = Filter Button, Center = Flip Switch, Right = Export Button */}
+              {/* Card Top Header: Left = Filter Button, Center = Badge, Right = Export Button */}
               <View style={styles.pieCardTopBar}>
-                {/* Top Left: Filter Button replacing All Time / Cycle tab */}
+                {/* Top Left: Filter Button */}
                 <TouchableOpacity
                   style={[
                     styles.cardHeaderFilterBtn,
@@ -1639,34 +1939,11 @@ export const AnalyticsScreen: React.FC = () => {
                   <MaterialCommunityIcons name="chevron-down" size={13} color={theme.onSurfaceVariant} />
                 </TouchableOpacity>
 
-                {/* Top Center: 3D Flip Toggle Button */}
-                <TouchableOpacity
-                  style={[
-                    styles.cardHeaderFlipBtn,
-                    {
-                      backgroundColor: cashFlowPieType === 'expense'
-                        ? (isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)')
-                        : (isDarkMode ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.1)'),
-                      borderColor: cashFlowPieType === 'expense' ? theme.error : theme.success,
-                    },
-                  ]}
-                  onPress={handleFlipPie}
-                  activeOpacity={0.7}
-                >
-                  <MaterialCommunityIcons
-                    name="swap-horizontal"
-                    size={14}
-                    color={cashFlowPieType === 'expense' ? theme.error : theme.success}
-                  />
-                  <Text
-                    style={[
-                      styles.cardHeaderFlipText,
-                      { color: cashFlowPieType === 'expense' ? theme.error : theme.success },
-                    ]}
-                  >
-                    {cashFlowPieType === 'expense' ? 'Expenses' : 'Income'}
-                  </Text>
-                </TouchableOpacity>
+                {/* Top Center: Inflow vs Outflow Badge */}
+                <View style={[styles.flowDynamicsBadge, { backgroundColor: theme.pillBg }]}>
+                  <MaterialCommunityIcons name="swap-vertical" size={14} color={theme.primary} />
+                  <Text style={[styles.flowDynamicsBadgeText, { color: theme.primary }]}>Inflow vs Outflow</Text>
+                </View>
 
                 {/* Top Right: Export Button */}
                 <TouchableOpacity
@@ -1679,76 +1956,123 @@ export const AnalyticsScreen: React.FC = () => {
                 </TouchableOpacity>
               </View>
 
-              {/* Dynamic Donut Pie Chart (Tappable to flip as well) */}
-              <TouchableOpacity
-                style={styles.pieContainer}
-                activeOpacity={0.88}
-                onPress={handleFlipPie}
-              >
-                <DonutPieChart
-                  slices={cashFlowPieType === 'expense' ? expensePieSlices : incomePieSlices}
-                  total={cashFlowPieType === 'expense' ? totalExpense : totalIncome}
-                  centerTitle={formatCurrency(
-                    cashFlowPieType === 'expense' ? totalExpense : totalIncome,
-                    settings.base_currency
-                  )}
-                  centerSubtitle={cashFlowPieType === 'expense' ? 'Expenses' : 'Income'}
-                  size={155}
-                  strokeWidth={20}
-                  theme={theme}
-                />
+              {/* Net Cash Flow Surplus / Deficit Hero */}
+              <View style={styles.flowHeroDeltaRow}>
+                <View>
+                  <Text style={[styles.flowDeltaSub, { color: theme.onSurfaceVariant }]}>Net Cash Flow</Text>
+                  <Text
+                    style={[
+                      styles.flowDeltaMain,
+                      { color: netSavings >= 0 ? theme.success : theme.error },
+                    ]}
+                  >
+                    {netSavings >= 0 ? '+' : ''}{formatCurrency(netSavings, settings.base_currency)}
+                  </Text>
+                </View>
 
-                {/* Pie Chart Legend Dots */}
-                {(cashFlowPieType === 'expense' ? expensePieSlices : incomePieSlices).length > 0 && (
-                  <View style={styles.pieLegendRow}>
-                    {(cashFlowPieType === 'expense' ? expensePieSlices : incomePieSlices)
-                      .slice(0, 4)
-                      .map((slice, i) => (
-                        <View key={i} style={styles.pieLegendItem}>
-                          <View style={[styles.pieLegendDot, { backgroundColor: slice.color }]} />
-                          <Text style={[styles.pieLegendText, { color: theme.onSurface }]} numberOfLines={1}>
-                            {slice.name} <Text style={{ color: theme.onSurfaceVariant, fontWeight: '700' }}>{slice.percent}%</Text>
-                          </Text>
+                <View style={styles.flowHeroPillsCol}>
+                  <View style={[styles.streamPill, { backgroundColor: theme.successContainer }]}>
+                    <MaterialCommunityIcons name="arrow-bottom-left" size={13} color={theme.success} />
+                    <Text style={[styles.streamPillText, { color: theme.success }]}>
+                      +{formatCurrency(totalIncome, settings.base_currency)}
+                    </Text>
+                  </View>
+                  <View style={[styles.streamPill, { backgroundColor: theme.errorContainer }]}>
+                    <MaterialCommunityIcons name="arrow-top-right" size={13} color={theme.error} />
+                    <Text style={[styles.streamPillText, { color: theme.error }]}>
+                      -{formatCurrency(totalExpense, settings.base_currency)}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* INFLOW VS OUTFLOW INTERACTION GRAPH */}
+              <View style={styles.flowChartContainer}>
+                {cashFlowTimeline.hasData ? (
+                  <View style={styles.dualBarsWrapper}>
+                    {cashFlowTimeline.buckets.map((b) => (
+                      <View key={b.date} style={styles.dualBarCol}>
+                        <View style={styles.dualBarTrackArea}>
+                          {/* Green Inflow Bar */}
+                          <View
+                            style={[
+                              styles.singleDualBar,
+                              {
+                                height: `${b.income > 0 ? b.incomeHeightPct : 4}%`,
+                                backgroundColor: b.income > 0 ? theme.success : theme.divider,
+                                opacity: b.income > 0 ? 1 : 0.35,
+                              },
+                            ]}
+                          />
+                          {/* Red Outflow Bar */}
+                          <View
+                            style={[
+                              styles.singleDualBar,
+                              {
+                                height: `${b.expense > 0 ? b.expenseHeightPct : 4}%`,
+                                backgroundColor: b.expense > 0 ? theme.error : theme.divider,
+                                opacity: b.expense > 0 ? 1 : 0.35,
+                              },
+                            ]}
+                          />
                         </View>
-                      ))}
+                        <Text style={[styles.dualBarDayText, { color: theme.onSurfaceVariant }]}>
+                          {b.dayLabel}
+                        </Text>
+                        <Text style={[styles.dualBarNumText, { color: theme.onSurface }]}>
+                          {b.dayNum}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <View style={styles.emptyChartNotice}>
+                    <Text style={[styles.emptyChartNoticeText, { color: theme.onSurfaceVariant }]}>
+                      Record income & expenses to view daily interaction flow
+                    </Text>
                   </View>
                 )}
+              </View>
 
-                {/* Subtle Flip Hint Indicator */}
-                <View style={[styles.flipHintRow, { backgroundColor: theme.pillBg }]}>
-                  <MaterialCommunityIcons name="rotate-3d-variant" size={12} color={theme.onSurfaceVariant} />
-                  <Text style={[styles.flipHintText, { color: theme.onSurfaceVariant }]}>
-                    Tap card to flip to {cashFlowPieType === 'expense' ? 'Income' : 'Expenses'}
-                  </Text>
+              {/* Income Retention & Burn Rate Gauge */}
+              <View style={styles.retentionContainer}>
+                <View style={[styles.retentionBarTrack, { backgroundColor: theme.surfaceVariant }]}>
+                  {totalIncome > 0 ? (
+                    <>
+                      <View
+                        style={[
+                          styles.retentionSegment,
+                          {
+                            width: `${Math.min(100, Math.round((totalExpense / totalIncome) * 100))}%`,
+                            backgroundColor: theme.error,
+                          },
+                        ]}
+                      />
+                      <View
+                        style={[
+                          styles.retentionSegment,
+                          {
+                            flex: 1,
+                            backgroundColor: theme.success,
+                          },
+                        ]}
+                      />
+                    </>
+                  ) : (
+                    <View style={[styles.retentionSegment, { width: '100%', backgroundColor: theme.divider }]} />
+                  )}
                 </View>
-              </TouchableOpacity>
 
-              {/* Net Balance / Savings Ratio Bar */}
-              <View style={styles.ratioBarContainer}>
-                <View style={[styles.ratioBarBg, { backgroundColor: theme.surfaceVariant }]}>
-                  <View
-                    style={[
-                      styles.ratioBarFill,
-                      {
-                        width: `${Math.min(100, (totalExpense / Math.max(1, totalIncome)) * 100)}%`,
-                        backgroundColor: theme.error,
-                      },
-                    ]}
-                  />
-                </View>
-                <View style={styles.ratioLabels}>
-                  <Text style={[styles.ratioMeta, { color: theme.onSurfaceVariant }]}>
-                    Net Cash Flow:{' '}
-                    <Text style={{ color: netSavings >= 0 ? theme.success : theme.error, fontWeight: '700' }}>
-                      {formatCurrency(netSavings, settings.base_currency)}
-                    </Text>
+                <View style={styles.retentionLabelsRow}>
+                  <Text style={[styles.retentionLabelText, { color: theme.error }]}>
+                    ● {Math.min(100, totalIncome > 0 ? Math.round((totalExpense / totalIncome) * 100) : 100)}% Burned
                   </Text>
-                  <Text style={[styles.ratioMeta, { color: theme.primary, fontWeight: '700' }]}>
-                    {savingsRate}% Saved
+                  <Text style={[styles.retentionLabelText, { color: theme.success, fontWeight: '700' }]}>
+                    ● {savingsRate}% Retained
                   </Text>
                 </View>
               </View>
-            </Animated.View>
+            </View>
 
             {/* DAILY SPENDING STATS */}
             <View style={styles.statsCardsRow}>
@@ -3063,6 +3387,134 @@ const styles = StyleSheet.create({
   },
   flipHintText: {
     fontSize: 10,
+    fontWeight: '600',
+  },
+  unzoomPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: M3Shape.full,
+    marginTop: 4,
+  },
+  unzoomPillText: {
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  flowDynamicsBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 4.5,
+    paddingHorizontal: 9,
+    borderRadius: M3Shape.full,
+  },
+  flowDynamicsBadgeText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  flowHeroDeltaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginVertical: 10,
+    paddingHorizontal: 4,
+  },
+  flowDeltaSub: {
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  flowDeltaMain: {
+    fontSize: 22,
+    fontWeight: '900',
+    marginTop: 2,
+  },
+  flowHeroPillsCol: {
+    gap: 4,
+    alignItems: 'flex-end',
+  },
+  streamPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: M3Shape.full,
+  },
+  streamPillText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  flowChartContainer: {
+    marginVertical: 12,
+  },
+  dualBarsWrapper: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    height: 110,
+    paddingHorizontal: 6,
+  },
+  dualBarCol: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  dualBarTrackArea: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    gap: 3,
+    width: '100%',
+    height: 75,
+  },
+  singleDualBar: {
+    width: 7,
+    borderRadius: 3.5,
+  },
+  dualBarDayText: {
+    fontSize: 9.5,
+    fontWeight: '600',
+    marginTop: 6,
+  },
+  dualBarNumText: {
+    fontSize: 10,
+    fontWeight: '800',
+    marginTop: 1,
+  },
+  emptyChartNotice: {
+    paddingVertical: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyChartNoticeText: {
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  retentionContainer: {
+    marginTop: 4,
+  },
+  retentionBarTrack: {
+    flexDirection: 'row',
+    height: 7,
+    borderRadius: M3Shape.full,
+    overflow: 'hidden',
+  },
+  retentionSegment: {
+    height: '100%',
+  },
+  retentionLabelsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 6,
+    paddingHorizontal: 2,
+  },
+  retentionLabelText: {
+    fontSize: 11,
     fontWeight: '600',
   },
 });
