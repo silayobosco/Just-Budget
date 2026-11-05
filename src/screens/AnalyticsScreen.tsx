@@ -33,6 +33,8 @@ import { formatCurrency } from '../utils/format';
 import { TransactionType } from '../types';
 import { CategoryPickerSheet } from '../components/CategoryPickerSheet';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
+import { CalendarPickerModal } from '../components/CalendarPickerModal';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   exportAnalyticsSummaryReport,
   exportTransactionsCSV,
@@ -359,12 +361,446 @@ export interface CategorySpendingItem {
   savingsInsight?: string;
 }
 
+export interface AnalyticsFilterModalProps {
+  visible: boolean;
+  filterMode: 'cycle' | 'all' | 'day';
+  selectedCycleId: string | null;
+  selectedDay: string;
+  paymentStatus: 'all' | 'paid' | 'unpaid';
+  allCycles: any[];
+  activeCycle: any;
+  theme: any;
+  isDarkMode: boolean;
+  insets: any;
+  onClose: () => void;
+  onApply: (params: {
+    filterMode: 'cycle' | 'all' | 'day';
+    selectedCycleId: string | null;
+    selectedDay: string;
+    paymentStatus: 'all' | 'paid' | 'unpaid';
+  }) => void;
+  onOpenCalendar: () => void;
+}
+
+export const AnalyticsFilterModal: React.FC<AnalyticsFilterModalProps> = ({
+  visible,
+  filterMode,
+  selectedCycleId,
+  selectedDay,
+  paymentStatus,
+  allCycles,
+  activeCycle,
+  theme,
+  isDarkMode,
+  insets,
+  onClose,
+  onApply,
+  onOpenCalendar,
+}) => {
+  const [tempMode, setTempMode] = useState<'cycle' | 'all' | 'day'>(filterMode);
+  const [tempCycleId, setTempCycleId] = useState<string | null>(selectedCycleId);
+  const [tempDay, setTempDay] = useState<string>(selectedDay);
+  const [tempPaymentStatus, setTempPaymentStatus] = useState<'all' | 'paid' | 'unpaid'>(paymentStatus);
+
+  useEffect(() => {
+    if (visible) {
+      setTempMode(filterMode);
+      setTempCycleId(selectedCycleId);
+      setTempDay(selectedDay);
+      setTempPaymentStatus(paymentStatus);
+    }
+  }, [visible, filterMode, selectedCycleId, selectedDay, paymentStatus]);
+
+  const handleApply = () => {
+    onApply({
+      filterMode: tempMode,
+      selectedCycleId: tempCycleId,
+      selectedDay: tempDay,
+      paymentStatus: tempPaymentStatus,
+    });
+    onClose();
+  };
+
+  const handleReset = () => {
+    setTempMode('cycle');
+    setTempCycleId(null);
+    setTempDay(new Date().toISOString().slice(0, 10));
+    setTempPaymentStatus('all');
+  };
+
+  const formattedDayStr = useMemo(() => {
+    const d = new Date(tempDay + 'T00:00:00');
+    return !isNaN(d.getTime())
+      ? d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
+      : tempDay;
+  }, [tempDay]);
+
+  const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const yesterdayStr = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return d.toISOString().slice(0, 10);
+  }, []);
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.filterModalBackdrop}>
+        <TouchableOpacity style={styles.filterModalDismissArea} activeOpacity={1} onPress={onClose} />
+        <View
+          style={[
+            styles.filterModalSheet,
+            {
+              backgroundColor: theme.surface,
+              paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 36 : 16) + 12,
+            },
+            M3Elevation.level3,
+          ]}
+        >
+          {/* Drag Handle */}
+          <View style={styles.dragHandleRow}>
+            <View style={[styles.dragHandlePill, { backgroundColor: theme.outlineVariant }]} />
+          </View>
+
+          {/* Header */}
+          <View style={styles.filterModalHeader}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <View style={[styles.filterIconCircle, { backgroundColor: theme.primaryContainer }]}>
+                <MaterialCommunityIcons name="filter-variant" size={18} color={theme.onPrimaryContainer} />
+              </View>
+              <Text style={[styles.filterModalTitle, { color: theme.onSurface }]}>Filter Analytics</Text>
+            </View>
+            <TouchableOpacity onPress={onClose} style={[styles.filterCloseBtn, { backgroundColor: theme.pillBg }]}>
+              <MaterialCommunityIcons name="close" size={18} color={theme.onSurfaceVariant} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false}>
+            {/* Section 1: Timeframe Mode */}
+            <Text style={[styles.filterSectionLabel, { color: theme.onSurfaceVariant }]}>TIMEFRAME</Text>
+            <View style={[styles.filterModeTabRow, { backgroundColor: theme.pillBg }]}>
+              <TouchableOpacity
+                style={[styles.filterModeTab, tempMode === 'cycle' && { backgroundColor: theme.primaryContainer }]}
+                onPress={() => setTempMode('cycle')}
+              >
+                <MaterialCommunityIcons
+                  name="sync"
+                  size={14}
+                  color={tempMode === 'cycle' ? theme.onPrimaryContainer : theme.onSurfaceVariant}
+                />
+                <Text
+                  style={[
+                    styles.filterModeTabText,
+                    {
+                      color: tempMode === 'cycle' ? theme.onPrimaryContainer : theme.onSurfaceVariant,
+                      fontWeight: tempMode === 'cycle' ? '700' : '500',
+                    },
+                  ]}
+                >
+                  Cycles
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.filterModeTab, tempMode === 'all' && { backgroundColor: theme.primaryContainer }]}
+                onPress={() => setTempMode('all')}
+              >
+                <MaterialCommunityIcons
+                  name="all-inclusive"
+                  size={14}
+                  color={tempMode === 'all' ? theme.onPrimaryContainer : theme.onSurfaceVariant}
+                />
+                <Text
+                  style={[
+                    styles.filterModeTabText,
+                    {
+                      color: tempMode === 'all' ? theme.onPrimaryContainer : theme.onSurfaceVariant,
+                      fontWeight: tempMode === 'all' ? '700' : '500',
+                    },
+                  ]}
+                >
+                  All Time
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.filterModeTab, tempMode === 'day' && { backgroundColor: theme.primaryContainer }]}
+                onPress={() => setTempMode('day')}
+              >
+                <MaterialCommunityIcons
+                  name="calendar-today"
+                  size={14}
+                  color={tempMode === 'day' ? theme.onPrimaryContainer : theme.onSurfaceVariant}
+                />
+                <Text
+                  style={[
+                    styles.filterModeTabText,
+                    {
+                      color: tempMode === 'day' ? theme.onPrimaryContainer : theme.onSurfaceVariant,
+                      fontWeight: tempMode === 'day' ? '700' : '500',
+                    },
+                  ]}
+                >
+                  Specific Day
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Timeframe sub-selection */}
+            {tempMode === 'cycle' && (
+              <View style={styles.filterSubSection}>
+                <Text style={[styles.filterSubLabel, { color: theme.onSurfaceVariant }]}>SELECT BUDGET CYCLE</Text>
+                {allCycles.length === 0 ? (
+                  <View style={[styles.cycleSelectItem, { backgroundColor: theme.cardBg, borderColor: theme.primary }]}>
+                    <Text style={[styles.cycleSelectName, { color: theme.onSurface }]}>Current Cycle</Text>
+                    <MaterialCommunityIcons name="check-circle" size={18} color={theme.primary} />
+                  </View>
+                ) : (
+                  allCycles.map((c) => {
+                    const isSelected = tempCycleId ? tempCycleId === c.id : c.id === activeCycle?.id;
+                    return (
+                      <TouchableOpacity
+                        key={c.id}
+                        style={[
+                          styles.cycleSelectItem,
+                          {
+                            backgroundColor: isSelected
+                              ? (isDarkMode ? 'rgba(99, 102, 241, 0.2)' : 'rgba(99, 102, 241, 0.1)')
+                              : theme.cardBg,
+                            borderColor: isSelected ? theme.primary : theme.divider,
+                          },
+                        ]}
+                        onPress={() => setTempCycleId(c.id)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Text style={[styles.cycleSelectName, { color: theme.onSurface }]}>{c.name}</Text>
+                            {c.is_active && (
+                              <View style={[styles.activeCycleBadge, { backgroundColor: theme.successContainer }]}>
+                                <Text style={[styles.activeCycleBadgeText, { color: theme.success }]}>Active</Text>
+                              </View>
+                            )}
+                          </View>
+                          <Text style={[styles.cycleSelectDates, { color: theme.onSurfaceVariant }]}>
+                            {c.start_date} to {c.end_date}
+                          </Text>
+                        </View>
+                        <MaterialCommunityIcons
+                          name={isSelected ? 'radiobox-marked' : 'radiobox-blank'}
+                          size={20}
+                          color={isSelected ? theme.primary : theme.outline}
+                        />
+                      </TouchableOpacity>
+                    );
+                  })
+                )}
+              </View>
+            )}
+
+            {tempMode === 'all' && (
+              <View style={[styles.allTimeInfoBox, { backgroundColor: theme.pillBg }]}>
+                <MaterialCommunityIcons name="information-outline" size={16} color={theme.primary} />
+                <Text style={[styles.allTimeInfoText, { color: theme.onSurfaceVariant }]}>
+                  Displays complete financial history across all recorded transactions without cycle or date limits.
+                </Text>
+              </View>
+            )}
+
+            {tempMode === 'day' && (
+              <View style={styles.filterSubSection}>
+                <Text style={[styles.filterSubLabel, { color: theme.onSurfaceVariant }]}>SELECT DAY</Text>
+                <TouchableOpacity
+                  style={[styles.specificDayCard, { backgroundColor: theme.cardBg, borderColor: theme.primary }]}
+                  onPress={onOpenCalendar}
+                  activeOpacity={0.8}
+                >
+                  <View style={[styles.dayCardIcon, { backgroundColor: theme.primaryContainer }]}>
+                    <MaterialCommunityIcons name="calendar" size={18} color={theme.onPrimaryContainer} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.dayCardTitle, { color: theme.onSurface }]}>{formattedDayStr}</Text>
+                    <Text style={[styles.dayCardSub, { color: theme.onSurfaceVariant }]}>Tap to change in calendar</Text>
+                  </View>
+                  <MaterialCommunityIcons name="pencil-outline" size={16} color={theme.primary} />
+                </TouchableOpacity>
+
+                {/* Quick Date Chips */}
+                <View style={styles.quickDayRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.quickDayChip,
+                      {
+                        backgroundColor: tempDay === todayStr ? theme.primaryContainer : theme.pillBg,
+                        borderColor: tempDay === todayStr ? theme.primary : theme.outlineVariant,
+                      },
+                    ]}
+                    onPress={() => setTempDay(todayStr)}
+                  >
+                    <Text
+                      style={[
+                        styles.quickDayChipText,
+                        { color: tempDay === todayStr ? theme.onPrimaryContainer : theme.onSurface },
+                      ]}
+                    >
+                      Today
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.quickDayChip,
+                      {
+                        backgroundColor: tempDay === yesterdayStr ? theme.primaryContainer : theme.pillBg,
+                        borderColor: tempDay === yesterdayStr ? theme.primary : theme.outlineVariant,
+                      },
+                    ]}
+                    onPress={() => setTempDay(yesterdayStr)}
+                  >
+                    <Text
+                      style={[
+                        styles.quickDayChipText,
+                        { color: tempDay === yesterdayStr ? theme.onPrimaryContainer : theme.onSurface },
+                      ]}
+                    >
+                      Yesterday
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.quickDayChip, { backgroundColor: theme.pillBg, borderColor: theme.outlineVariant }]}
+                    onPress={onOpenCalendar}
+                  >
+                    <MaterialCommunityIcons name="calendar-month-outline" size={13} color={theme.primary} />
+                    <Text style={[styles.quickDayChipText, { color: theme.primary }]}>Calendar</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {/* Section 2: Payment Status */}
+            <Text style={[styles.filterSectionLabel, { color: theme.onSurfaceVariant, marginTop: 18 }]}>
+              PAYMENT STATUS
+            </Text>
+            <View style={styles.statusOptionRow}>
+              <TouchableOpacity
+                style={[
+                  styles.statusOptionPill,
+                  {
+                    backgroundColor: tempPaymentStatus === 'all' ? theme.primaryContainer : theme.pillBg,
+                    borderColor: tempPaymentStatus === 'all' ? theme.primary : theme.outlineVariant,
+                  },
+                ]}
+                onPress={() => setTempPaymentStatus('all')}
+              >
+                <MaterialCommunityIcons
+                  name="check-all"
+                  size={15}
+                  color={tempPaymentStatus === 'all' ? theme.onPrimaryContainer : theme.onSurfaceVariant}
+                />
+                <Text
+                  style={[
+                    styles.statusOptionText,
+                    {
+                      color: tempPaymentStatus === 'all' ? theme.onPrimaryContainer : theme.onSurface,
+                      fontWeight: tempPaymentStatus === 'all' ? '800' : '600',
+                    },
+                  ]}
+                >
+                  All
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.statusOptionPill,
+                  {
+                    backgroundColor: tempPaymentStatus === 'paid' ? theme.successContainer : theme.pillBg,
+                    borderColor: tempPaymentStatus === 'paid' ? theme.success : theme.outlineVariant,
+                  },
+                ]}
+                onPress={() => setTempPaymentStatus('paid')}
+              >
+                <MaterialCommunityIcons
+                  name="check-circle"
+                  size={15}
+                  color={tempPaymentStatus === 'paid' ? theme.success : theme.onSurfaceVariant}
+                />
+                <Text
+                  style={[
+                    styles.statusOptionText,
+                    {
+                      color: tempPaymentStatus === 'paid' ? theme.success : theme.onSurface,
+                      fontWeight: tempPaymentStatus === 'paid' ? '800' : '600',
+                    },
+                  ]}
+                >
+                  Paid Only
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.statusOptionPill,
+                  {
+                    backgroundColor: tempPaymentStatus === 'unpaid' ? theme.errorContainer : theme.pillBg,
+                    borderColor: tempPaymentStatus === 'unpaid' ? theme.error : theme.outlineVariant,
+                  },
+                ]}
+                onPress={() => setTempPaymentStatus('unpaid')}
+              >
+                <MaterialCommunityIcons
+                  name="clock-outline"
+                  size={15}
+                  color={tempPaymentStatus === 'unpaid' ? theme.error : theme.onSurfaceVariant}
+                />
+                <Text
+                  style={[
+                    styles.statusOptionText,
+                    {
+                      color: tempPaymentStatus === 'unpaid' ? theme.error : theme.onSurface,
+                      fontWeight: tempPaymentStatus === 'unpaid' ? '800' : '600',
+                    },
+                  ]}
+                >
+                  Unpaid Only
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+
+          {/* Action Buttons Footer */}
+          <View style={[styles.filterModalFooter, { borderTopColor: theme.divider }]}>
+            <TouchableOpacity
+              style={[styles.filterResetBtn, { backgroundColor: theme.pillBg }]}
+              onPress={handleReset}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.filterResetBtnText, { color: theme.onSurfaceVariant }]}>Reset</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.filterApplyBtn, { backgroundColor: theme.primary }, M3Elevation.level2]}
+              onPress={handleApply}
+              activeOpacity={0.85}
+            >
+              <MaterialCommunityIcons name="check" size={16} color="#FFFFFF" />
+              <Text style={styles.filterApplyBtnText}>Apply Filter</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
 export const AnalyticsScreen: React.FC = () => {
+  const insets = useSafeAreaInsets();
   const {
     settings,
     transactions,
     categories,
     wallets,
+    allCycles,
     addTransaction,
     addSubcategory,
     currentCycle,
@@ -383,51 +819,22 @@ export const AnalyticsScreen: React.FC = () => {
 
   const isDarkMode = settings.theme_mode === 'dark';
   const theme = isDarkMode ? darkTheme : lightTheme;
-  const [scope, setScope] = useState<'cycle' | 'all'>('cycle');
   const curr = settings.base_currency;
   const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
+
+  // Filter states (Cycles picker, All Time, Specific Day, Paid/Unpaid)
+  const [filterMode, setFilterMode] = useState<'cycle' | 'all' | 'day'>('cycle');
+  const [selectedCycleId, setSelectedCycleId] = useState<string | null>(null);
+  const [selectedDay, setSelectedDay] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [paymentStatus, setPaymentStatus] = useState<'all' | 'paid' | 'unpaid'>('all');
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [calendarPickerVisible, setCalendarPickerVisible] = useState(false);
 
   // Accordion state for expandable categories
   const [expandedCategoryIds, setExpandedCategoryIds] = useState<Record<string, boolean>>({});
 
   // Zoomed category in Expense Analyzer for drilldown subcategory Donut chart
   const [zoomedCategoryId, setZoomedCategoryId] = useState<string | null>(null);
-
-  // Cash Flow Donut Pie flow selector ('expense' | 'income') and 3D Flip animation
-  const [cashFlowPieType, setCashFlowPieType] = useState<'expense' | 'income'>('expense');
-  const flipAnim = useRef(new Animated.Value(0)).current;
-  const isFlipping = useRef(false);
-
-  const handleFlipPie = () => {
-    if (isFlipping.current) return;
-    isFlipping.current = true;
-
-    Animated.timing(flipAnim, {
-      toValue: 90,
-      duration: 170,
-      useNativeDriver: true,
-    }).start(() => {
-      setCashFlowPieType((prev) => (prev === 'expense' ? 'income' : 'expense'));
-      flipAnim.setValue(270);
-      Animated.timing(flipAnim, {
-        toValue: 360,
-        duration: 170,
-        useNativeDriver: true,
-      }).start(() => {
-        flipAnim.setValue(0);
-        isFlipping.current = false;
-      });
-    });
-  };
-
-  const cardRotateY = flipAnim.interpolate({
-    inputRange: [0, 360],
-    outputRange: ['0deg', '360deg'],
-  });
-
-  const handleToggleScope = () => {
-    setScope((prev) => (prev === 'cycle' ? 'all' : 'cycle'));
-  };
 
   const toggleCategoryExpand = (catId: string) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -561,18 +968,117 @@ export const AnalyticsScreen: React.FC = () => {
     };
   }, [currentCycle, incomeInCycle]);
 
-  // Effective cycle being analyzed
-  const effectiveCycle = selectedAnalyticsCycle || currentCycle;
+  // Active Cycle Filter
+  const activeCycleFilter = useMemo(() => {
+    if (selectedCycleId) {
+      const found = allCycles.find((c) => c.id === selectedCycleId);
+      if (found) return found;
+    }
+    return selectedAnalyticsCycle || currentCycle;
+  }, [selectedCycleId, allCycles, selectedAnalyticsCycle, currentCycle]);
 
-  // Filtered transactions by scope
+  // Effective cycle being analyzed
+  const effectiveCycle = activeCycleFilter;
+
+  // Filtered transactions by Timeframe (Day, Cycle, All Time) & Payment Status (Paid, Unpaid)
   const activeTransactions = useMemo(() => {
-    if (scope === 'cycle' && effectiveCycle?.start_date && effectiveCycle?.end_date) {
-      return transactions.filter(
-        (t) => t.date >= effectiveCycle.start_date && t.date <= effectiveCycle.end_date
+    let result = transactions;
+
+    if (filterMode === 'day' && selectedDay) {
+      result = result.filter((t) => t.date === selectedDay);
+    } else if (filterMode === 'cycle' && activeCycleFilter?.start_date && activeCycleFilter?.end_date) {
+      result = result.filter(
+        (t) => t.date >= activeCycleFilter.start_date && t.date <= activeCycleFilter.end_date
       );
     }
-    return transactions;
-  }, [scope, effectiveCycle, transactions]);
+
+    if (paymentStatus === 'paid') {
+      result = result.filter((t) => t.is_paid === true);
+    } else if (paymentStatus === 'unpaid') {
+      result = result.filter((t) => t.is_paid === false);
+    }
+
+    return result;
+  }, [transactions, filterMode, selectedDay, activeCycleFilter, paymentStatus]);
+
+  const filterButtonLabel = useMemo(() => {
+    let timeframeLabel = '';
+    if (filterMode === 'day') {
+      const dObj = new Date(selectedDay + 'T00:00:00');
+      timeframeLabel = !isNaN(dObj.getTime())
+        ? dObj.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+        : selectedDay;
+    } else if (filterMode === 'all') {
+      timeframeLabel = 'All Time';
+    } else {
+      timeframeLabel = activeCycleFilter?.name || 'Cycle';
+    }
+
+    if (paymentStatus === 'paid') {
+      return `${timeframeLabel} • Paid`;
+    }
+    if (paymentStatus === 'unpaid') {
+      return `${timeframeLabel} • Unpaid`;
+    }
+    return timeframeLabel;
+  }, [filterMode, selectedDay, activeCycleFilter, paymentStatus]);
+
+  const hasActiveCustomFilter = useMemo(() => {
+    return filterMode !== 'cycle' || Boolean(selectedCycleId) || paymentStatus !== 'all';
+  }, [filterMode, selectedCycleId, paymentStatus]);
+
+  // Universal inside-card top bar with Filter on left, custom center, Export on right
+  const renderCardTopBar = (centerElement?: React.ReactNode) => (
+    <View style={styles.pieCardTopBar}>
+      {/* Top Left: Filter Button */}
+      <TouchableOpacity
+        style={[
+          styles.cardHeaderFilterBtn,
+          {
+            backgroundColor: hasActiveCustomFilter
+              ? (isDarkMode ? 'rgba(99, 102, 241, 0.22)' : 'rgba(99, 102, 241, 0.12)')
+              : theme.pillBg,
+            borderColor: hasActiveCustomFilter ? theme.primary : theme.outlineVariant,
+          },
+        ]}
+        onPress={() => setFilterModalVisible(true)}
+        activeOpacity={0.7}
+      >
+        <MaterialCommunityIcons
+          name="filter-variant"
+          size={14}
+          color={hasActiveCustomFilter ? theme.primary : theme.onSurfaceVariant}
+        />
+        <Text
+          style={[
+            styles.cardHeaderFilterText,
+            { color: hasActiveCustomFilter ? theme.primary : theme.onSurface },
+          ]}
+          numberOfLines={1}
+        >
+          {filterButtonLabel}
+        </Text>
+        <MaterialCommunityIcons
+          name="chevron-down"
+          size={13}
+          color={hasActiveCustomFilter ? theme.primary : theme.onSurfaceVariant}
+        />
+      </TouchableOpacity>
+
+      {/* Top Center: Custom Badge / Title */}
+      {centerElement}
+
+      {/* Top Right: Export Button */}
+      <TouchableOpacity
+        style={[styles.cardHeaderExportBtn, { backgroundColor: theme.primaryContainer }]}
+        onPress={() => setExportModalVisible(true)}
+        activeOpacity={0.7}
+      >
+        <MaterialCommunityIcons name="export-variant" size={14} color={theme.onPrimaryContainer} />
+        <Text style={[styles.cardHeaderExportText, { color: theme.onPrimaryContainer }]}>Export</Text>
+      </TouchableOpacity>
+    </View>
+  );
 
   // Expenses and Incomes
   const totalExpense = useMemo(() => {
@@ -998,21 +1504,23 @@ export const AnalyticsScreen: React.FC = () => {
 
   // Target metrics for analyzer
   const effectiveBudget = effectiveCycle?.target_budget ?? overallBudgetLimit;
-  const budgetSpent = scope === 'cycle' ? totalExpense : totalExpense;
+  const budgetSpent = totalExpense;
   const budgetRemaining = effectiveBudget - budgetSpent;
   const budgetPercent = effectiveBudget > 0 ? Math.round((budgetSpent / effectiveBudget) * 100) : 0;
   const isBudgetOver = effectiveBudget > 0 && budgetSpent > effectiveBudget;
 
   const effectiveIncomeGoal = effectiveCycle?.target_income ?? incomeGoal;
-  const incomeEarned = scope === 'cycle' ? totalIncome : totalIncome;
+  const incomeEarned = totalIncome;
   const incomeRemainingToGo = Math.max(0, effectiveIncomeGoal - incomeEarned);
   const incomePercent = effectiveIncomeGoal > 0 ? Math.round((incomeEarned / effectiveIncomeGoal) * 100) : 0;
   const isIncomeGoalReached = effectiveIncomeGoal > 0 && incomeEarned >= effectiveIncomeGoal;
 
   const exportPayload = useMemo(() => {
-    const timeframeLabel = scope === 'cycle'
+    const timeframeLabel = filterMode === 'cycle'
       ? `${effectiveCycle?.name || 'Cycle'} (${effectiveCycle?.start_date || ''} to ${effectiveCycle?.end_date || ''})`
-      : 'All Time (Complete History)';
+      : filterMode === 'day'
+        ? `Day: ${selectedDay}`
+        : 'All Time (Complete History)';
 
     return {
       timeframe: timeframeLabel,
@@ -1039,7 +1547,8 @@ export const AnalyticsScreen: React.FC = () => {
       wallets,
     };
   }, [
-    scope,
+    filterMode,
+    selectedDay,
     effectiveCycle,
     totalExpense,
     totalIncome,
@@ -1188,83 +1697,31 @@ export const AnalyticsScreen: React.FC = () => {
           </View>
         )}
 
-        {/* SCOPE TOGGLE PILL BAR & EXPORT BUTTON (Only shown for Expense / Income detail views) */}
-        {analyticsFocus !== 'overview' && (
-          <View style={styles.scopeRow}>
-            <View style={[styles.scopeBar, { backgroundColor: theme.pillBg }]}>
-              <TouchableOpacity
-                style={[styles.scopePill, scope === 'cycle' && { backgroundColor: theme.primaryContainer }]}
-                onPress={() => setScope('cycle')}
-              >
-                <Text
-                  style={[
-                    styles.scopePillText,
-                    {
-                      color: scope === 'cycle' ? theme.onPrimaryContainer : theme.onSurfaceVariant,
-                      fontWeight: scope === 'cycle' ? '700' : '500',
-                    },
-                  ]}
-                >
-                  Cycle ({effectiveCycle?.name || 'Cycle'})
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.scopePill, scope === 'all' && { backgroundColor: theme.primaryContainer }]}
-                onPress={() => setScope('all')}
-              >
-                <Text
-                  style={[
-                    styles.scopePillText,
-                    {
-                      color: scope === 'all' ? theme.onPrimaryContainer : theme.onSurfaceVariant,
-                      fontWeight: scope === 'all' ? '700' : '500',
-                    },
-                  ]}
-                >
-                  All Time
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            <TouchableOpacity
-              style={[styles.exportBtn, { backgroundColor: theme.primaryContainer }]}
-              onPress={() => setExportModalVisible(true)}
-              activeOpacity={0.7}
-            >
-              <MaterialCommunityIcons name="export-variant" size={16} color={theme.onPrimaryContainer} />
-              <Text style={[styles.exportBtnText, { color: theme.onPrimaryContainer }]}>Export</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
         {/* 1. EXPENSE ANALYZER FOCUS VIEW */}
         {analyticsFocus === 'expense' && (
           <View style={styles.focusContainer}>
             {/* EXPENSE DONUT PIE CARD WITH ADVANCED LEADER LINES & ZOOMABLE SUBCATEGORIES */}
             <View style={[styles.analyzerCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
-              <View style={styles.analyzerCardHeader}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <MaterialCommunityIcons name="chart-pie" size={20} color={theme.error} />
-                  <Text style={[styles.cardHeading, { color: theme.onSurface, marginBottom: 0 }]}>
-                    {zoomedCategory ? `${zoomedCategory.categoryName} Breakdown` : 'Expenses Breakdown'}
-                  </Text>
-                </View>
-                {zoomedCategory ? (
+              {/* Card Top Header: Left = Filter Button, Center = Drilldown/All badge, Right = Export Button */}
+              {renderCardTopBar(
+                zoomedCategory ? (
                   <TouchableOpacity
                     style={[styles.unzoomPill, { backgroundColor: theme.primaryContainer }]}
                     onPress={() => setZoomedCategoryId(null)}
                     activeOpacity={0.7}
                   >
                     <MaterialCommunityIcons name="arrow-left" size={12} color={theme.onPrimaryContainer} />
-                    <Text style={[styles.unzoomPillText, { color: theme.onPrimaryContainer }]}>All Categories</Text>
+                    <Text style={[styles.unzoomPillText, { color: theme.onPrimaryContainer }]} numberOfLines={1}>
+                      {zoomedCategory.categoryName} (All)
+                    </Text>
                   </TouchableOpacity>
                 ) : (
-                  <Text style={{ fontSize: 11, fontWeight: '700', color: theme.primary }}>
-                    Tap slice to zoom
-                  </Text>
-                )}
-              </View>
+                  <View style={[styles.flowDynamicsBadge, { backgroundColor: theme.pillBg }]}>
+                    <MaterialCommunityIcons name="chart-pie" size={14} color={theme.error} />
+                    <Text style={[styles.flowDynamicsBadgeText, { color: theme.error }]}>Expense Drilldown</Text>
+                  </View>
+                )
+              )}
 
               <AdvancedDonutChart
                 slices={expensePieSlicesWithZoom}
@@ -1754,14 +2211,13 @@ export const AnalyticsScreen: React.FC = () => {
           <View style={styles.focusContainer}>
             {/* INCOME DONUT PIE CARD WITH ADVANCED LEADER LINES */}
             <View style={[styles.analyzerCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
-              <View style={styles.analyzerCardHeader}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <MaterialCommunityIcons name="chart-pie" size={20} color={theme.success} />
-                  <Text style={[styles.cardHeading, { color: theme.onSurface, marginBottom: 0 }]}>
-                    Income Sources Distribution
-                  </Text>
+              {/* Card Top Header: Left = Filter Button, Center = Badge, Right = Export Button */}
+              {renderCardTopBar(
+                <View style={[styles.flowDynamicsBadge, { backgroundColor: theme.pillBg }]}>
+                  <MaterialCommunityIcons name="chart-pie" size={14} color={theme.success} />
+                  <Text style={[styles.flowDynamicsBadgeText, { color: theme.success }]}>Income Sources</Text>
                 </View>
-              </View>
+              )}
 
               <AdvancedDonutChart
                 slices={incomePieSlices}
@@ -1919,42 +2375,12 @@ export const AnalyticsScreen: React.FC = () => {
               ]}
             >
               {/* Card Top Header: Left = Filter Button, Center = Badge, Right = Export Button */}
-              <View style={styles.pieCardTopBar}>
-                {/* Top Left: Filter Button */}
-                <TouchableOpacity
-                  style={[
-                    styles.cardHeaderFilterBtn,
-                    {
-                      backgroundColor: theme.pillBg,
-                      borderColor: theme.outlineVariant,
-                    },
-                  ]}
-                  onPress={handleToggleScope}
-                  activeOpacity={0.7}
-                >
-                  <MaterialCommunityIcons name="filter-variant" size={14} color={theme.primary} />
-                  <Text style={[styles.cardHeaderFilterText, { color: theme.onSurface }]} numberOfLines={1}>
-                    {scope === 'cycle' ? (effectiveCycle?.name || 'Cycle') : 'All Time'}
-                  </Text>
-                  <MaterialCommunityIcons name="chevron-down" size={13} color={theme.onSurfaceVariant} />
-                </TouchableOpacity>
-
-                {/* Top Center: Inflow vs Outflow Badge */}
+              {renderCardTopBar(
                 <View style={[styles.flowDynamicsBadge, { backgroundColor: theme.pillBg }]}>
                   <MaterialCommunityIcons name="swap-vertical" size={14} color={theme.primary} />
                   <Text style={[styles.flowDynamicsBadgeText, { color: theme.primary }]}>Inflow vs Outflow</Text>
                 </View>
-
-                {/* Top Right: Export Button */}
-                <TouchableOpacity
-                  style={[styles.cardHeaderExportBtn, { backgroundColor: theme.primaryContainer }]}
-                  onPress={() => setExportModalVisible(true)}
-                  activeOpacity={0.7}
-                >
-                  <MaterialCommunityIcons name="export-variant" size={14} color={theme.onPrimaryContainer} />
-                  <Text style={[styles.cardHeaderExportText, { color: theme.onPrimaryContainer }]}>Export</Text>
-                </TouchableOpacity>
-              </View>
+              )}
 
               {/* Net Cash Flow Surplus / Deficit Hero */}
               <View style={styles.flowHeroDeltaRow}>
@@ -2557,6 +2983,41 @@ export const AnalyticsScreen: React.FC = () => {
           </View>
         </View>
       </Modal>
+
+      {/* FILTER PICKER MODAL (CYCLES, ALL TIME, SPECIFIC DAY, PAID/UNPAID) */}
+      <AnalyticsFilterModal
+        visible={filterModalVisible}
+        filterMode={filterMode}
+        selectedCycleId={selectedCycleId}
+        selectedDay={selectedDay}
+        paymentStatus={paymentStatus}
+        allCycles={allCycles}
+        activeCycle={activeCycleFilter}
+        theme={theme}
+        isDarkMode={isDarkMode}
+        insets={insets}
+        onClose={() => setFilterModalVisible(false)}
+        onApply={(params) => {
+          setFilterMode(params.filterMode);
+          setSelectedCycleId(params.selectedCycleId);
+          setSelectedDay(params.selectedDay);
+          setPaymentStatus(params.paymentStatus);
+        }}
+        onOpenCalendar={() => setCalendarPickerVisible(true)}
+      />
+
+      {/* CALENDAR PICKER MODAL FOR SPECIFIC DAY */}
+      <CalendarPickerModal
+        visible={calendarPickerVisible}
+        selectedDate={selectedDay}
+        theme={theme}
+        onClose={() => setCalendarPickerVisible(false)}
+        onSelectDate={(d) => {
+          setSelectedDay(d);
+          setFilterMode('day');
+          setCalendarPickerVisible(false);
+        }}
+      />
     </View>
   );
 };
@@ -3516,5 +3977,217 @@ const styles = StyleSheet.create({
   retentionLabelText: {
     fontSize: 11,
     fontWeight: '600',
+  },
+  filterModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.52)',
+    justifyContent: 'flex-end',
+  },
+  filterModalDismissArea: {
+    flex: 1,
+  },
+  filterModalSheet: {
+    borderTopLeftRadius: M3Shape.extraLarge,
+    borderTopRightRadius: M3Shape.extraLarge,
+    paddingHorizontal: 20,
+    paddingTop: 8,
+  },
+  dragHandleRow: {
+    alignItems: 'center',
+    paddingVertical: 6,
+  },
+  dragHandlePill: {
+    width: 38,
+    height: 4,
+    borderRadius: 2,
+  },
+  filterModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    marginBottom: 6,
+  },
+  filterIconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterModalTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  filterCloseBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterSectionLabel: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    marginBottom: 8,
+    textTransform: 'uppercase',
+  },
+  filterModeTabRow: {
+    flexDirection: 'row',
+    borderRadius: M3Shape.full,
+    padding: 3,
+    marginBottom: 14,
+  },
+  filterModeTab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 8,
+    borderRadius: M3Shape.full,
+  },
+  filterModeTabText: {
+    fontSize: 12,
+  },
+  filterSubSection: {
+    marginBottom: 10,
+  },
+  filterSubLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  cycleSelectItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: M3Shape.medium,
+    borderWidth: 1,
+    marginBottom: 6,
+  },
+  cycleSelectName: {
+    fontSize: 13.5,
+    fontWeight: '700',
+  },
+  activeCycleBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 6,
+  },
+  activeCycleBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+  },
+  cycleSelectDates: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  allTimeInfoBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 12,
+    borderRadius: M3Shape.medium,
+    marginBottom: 10,
+  },
+  allTimeInfoText: {
+    fontSize: 12,
+    flex: 1,
+    lineHeight: 16,
+  },
+  specificDayCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 12,
+    borderRadius: M3Shape.medium,
+    borderWidth: 1.5,
+    marginBottom: 10,
+  },
+  dayCardIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dayCardTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  dayCardSub: {
+    fontSize: 11,
+    marginTop: 1,
+  },
+  quickDayRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 8,
+  },
+  quickDayChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: M3Shape.full,
+    borderWidth: 1,
+  },
+  quickDayChipText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  statusOptionRow: {
+    flexDirection: 'column',
+    gap: 6,
+    marginBottom: 12,
+  },
+  statusOptionPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: M3Shape.medium,
+    borderWidth: 1,
+  },
+  statusOptionText: {
+    fontSize: 13,
+  },
+  filterModalFooter: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingTop: 12,
+    borderTopWidth: 1,
+  },
+  filterResetBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: M3Shape.large,
+  },
+  filterResetBtnText: {
+    fontSize: 13.5,
+    fontWeight: '700',
+  },
+  filterApplyBtn: {
+    flex: 1.8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: M3Shape.large,
+  },
+  filterApplyBtnText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
 });
