@@ -10,6 +10,9 @@ import {
   Pressable,
   Modal,
   Alert,
+  LayoutAnimation,
+  Platform,
+  UIManager,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -24,6 +27,37 @@ import {
   exportTransactionsCSV,
   buildAnalyticsSummaryText,
 } from '../services/exportReport';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+export interface SubcategorySpendingItem {
+  id: string;
+  name: string;
+  amount: number;
+  count: number;
+  percentOfCategory: number;
+  percentOfTotal: number;
+  budgetLimit?: number;
+  budgetRemaining?: number;
+  isOverBudget?: boolean;
+}
+
+export interface CategorySpendingItem {
+  categoryId: string;
+  categoryName: string;
+  color: string;
+  icon: string;
+  amount: number;
+  count: number;
+  percentOfTotal: number;
+  subcategories: SubcategorySpendingItem[];
+  budgetLimit?: number;
+  budgetRemaining?: number;
+  isOverBudget?: boolean;
+  savingsInsight?: string;
+}
 
 export const AnalyticsScreen: React.FC = () => {
   const {
@@ -44,6 +78,7 @@ export const AnalyticsScreen: React.FC = () => {
     analyticsFocus,
     setAnalyticsFocus,
     openCycleModal,
+    categoryBudgetProgressList,
   } = useBudget();
 
   const isDarkMode = settings.theme_mode === 'dark';
@@ -51,6 +86,17 @@ export const AnalyticsScreen: React.FC = () => {
   const [scope, setScope] = useState<'cycle' | 'all'>('cycle');
   const curr = settings.base_currency;
   const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
+
+  // Accordion state for expandable categories
+  const [expandedCategoryIds, setExpandedCategoryIds] = useState<Record<string, boolean>>({});
+
+  const toggleCategoryExpand = (catId: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpandedCategoryIds((prev) => ({
+      ...prev,
+      [catId]: !prev[catId],
+    }));
+  };
 
   // Floating Action Button (FAB) Speed-Dial & Add Transaction Modal states
   const [isFabOpen, setIsFabOpen] = useState(false);
@@ -205,9 +251,20 @@ export const AnalyticsScreen: React.FC = () => {
   const netSavings = totalIncome - totalExpense;
   const savingsRate = totalIncome > 0 ? Math.max(0, Math.round((netSavings / totalIncome) * 100)) : 0;
 
-  // Category spending breakdown (Expense)
-  const categorySpending = useMemo(() => {
-    const map: Record<string, { categoryName: string; color: string; icon: string; amount: number; count: number }> = {};
+  // Category spending breakdown (Expense) with itemized Subcategories & Savings Insights
+  const categorySpending = useMemo<CategorySpendingItem[]>(() => {
+    const map: Record<
+      string,
+      {
+        categoryId: string;
+        categoryName: string;
+        color: string;
+        icon: string;
+        amount: number;
+        count: number;
+        subMap: Record<string, { id: string; name: string; amount: number; count: number }>;
+      }
+    > = {};
 
     activeTransactions
       .filter((t) => t.type === 'expense')
@@ -219,14 +276,229 @@ export const AnalyticsScreen: React.FC = () => {
         const icon = cat ? cat.icon : 'help-circle-outline';
 
         if (!map[catId]) {
-          map[catId] = { categoryName: name, color, icon, amount: 0, count: 0 };
+          map[catId] = {
+            categoryId: catId,
+            categoryName: name,
+            color,
+            icon,
+            amount: 0,
+            count: 0,
+            subMap: {},
+          };
         }
-        map[catId].amount += (t.amount || t.base_amount || 0);
+
+        const amt = t.amount || t.base_amount || 0;
+        map[catId].amount += amt;
         map[catId].count += 1;
+
+        // Subcategory resolution
+        const sub = cat?.subcategories?.find((s) => s.id === t.subcategory_id);
+        const subId = sub ? sub.id : (t.subcategory_id || 'direct');
+        const subName = sub ? sub.name : (t.subcategory_id ? 'Other' : 'General');
+
+        if (!map[catId].subMap[subId]) {
+          map[catId].subMap[subId] = {
+            id: subId,
+            name: subName,
+            amount: 0,
+            count: 0,
+          };
+        }
+        map[catId].subMap[subId].amount += amt;
+        map[catId].subMap[subId].count += 1;
       });
 
-    return Object.values(map).sort((a, b) => b.amount - a.amount);
-  }, [activeTransactions, categories]);
+    return Object.values(map)
+      .map((cat) => {
+        const percentOfTotal = totalExpense > 0 ? Math.round((cat.amount / totalExpense) * 100) : 0;
+        const budgetItem = categoryBudgetProgressList?.find((b) => b.id === cat.categoryId);
+
+        const subcategories: SubcategorySpendingItem[] = Object.values(cat.subMap)
+          .map((sub) => {
+            const percentOfCategory = cat.amount > 0 ? Math.round((sub.amount / cat.amount) * 100) : 0;
+            const percentOfTotalSub = totalExpense > 0 ? Math.round((sub.amount / totalExpense) * 100) : 0;
+            const subBudget = budgetItem?.subBudgets?.find((sb) => sb.id === sub.id);
+
+            return {
+              id: sub.id,
+              name: sub.name,
+              amount: sub.amount,
+              count: sub.count,
+              percentOfCategory,
+              percentOfTotal: percentOfTotalSub,
+              budgetLimit: subBudget?.limit,
+              budgetRemaining: subBudget?.remaining,
+              isOverBudget: subBudget?.isOverBudget,
+            };
+          })
+          .sort((a, b) => b.amount - a.amount);
+
+        // Smart category-level savings insight
+        let savingsInsight: string | undefined;
+
+        // Food & Dining: Groceries vs Restaurant comparison
+        if (cat.categoryName.toLowerCase().includes('food')) {
+          const grocerySpend = subcategories
+            .filter((s) => s.name.toLowerCase().includes('grocer') || s.name.toLowerCase().includes('market'))
+            .reduce((sum, s) => sum + s.amount, 0);
+          const dineSpend = subcategories
+            .filter((s) =>
+              s.name.toLowerCase().includes('restaur') ||
+              s.name.toLowerCase().includes('deliver') ||
+              s.name.toLowerCase().includes('bar') ||
+              s.name.toLowerCase().includes('drink')
+            )
+            .reduce((sum, s) => sum + s.amount, 0);
+
+          if (grocerySpend > 0 && dineSpend > 0) {
+            const groceryPct = Math.round((grocerySpend / (grocerySpend + dineSpend)) * 100);
+            if (groceryPct >= 50) {
+              savingsInsight = `Groceries account for ${groceryPct}% of food expenses. Home cooking saved substantial dining-out markups this cycle!`;
+            } else {
+              savingsInsight = `Dining out & delivery took ${100 - groceryPct}% of food spending. Preparing 2 more meals at home could save ~${formatCurrency(dineSpend * 0.3, curr)}!`;
+            }
+          }
+        }
+
+        // Budget envelope insight
+        if (!savingsInsight && budgetItem && budgetItem.limit > 0) {
+          if (budgetItem.remaining > 0) {
+            savingsInsight = `Saved ${formatCurrency(budgetItem.remaining, curr)} under your ${formatCurrency(budgetItem.limit, curr)} budget cap (${Math.round((budgetItem.remaining / budgetItem.limit) * 100)}% preserved).`;
+          } else if (budgetItem.isOverBudget) {
+            savingsInsight = `Exceeded target budget by ${formatCurrency(Math.abs(budgetItem.remaining), curr)}.`;
+          }
+        }
+
+        return {
+          categoryId: cat.categoryId,
+          categoryName: cat.categoryName,
+          color: cat.color,
+          icon: cat.icon,
+          amount: cat.amount,
+          count: cat.count,
+          percentOfTotal,
+          subcategories,
+          budgetLimit: budgetItem?.limit,
+          budgetRemaining: budgetItem?.remaining,
+          isOverBudget: budgetItem?.isOverBudget,
+          savingsInsight,
+        };
+      })
+      .sort((a, b) => b.amount - a.amount);
+  }, [activeTransactions, categories, totalExpense, categoryBudgetProgressList, curr]);
+
+  // Daily Spending Velocity Sparkline data
+  const dailySpendingVelocity = useMemo(() => {
+    const dailyMap: Record<string, number> = {};
+    activeTransactions
+      .filter((t) => t.type === 'expense')
+      .forEach((t) => {
+        dailyMap[t.date] = (dailyMap[t.date] || 0) + (t.amount || t.base_amount || 0);
+      });
+
+    const allDates = Object.keys(dailyMap).sort();
+    const daysToShow = allDates.slice(-7); // Last 7 active days
+
+    const allowance = dailyAllowanceStats.availableForDay > 0 ? dailyAllowanceStats.availableForDay : 0;
+    const maxDaySpend = Math.max(allowance, ...Object.values(dailyMap), 1);
+
+    const daysList = daysToShow.map((d) => {
+      const amount = dailyMap[d] || 0;
+      const isOver = allowance > 0 && amount > allowance;
+      const dateObj = new Date(d + 'T00:00:00');
+      const dayLabel = !isNaN(dateObj.getTime())
+        ? dateObj.toLocaleDateString(undefined, { weekday: 'narrow' })
+        : d.slice(-2);
+      const dayNum = d.slice(8, 10);
+
+      return {
+        date: d,
+        dayLabel,
+        dayNum,
+        amount,
+        isOver,
+        heightRatio: Math.min(1, Math.max(0.12, amount / maxDaySpend)),
+      };
+    });
+
+    const daysUnderAllowance = daysList.filter((d) => !d.isOver && d.amount > 0).length;
+
+    return {
+      daysList,
+      daysUnderAllowance,
+      totalTrackedDays: daysList.filter((d) => d.amount > 0).length,
+      allowance,
+    };
+  }, [activeTransactions, dailyAllowanceStats.availableForDay]);
+
+  // Behavioral Financial Insights (Peak Day, Essentials vs. Discretionary, Top Savings)
+  const behavioralInsights = useMemo(() => {
+    if (activeTransactions.length === 0 || totalExpense === 0) return null;
+
+    // Peak spend day
+    const dayTotals: Record<string, { amount: number; categories: Record<string, number> }> = {};
+    activeTransactions
+      .filter((t) => t.type === 'expense')
+      .forEach((t) => {
+        if (!dayTotals[t.date]) {
+          dayTotals[t.date] = { amount: 0, categories: {} };
+        }
+        const amt = t.amount || t.base_amount || 0;
+        dayTotals[t.date].amount += amt;
+        const cat = categories.find((c) => c.id === t.category_id)?.name || 'Other';
+        dayTotals[t.date].categories[cat] = (dayTotals[t.date].categories[cat] || 0) + amt;
+      });
+
+    const sortedDays = Object.entries(dayTotals).sort((a, b) => b[1].amount - a[1].amount);
+    const peakDay = sortedDays[0];
+    let peakDayText: string | undefined;
+    if (peakDay) {
+      const dObj = new Date(peakDay[0] + 'T00:00:00');
+      const dayStr = !isNaN(dObj.getTime())
+        ? dObj.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
+        : peakDay[0];
+      const topCat = Object.entries(peakDay[1].categories).sort((a, b) => b[1] - a[1])[0];
+      peakDayText = `${dayStr} (${formatCurrency(peakDay[1].amount, curr)})${topCat ? ` — mostly ${topCat[0]}` : ''}`;
+    }
+
+    // Essentials vs. Discretionary ratio
+    let essentialsSpend = 0;
+    let lifestyleSpend = 0;
+    activeTransactions
+      .filter((t) => t.type === 'expense')
+      .forEach((t) => {
+        const catName = categories.find((c) => c.id === t.category_id)?.name.toLowerCase() || '';
+        const amt = t.amount || t.base_amount || 0;
+        if (
+          catName.includes('food') ||
+          catName.includes('hous') ||
+          catName.includes('bill') ||
+          catName.includes('transport') ||
+          catName.includes('health') ||
+          catName.includes('util')
+        ) {
+          essentialsSpend += amt;
+        } else {
+          lifestyleSpend += amt;
+        }
+      });
+
+    const essentialsPercent = totalExpense > 0 ? Math.round((essentialsSpend / totalExpense) * 100) : 0;
+    const lifestylePercent = 100 - essentialsPercent;
+
+    // Top Savings Area
+    const savingsCandidates = categorySpending
+      .filter((c) => (c.budgetRemaining || 0) > 0)
+      .sort((a, b) => (b.budgetRemaining || 0) - (a.budgetRemaining || 0));
+    const topSavingsItem = savingsCandidates[0];
+
+    return {
+      peakDayText,
+      essentialsPercent,
+      lifestylePercent,
+      topSavingsItem,
+    };
+  }, [activeTransactions, totalExpense, categories, categorySpending, curr]);
 
   // Category income breakdown (Income)
   const categoryIncome = useMemo(() => {
@@ -606,13 +878,201 @@ export const AnalyticsScreen: React.FC = () => {
               </View>
             </View>
 
-            {/* Category Breakdown */}
+            {/* 1B. DAILY SPENDING VELOCITY SPARKLINE CARD */}
+            {dailySpendingVelocity.daysList.length > 0 && (
+              <View style={[styles.velocityCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
+                <View style={styles.velocityHeader}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <MaterialCommunityIcons name="lightning-bolt" size={18} color="#F59E0B" />
+                    <Text style={[styles.cardHeading, { color: theme.onSurface, marginBottom: 0 }]}>
+                      Daily Spending Velocity
+                    </Text>
+                  </View>
+                  <View style={[styles.velocityBadge, { backgroundColor: isDarkMode ? 'rgba(16, 185, 129, 0.2)' : '#D1FAE5' }]}>
+                    <Text style={[styles.velocityBadgeText, { color: '#059669' }]}>
+                      {dailySpendingVelocity.daysUnderAllowance}/{dailySpendingVelocity.totalTrackedDays} days within cap
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Velocity Bars Row */}
+                <View style={styles.velocityChartArea}>
+                  {dailySpendingVelocity.allowance > 0 && (
+                    <View style={[styles.velocityGuideline, { borderColor: isDarkMode ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)' }]}>
+                      <Text style={[styles.velocityGuideText, { color: theme.onSurfaceVariant }]}>
+                        Cap: {formatCurrency(dailySpendingVelocity.allowance, curr)}
+                      </Text>
+                    </View>
+                  )}
+
+                  <View style={styles.velocityBarsRow}>
+                    {dailySpendingVelocity.daysList.map((d, dIdx) => (
+                      <View key={dIdx} style={styles.velocityBarCol}>
+                        <View style={styles.velocityBarTrack}>
+                          <View
+                            style={[
+                              styles.velocityBarFill,
+                              {
+                                height: `${Math.round(d.heightRatio * 100)}%`,
+                                backgroundColor: d.amount === 0 ? (isDarkMode ? '#374151' : '#E2E8F0') : (d.isOver ? theme.error : '#10B981'),
+                              },
+                            ]}
+                          />
+                        </View>
+                        <Text style={[styles.velocityDayLabel, { color: theme.onSurfaceVariant }]}>{d.dayLabel}</Text>
+                        <Text style={[styles.velocityDayNum, { color: d.isOver ? theme.error : theme.onSurface }]}>{d.dayNum}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              </View>
+            )}
+
+            {/* 1C. FINANCIAL CLARITY & INSIGHTS CARD */}
+            {behavioralInsights && (
+              <View style={[styles.insightsCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
+                <View style={styles.insightsHeader}>
+                  <MaterialCommunityIcons name="lightbulb-on-outline" size={18} color="#EAB308" />
+                  <Text style={[styles.insightsTitle, { color: theme.onSurface }]}>Financial Clarity & Insights</Text>
+                </View>
+
+                {/* Ratio: Essentials vs. Lifestyle */}
+                <View style={styles.insightItem}>
+                  <View style={styles.insightItemTop}>
+                    <Text style={[styles.insightItemLabel, { color: theme.onSurfaceVariant }]}>
+                      Essentials vs. Discretionary Spending
+                    </Text>
+                    <Text style={[styles.insightItemValues, { color: theme.onSurface }]}>
+                      {behavioralInsights.essentialsPercent}% Essentials • {behavioralInsights.lifestylePercent}% Lifestyle
+                    </Text>
+                  </View>
+                  <View style={[styles.splitBarTrack, { backgroundColor: isDarkMode ? '#374151' : '#E2E8F0' }]}>
+                    <View
+                      style={[
+                        styles.splitBarFill,
+                        {
+                          width: `${behavioralInsights.essentialsPercent}%`,
+                          backgroundColor: theme.primary,
+                        },
+                      ]}
+                    />
+                    <View
+                      style={[
+                        styles.splitBarFill,
+                        {
+                          width: `${behavioralInsights.lifestylePercent}%`,
+                          backgroundColor: theme.tertiary || '#A855F7',
+                        },
+                      ]}
+                    />
+                  </View>
+                </View>
+
+                {/* Highlights Row */}
+                <View style={styles.insightHighlightsRow}>
+                  {behavioralInsights.peakDayText && (
+                    <View style={[styles.insightChip, { backgroundColor: theme.pillBg }]}>
+                      <MaterialCommunityIcons name="fire" size={16} color="#EF4444" />
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.insightChipSub, { color: theme.onSurfaceVariant }]}>Highest Spend Day</Text>
+                        <Text style={[styles.insightChipMain, { color: theme.onSurface }]} numberOfLines={1}>
+                          {behavioralInsights.peakDayText}
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+
+                  {behavioralInsights.topSavingsItem && (
+                    <View style={[styles.insightChip, { backgroundColor: isDarkMode ? 'rgba(16, 185, 129, 0.15)' : '#DCFCE7' }]}>
+                      <MaterialCommunityIcons name="shield-check" size={16} color="#16A34A" />
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.insightChipSub, { color: '#15803D' }]}>Top Savings Under Budget</Text>
+                        <Text style={[styles.insightChipMain, { color: '#15803D' }]} numberOfLines={1}>
+                          {behavioralInsights.topSavingsItem.categoryName}: {formatCurrency(behavioralInsights.topSavingsItem.budgetRemaining || 0, curr)} saved
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+                </View>
+              </View>
+            )}
+
+            {/* 1D. CATEGORY BREAKDOWN WITH STACKED DISTRIBUTION BAR */}
             <View style={styles.sectionHeader}>
-              <Text style={[styles.sectionTitle, { color: theme.onSurface }]}>Expenses by Category</Text>
-              <Text style={[styles.sectionSubtitle, { color: theme.onSurfaceVariant }]}>
-                {categorySpending.length} categories
+              <View>
+                <Text style={[styles.sectionTitle, { color: theme.onSurface }]}>Expenses by Category</Text>
+                <Text style={[styles.sectionSubtitle, { color: theme.onSurfaceVariant }]}>
+                  Tap any category to inspect subcategories & savings
+                </Text>
+              </View>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: theme.error }}>
+                {formatCurrency(totalExpense, curr)}
               </Text>
             </View>
+
+            {/* Multi-Color Continuous Stacked Distribution Bar */}
+            {totalExpense > 0 && categorySpending.length > 0 && (
+              <View style={styles.distributionSection}>
+                <View style={[styles.distributionBarContainer, { backgroundColor: theme.pillBg }]}>
+                  {categorySpending.map((cat) => {
+                    const pct = totalExpense > 0 ? cat.amount / totalExpense : 0;
+                    return (
+                      <TouchableOpacity
+                        key={cat.categoryId}
+                        style={[
+                          styles.distributionSegment,
+                          {
+                            backgroundColor: cat.color,
+                            flex: Math.max(0.01, pct),
+                          },
+                        ]}
+                        onPress={() => toggleCategoryExpand(cat.categoryId)}
+                        activeOpacity={0.8}
+                      />
+                    );
+                  })}
+                </View>
+
+                {/* Category Pills Legend */}
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.legendScroll}
+                  contentContainerStyle={styles.legendScrollContent}
+                >
+                  {categorySpending.map((cat) => {
+                    const isExpanded = Boolean(expandedCategoryIds[cat.categoryId]);
+                    return (
+                      <TouchableOpacity
+                        key={cat.categoryId}
+                        style={[
+                          styles.legendPill,
+                          {
+                            backgroundColor: isExpanded
+                              ? isDarkMode
+                                ? 'rgba(255,255,255,0.1)'
+                                : theme.pillBg
+                              : theme.cardBg,
+                            borderColor: isExpanded ? cat.color : theme.divider,
+                            borderWidth: isExpanded ? 1.5 : 1,
+                          },
+                        ]}
+                        onPress={() => toggleCategoryExpand(cat.categoryId)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={[styles.legendDot, { backgroundColor: cat.color }]} />
+                        <Text style={[styles.legendName, { color: theme.onSurface }]}>
+                          {cat.categoryName}
+                        </Text>
+                        <Text style={[styles.legendPercent, { color: theme.onSurfaceVariant }]}>
+                          {cat.percentOfTotal}%
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            )}
 
             {categorySpending.length === 0 ? (
               <View style={[styles.emptyBox, { backgroundColor: theme.cardBg, borderColor: theme.divider }]}>
@@ -622,27 +1082,151 @@ export const AnalyticsScreen: React.FC = () => {
                 </Text>
               </View>
             ) : (
-              categorySpending.map((cat, idx) => {
-                const percent = totalExpense > 0 ? Math.round((cat.amount / totalExpense) * 100) : 0;
+              categorySpending.map((cat) => {
+                const isExpanded = Boolean(expandedCategoryIds[cat.categoryId]);
+                const hasSubcategories = cat.subcategories.length > 0;
+
                 return (
-                  <View key={idx} style={[styles.categoryRowCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }]}>
-                    <View style={styles.catRowHeader}>
+                  <View
+                    key={cat.categoryId}
+                    style={[
+                      styles.categoryRowCard,
+                      {
+                        backgroundColor: theme.cardBg,
+                        borderColor: isExpanded ? cat.color : theme.divider,
+                        borderWidth: isExpanded ? 1.5 : 1,
+                      },
+                    ]}
+                  >
+                    <TouchableOpacity
+                      style={styles.catRowHeader}
+                      onPress={() => toggleCategoryExpand(cat.categoryId)}
+                      activeOpacity={0.7}
+                    >
                       <View style={[styles.catIconCircle, { backgroundColor: cat.color }]}>
                         <MaterialCommunityIcons name={cat.icon as any} size={18} color="#FFFFFF" />
                       </View>
                       <View style={styles.catNameWrap}>
-                        <Text style={[styles.catNameText, { color: theme.onSurface }]}>{cat.categoryName}</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={[styles.catNameText, { color: theme.onSurface }]}>{cat.categoryName}</Text>
+                          {hasSubcategories && (
+                            <View style={[styles.subCountBadge, { backgroundColor: theme.pillBg }]}>
+                              <Text style={[styles.subCountBadgeText, { color: theme.onSurfaceVariant }]}>
+                                {cat.subcategories.length} subs
+                              </Text>
+                            </View>
+                          )}
+                        </View>
                         <Text style={[styles.catPercentText, { color: theme.onSurfaceVariant }]}>
-                          {percent}% of expenses ({cat.count} tx)
+                          {cat.percentOfTotal}% of total • {cat.count} tx
                         </Text>
                       </View>
-                      <Text style={[styles.catAmountText, { color: theme.error, fontWeight: '700' }]}>
-                        {formatCurrency(cat.amount, settings.base_currency)}
-                      </Text>
-                    </View>
+                      <View style={{ alignItems: 'flex-end', marginRight: 4 }}>
+                        <Text style={[styles.catAmountText, { color: theme.error, fontWeight: '700' }]}>
+                          {formatCurrency(cat.amount, curr)}
+                        </Text>
+                        {cat.budgetLimit !== undefined && cat.budgetLimit > 0 && (
+                          <Text style={{ fontSize: 10, color: cat.isOverBudget ? theme.error : theme.success, fontWeight: '700' }}>
+                            {cat.isOverBudget ? 'Over Cap' : `Cap: ${formatCurrency(cat.budgetLimit, curr)}`}
+                          </Text>
+                        )}
+                      </View>
+                      <MaterialCommunityIcons
+                        name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                        size={20}
+                        color={theme.onSurfaceVariant}
+                      />
+                    </TouchableOpacity>
+
+                    {/* Main Category Bar */}
                     <View style={[styles.catBarBg, { backgroundColor: theme.pillBg }]}>
-                      <View style={[styles.catBarFill, { width: `${percent}%`, backgroundColor: cat.color }]} />
+                      <View style={[styles.catBarFill, { width: `${cat.percentOfTotal}%`, backgroundColor: cat.color }]} />
                     </View>
+
+                    {/* EXPANDED ACCORDION CONTENT: SUBCATEGORIES BREAKDOWN & HABIT INSIGHTS */}
+                    {isExpanded && (
+                      <View style={[styles.expandedAccordionContent, { borderTopColor: theme.divider }]}>
+                        <Text style={[styles.subSectionHeaderTitle, { color: theme.onSurfaceVariant }]}>
+                          SUBCATEGORY BREAKDOWN
+                        </Text>
+
+                        {cat.subcategories.map((sub) => (
+                          <View key={sub.id} style={styles.subItemRow}>
+                            <View style={styles.subItemHeader}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                                <View style={[styles.subDot, { backgroundColor: cat.color }]} />
+                                <Text style={[styles.subNameText, { color: theme.onSurface }]} numberOfLines={1}>
+                                  {sub.name}
+                                </Text>
+                                <Text style={[styles.subTxCount, { color: theme.onSurfaceVariant }]}>
+                                  ({sub.count} tx)
+                                </Text>
+                              </View>
+                              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
+                                <Text style={[styles.subAmountText, { color: theme.onSurface }]}>
+                                  {formatCurrency(sub.amount, curr)}
+                                </Text>
+                                <Text style={[styles.subPercentText, { color: theme.onSurfaceVariant }]}>
+                                  {sub.percentOfCategory}%
+                                </Text>
+                              </View>
+                            </View>
+
+                            {/* Subcategory micro progress bar */}
+                            <View style={[styles.subBarTrack, { backgroundColor: theme.pillBg }]}>
+                              <View
+                                style={[
+                                  styles.subBarFill,
+                                  {
+                                    width: `${Math.min(100, Math.max(3, sub.percentOfCategory))}%`,
+                                    backgroundColor: cat.color,
+                                  },
+                                ]}
+                              />
+                            </View>
+
+                            {/* Subcategory Budget / Savings Envelope tag */}
+                            {sub.budgetLimit !== undefined && sub.budgetLimit > 0 && (
+                              <View style={styles.subEnvelopeTag}>
+                                <MaterialCommunityIcons
+                                  name={sub.isOverBudget ? 'alert-circle-outline' : 'check-circle-outline'}
+                                  size={12}
+                                  color={sub.isOverBudget ? theme.error : theme.success}
+                                />
+                                <Text
+                                  style={[
+                                    styles.subEnvelopeText,
+                                    { color: sub.isOverBudget ? theme.error : theme.success },
+                                  ]}
+                                >
+                                  {sub.isOverBudget
+                                    ? `${formatCurrency(Math.abs(sub.budgetRemaining || 0), curr)} over envelope`
+                                    : `Saved ${formatCurrency(sub.budgetRemaining || 0, curr)} under envelope`}
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                        ))}
+
+                        {/* Smart Category Savings & Habit Advice Box */}
+                        {cat.savingsInsight && (
+                          <View
+                            style={[
+                              styles.categoryInsightBox,
+                              {
+                                backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : theme.pillBg,
+                                borderColor: cat.color + '55',
+                              },
+                            ]}
+                          >
+                            <MaterialCommunityIcons name="lightbulb-outline" size={16} color={cat.color} />
+                            <Text style={[styles.categoryInsightText, { color: theme.onSurface }]}>
+                              {cat.savingsInsight}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    )}
                   </View>
                 );
               })
@@ -862,10 +1446,35 @@ export const AnalyticsScreen: React.FC = () => {
               </View>
             </View>
 
-            {/* Top Categories Summary */}
+            {/* Top Categories Summary with Distribution Bar */}
             <View style={styles.sectionHeader}>
               <Text style={[styles.sectionTitle, { color: theme.onSurface }]}>Top Expense Categories</Text>
+              <TouchableOpacity onPress={() => setAnalyticsFocus('expense')} activeOpacity={0.7}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: theme.primary }}>See All & Subcategories →</Text>
+              </TouchableOpacity>
             </View>
+
+            {/* Continuous Distribution Bar */}
+            {totalExpense > 0 && categorySpending.length > 0 && (
+              <View style={[styles.distributionBarContainer, { backgroundColor: theme.pillBg, marginBottom: 12 }]}>
+                {categorySpending.map((cat) => {
+                  const pct = totalExpense > 0 ? cat.amount / totalExpense : 0;
+                  return (
+                    <View
+                      key={cat.categoryId}
+                      style={[
+                        styles.distributionSegment,
+                        {
+                          backgroundColor: cat.color,
+                          flex: Math.max(0.01, pct),
+                        },
+                      ]}
+                    />
+                  );
+                })}
+              </View>
+            )}
+
             {categorySpending.slice(0, 4).map((cat, idx) => {
               const percent = totalExpense > 0 ? Math.round((cat.amount / totalExpense) * 100) : 0;
               return (
@@ -1590,5 +2199,272 @@ const styles = StyleSheet.create({
   exportCancelBtnText: {
     fontSize: 13,
     fontWeight: '700',
+  },
+
+  // Velocity Sparkline
+  velocityCard: {
+    borderWidth: 1,
+    borderRadius: M3Shape.extraLarge,
+    padding: 16,
+    marginBottom: 14,
+  },
+  velocityHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  velocityBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: M3Shape.full,
+  },
+  velocityBadgeText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+  },
+  velocityChartArea: {
+    position: 'relative',
+    height: 90,
+    justifyContent: 'flex-end',
+  },
+  velocityGuideline: {
+    position: 'absolute',
+    top: 12,
+    left: 0,
+    right: 0,
+    borderBottomWidth: 1,
+    borderStyle: 'dashed',
+    zIndex: 1,
+  },
+  velocityGuideText: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    alignSelf: 'flex-end',
+    marginBottom: 2,
+  },
+  velocityBarsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'flex-end',
+    height: 75,
+  },
+  velocityBarCol: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  velocityBarTrack: {
+    width: 14,
+    height: 52,
+    justifyContent: 'flex-end',
+    borderRadius: 7,
+    overflow: 'hidden',
+    marginBottom: 4,
+  },
+  velocityBarFill: {
+    width: '100%',
+    borderRadius: 7,
+  },
+  velocityDayLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  velocityDayNum: {
+    fontSize: 9.5,
+    fontWeight: '700',
+  },
+
+  // Financial Clarity Insights Card
+  insightsCard: {
+    borderWidth: 1,
+    borderRadius: M3Shape.extraLarge,
+    padding: 16,
+    marginBottom: 14,
+  },
+  insightsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 12,
+  },
+  insightsTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  insightItem: {
+    marginBottom: 12,
+  },
+  insightItemTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  insightItemLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  insightItemValues: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  splitBarTrack: {
+    flexDirection: 'row',
+    height: 8,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  splitBarFill: {
+    height: '100%',
+  },
+  insightHighlightsRow: {
+    gap: 8,
+  },
+  insightChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: M3Shape.medium,
+  },
+  insightChipSub: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  insightChipMain: {
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 1,
+  },
+
+  // Multi-Color Continuous Distribution Bar & Legend
+  distributionSection: {
+    marginBottom: 14,
+  },
+  distributionBarContainer: {
+    flexDirection: 'row',
+    height: 12,
+    borderRadius: 6,
+    overflow: 'hidden',
+    gap: 1.5,
+  },
+  distributionSegment: {
+    height: '100%',
+  },
+  legendScroll: {
+    marginTop: 10,
+  },
+  legendScrollContent: {
+    gap: 8,
+    paddingVertical: 2,
+  },
+  legendPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: M3Shape.full,
+  },
+  legendDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  legendName: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  legendPercent: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+
+  // Accordion & Subcategories Breakdown
+  subCountBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: M3Shape.full,
+  },
+  subCountBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '700',
+  },
+  expandedAccordionContent: {
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  subSectionHeaderTitle: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    marginBottom: 10,
+  },
+  subListWrap: {
+    gap: 10,
+  },
+  subItemRow: {
+    gap: 4,
+  },
+  subItemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  subDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  subNameText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+  },
+  subTxCount: {
+    fontSize: 10.5,
+  },
+  subAmountText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+  },
+  subPercentText: {
+    fontSize: 11,
+  },
+  subBarTrack: {
+    height: 5,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  subBarFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  subEnvelopeTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+  },
+  subEnvelopeText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  categoryInsightBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 10,
+    borderRadius: M3Shape.medium,
+    borderWidth: 1,
+    marginTop: 12,
+  },
+  categoryInsightText: {
+    fontSize: 11.5,
+    flex: 1,
+    lineHeight: 16,
+    fontWeight: '600',
   },
 });
