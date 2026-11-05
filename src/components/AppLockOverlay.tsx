@@ -8,6 +8,7 @@ import {
   Image,
   Animated,
   Vibration,
+  AppState,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
@@ -28,24 +29,48 @@ export const AppLockOverlay: React.FC = () => {
   const [enteredPin, setEnteredPin] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string>('');
   const shakeAnim = useRef(new Animated.Value(0)).current;
+  const isPromptingRef = useRef(false);
 
-  // Auto trigger biometric unlock on mount / lock
-  useEffect(() => {
-    if (isAppLocked) {
-      setEnteredPin('');
-      setErrorMsg('');
-      if (settings.biometrics_enabled) {
-        triggerBiometricAuth();
+  const triggerBiometricAuth = async () => {
+    // Never prompt if the app is going into background or not currently active
+    if (AppState.currentState !== 'active') return;
+    if (isPromptingRef.current) return;
+    isPromptingRef.current = true;
+    try {
+      const success = await authenticateBiometrics();
+      if (success) {
+        unlockApp();
       }
+    } finally {
+      isPromptingRef.current = false;
+    }
+  };
+
+  // Reset inputs and auto-trigger ONLY when app is locked AND active in foreground
+  useEffect(() => {
+    setEnteredPin('');
+    setErrorMsg('');
+    if (isAppLocked && settings.biometrics_enabled && AppState.currentState === 'active') {
+      triggerBiometricAuth();
     }
   }, [isAppLocked, settings.biometrics_enabled]);
 
-  const triggerBiometricAuth = async () => {
-    const success = await authenticateBiometrics();
-    if (success) {
-      unlockApp();
-    }
-  };
+  // When returning from background/minimized to foreground active, prompt for biometric unlock
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active' && isAppLocked && settings.biometrics_enabled) {
+        setTimeout(() => {
+          if (AppState.currentState === 'active' && !isPromptingRef.current) {
+            triggerBiometricAuth();
+          }
+        }, 150);
+      }
+    });
+
+    return () => {
+      sub.remove();
+    };
+  }, [isAppLocked, settings.biometrics_enabled]);
 
   const triggerShake = () => {
     Vibration.vibrate(100);
