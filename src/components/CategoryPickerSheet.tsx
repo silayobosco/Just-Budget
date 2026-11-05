@@ -8,7 +8,9 @@ import {
   ScrollView,
   Dimensions,
   TextInput,
+  Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Category, Subcategory, Wallet, TransactionType } from '../types';
 import { formatCurrency } from '../utils/format';
@@ -57,6 +59,7 @@ export const CategoryPickerSheet: React.FC<CategoryPickerSheetProps> = ({
   confirmButtonText,
   useNativeModal = true,
 }) => {
+  const insets = useSafeAreaInsets();
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>(initialCategoryId || '');
   const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<string>(initialSubcategoryId || '');
   const [quickSubModalVisible, setQuickSubModalVisible] = useState(false);
@@ -121,7 +124,11 @@ export const CategoryPickerSheet: React.FC<CategoryPickerSheetProps> = ({
       <View
         style={[
           styles.sheetContainer,
-          { backgroundColor: theme.surface },
+          {
+            backgroundColor: theme.surface,
+            paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 16) + 16,
+            maxHeight: SCREEN_HEIGHT * 0.85,
+          },
           M3Elevation.level3,
         ]}
       >
@@ -445,9 +452,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: M3Shape.extraLarge,
     borderTopRightRadius: M3Shape.extraLarge,
     paddingTop: 8,
-    paddingBottom: 24,
     paddingHorizontal: 16,
-    maxHeight: SCREEN_HEIGHT * 0.75,
   },
   dragHandleRow: {
     alignItems: 'center',

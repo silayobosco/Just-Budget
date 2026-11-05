@@ -8,7 +8,9 @@ import {
   ScrollView,
   TextInput,
   Alert,
+  Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
@@ -21,6 +23,7 @@ interface CategoryManagerModalProps {
 }
 
 export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visible, onClose }) => {
+  const insets = useSafeAreaInsets();
   const {
     categories,
     addCategory,
@@ -375,7 +378,15 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <View style={[styles.sheet, { backgroundColor: theme.surface }]}>
+        <View
+          style={[
+            styles.sheet,
+            {
+              backgroundColor: theme.surface,
+              paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 16) + 12,
+            },
+          ]}
+        >
           {/* Header */}
           <View style={styles.header}>
             <View style={{ flex: 1 }}>

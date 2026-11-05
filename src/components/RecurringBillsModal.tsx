@@ -9,7 +9,9 @@ import {
   TextInput,
   Alert,
   Switch,
+  Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
@@ -33,6 +35,7 @@ interface RecurringBillsModalProps {
 }
 
 export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({ visible, onClose }) => {
+  const insets = useSafeAreaInsets();
   const {
     recurringBills,
     addRecurringBill,
@@ -207,7 +210,15 @@ export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({ visibl
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <View style={[styles.sheet, { backgroundColor: theme.surface }]}>
+        <View
+          style={[
+            styles.sheet,
+            {
+              backgroundColor: theme.surface,
+              paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 16) + 12,
+            },
+          ]}
+        >
           {/* Header */}
           <View style={styles.header}>
             <View>

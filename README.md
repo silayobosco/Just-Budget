@@ -170,6 +170,15 @@ just-budget/
 
 ---
 
+## 💬 Contact & Suggestions
+
+Have questions, suggestions, or feedback? Reach out directly:
+
+- **WhatsApp**: [+255 616 003 937](https://wa.me/255616003937)
+- **Email**: [juniorboss031@gmail.com](mailto:juniorboss031@gmail.com)
+
+---
+
 ## 🛡️ License
 
 Private / Proprietary. Built with ❤️ for financial freedom.

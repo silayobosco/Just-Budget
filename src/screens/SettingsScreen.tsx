@@ -70,7 +70,7 @@ const FAQ_ITEMS = [
   },
   {
     q: 'How do I report a bug or request a feature?',
-    a: 'Tap "Report a Problem or Suggestion" in Settings or email juniorboss031@gmail.com directly. We value all feedback and implement user ideas regularly!',
+    a: 'Chat with us directly on WhatsApp at +255 616 003 937 or email juniorboss031@gmail.com. We value all feedback and implement user ideas regularly!',
   },
 ];
 
@@ -176,6 +176,37 @@ export const SettingsScreen: React.FC = () => {
         `Email address copied to clipboard:\n\n${email}`,
         [{ text: 'OK' }]
       );
+    }
+  };
+
+  const WHATSAPP_DISPLAY = '+255 616 003 937';
+  const WHATSAPP_RAW = '255616003937';
+
+  const handleOpenWhatsApp = async () => {
+    const text = encodeURIComponent(
+      `Hi! I'm using Just Budget and have a question or suggestion:\n\n`
+    );
+    const appUrl = `whatsapp://send?phone=${WHATSAPP_RAW}&text=${text}`;
+    const webUrl = `https://wa.me/${WHATSAPP_RAW}?text=${text}`;
+
+    try {
+      const canOpen = await Linking.canOpenURL(appUrl);
+      if (canOpen) {
+        await Linking.openURL(appUrl);
+      } else {
+        await Linking.openURL(webUrl);
+      }
+    } catch {
+      try {
+        await Linking.openURL(webUrl);
+      } catch {
+        await Clipboard.setStringAsync(WHATSAPP_DISPLAY);
+        Alert.alert(
+          'WhatsApp Contact',
+          `WhatsApp number copied to clipboard:\n\n${WHATSAPP_DISPLAY}\n\nYou can chat with the developer directly on WhatsApp!`,
+          [{ text: 'OK' }]
+        );
+      }
     }
   };
 
@@ -600,6 +631,26 @@ export const SettingsScreen: React.FC = () => {
 
           <View style={[styles.itemDivider, { backgroundColor: theme.divider }]} />
 
+          {/* WhatsApp Contacts & Suggestions */}
+          <TouchableOpacity
+            style={styles.listItemRow}
+            onPress={handleOpenWhatsApp}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.itemIconCircle, { backgroundColor: '#DCFCE7' }]}>
+              <MaterialCommunityIcons name="whatsapp" size={22} color="#16A34A" />
+            </View>
+            <View style={styles.itemTextWrap}>
+              <Text style={[styles.itemTitle, { color: theme.onSurface }]}>WhatsApp Contacts & Suggestions</Text>
+              <Text style={[styles.itemSubtitle, { color: theme.onSurfaceVariant }]}>
+                {WHATSAPP_DISPLAY} • Chat directly on WhatsApp
+              </Text>
+            </View>
+            <MaterialCommunityIcons name="open-in-new" size={18} color="#16A34A" />
+          </TouchableOpacity>
+
+          <View style={[styles.itemDivider, { backgroundColor: theme.divider }]} />
+
           {/* Contact & Report Problem / Suggestion */}
           <TouchableOpacity
             style={styles.listItemRow}
@@ -610,9 +661,9 @@ export const SettingsScreen: React.FC = () => {
               <MaterialCommunityIcons name="email-fast-outline" size={20} color="#DC2626" />
             </View>
             <View style={styles.itemTextWrap}>
-              <Text style={[styles.itemTitle, { color: theme.onSurface }]}>Report a Problem or Suggestion</Text>
+              <Text style={[styles.itemTitle, { color: theme.onSurface }]}>Email Support & Feedback</Text>
               <Text style={[styles.itemSubtitle, { color: theme.onSurfaceVariant }]}>
-                Contact juniorboss031@gmail.com directly
+                juniorboss031@gmail.com
               </Text>
             </View>
             <MaterialCommunityIcons name="send-outline" size={18} color={theme.primary} />
@@ -641,6 +692,24 @@ export const SettingsScreen: React.FC = () => {
 
           <View style={[styles.itemDivider, { backgroundColor: theme.divider }]} />
 
+          {/* WhatsApp Direct */}
+          <TouchableOpacity
+            style={styles.developerRow}
+            onPress={handleOpenWhatsApp}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.itemIconCircle, { backgroundColor: '#DCFCE7' }]}>
+              <MaterialCommunityIcons name="whatsapp" size={18} color="#16A34A" />
+            </View>
+            <View style={styles.itemTextWrap}>
+              <Text style={[styles.itemTitle, { color: theme.onSurface, fontSize: 13 }]}>WhatsApp Contact</Text>
+              <Text style={[styles.developerEmail, { color: '#16A34A' }]}>{WHATSAPP_DISPLAY}</Text>
+            </View>
+            <MaterialCommunityIcons name="chat-outline" size={16} color={theme.onSurfaceVariant} />
+          </TouchableOpacity>
+
+          <View style={[styles.itemDivider, { backgroundColor: theme.divider }]} />
+
           <TouchableOpacity
             style={styles.developerRow}
             onPress={handleContactSupport}
@@ -650,7 +719,7 @@ export const SettingsScreen: React.FC = () => {
               <MaterialCommunityIcons name="email-check-outline" size={18} color={theme.primary} />
             </View>
             <View style={styles.itemTextWrap}>
-              <Text style={[styles.itemTitle, { color: theme.onSurface, fontSize: 13 }]}>Developer Contact</Text>
+              <Text style={[styles.itemTitle, { color: theme.onSurface, fontSize: 13 }]}>Developer Email</Text>
               <Text style={[styles.developerEmail, { color: theme.primary }]}>juniorboss031@gmail.com</Text>
             </View>
             <MaterialCommunityIcons name="content-copy" size={16} color={theme.onSurfaceVariant} />
@@ -803,19 +872,35 @@ export const SettingsScreen: React.FC = () => {
               })}
 
               {/* Still have questions / contact footer */}
-              <TouchableOpacity
-                style={[styles.faqContactBtn, { backgroundColor: theme.primaryContainer }]}
-                onPress={() => {
-                  setFaqsModalVisible(false);
-                  setTimeout(handleContactSupport, 200);
-                }}
-                activeOpacity={0.8}
-              >
-                <MaterialCommunityIcons name="email-fast-outline" size={20} color={theme.onPrimaryContainer} />
-                <Text style={[styles.faqContactBtnText, { color: theme.onPrimaryContainer }]}>
-                  Still have questions? Email juniorboss031@gmail.com
-                </Text>
-              </TouchableOpacity>
+              <View style={{ gap: 8, marginTop: 4 }}>
+                <TouchableOpacity
+                  style={[styles.faqContactBtn, { backgroundColor: '#DCFCE7' }]}
+                  onPress={() => {
+                    setFaqsModalVisible(false);
+                    setTimeout(handleOpenWhatsApp, 200);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <MaterialCommunityIcons name="whatsapp" size={20} color="#16A34A" />
+                  <Text style={[styles.faqContactBtnText, { color: '#15803D', fontWeight: '800' }]}>
+                    WhatsApp Developer ({WHATSAPP_DISPLAY})
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.faqContactBtn, { backgroundColor: theme.pillBg }]}
+                  onPress={() => {
+                    setFaqsModalVisible(false);
+                    setTimeout(handleContactSupport, 200);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <MaterialCommunityIcons name="email-outline" size={20} color={theme.onSurface} />
+                  <Text style={[styles.faqContactBtnText, { color: theme.onSurface }]}>
+                    Email juniorboss031@gmail.com
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </ScrollView>
           </View>
         </View>
