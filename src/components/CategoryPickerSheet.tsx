@@ -126,7 +126,7 @@ export const CategoryPickerSheet: React.FC<CategoryPickerSheetProps> = ({
           styles.sheetContainer,
           {
             backgroundColor: theme.surface,
-            paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 16) + 16,
+            paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 48 : 20) + 16,
             maxHeight: SCREEN_HEIGHT * 0.85,
           },
           M3Elevation.level3,

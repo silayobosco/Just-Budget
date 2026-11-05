@@ -14,6 +14,15 @@ import {
   Platform,
   UIManager,
 } from 'react-native';
+import Svg, {
+  Path,
+  Circle,
+  G,
+  Defs,
+  LinearGradient,
+  Stop,
+  Rect,
+} from 'react-native-svg';
 import * as Clipboard from 'expo-clipboard';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
@@ -31,6 +40,166 @@ import {
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
+
+export const GradientProgressBar: React.FC<{
+  percent: number;
+  color: string;
+  height?: number;
+  borderRadius?: number;
+  trackColor?: string;
+}> = ({
+  percent,
+  color,
+  height = 6,
+  borderRadius = 3,
+  trackColor = 'rgba(0,0,0,0.06)',
+}) => {
+  const widthPct = Math.min(100, Math.max(2, percent));
+  const gradId = `grad-${color.replace(/[^a-zA-Z0-9]/g, '')}-${height}`;
+
+  return (
+    <View
+      style={{
+        height,
+        borderRadius,
+        overflow: 'hidden',
+        backgroundColor: trackColor,
+        width: '100%',
+      }}
+    >
+      <View style={{ width: `${widthPct}%`, height: '100%', borderRadius, overflow: 'hidden' }}>
+        <Svg width="100%" height={height}>
+          <Defs>
+            <LinearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="0%">
+              <Stop offset="0%" stopColor={color} stopOpacity={0.65} />
+              <Stop offset="100%" stopColor={color} stopOpacity={1} />
+            </LinearGradient>
+          </Defs>
+          <Rect x="0" y="0" width="100%" height={height} fill={`url(#${gradId})`} />
+        </Svg>
+      </View>
+    </View>
+  );
+};
+
+export interface DonutSlice {
+  name: string;
+  amount: number;
+  color: string;
+  percent: number;
+}
+
+export const DonutPieChart: React.FC<{
+  slices: DonutSlice[];
+  total: number;
+  centerTitle: string;
+  centerSubtitle: string;
+  size?: number;
+  strokeWidth?: number;
+  theme: any;
+}> = ({
+  slices,
+  total,
+  centerTitle,
+  centerSubtitle,
+  size = 155,
+  strokeWidth = 20,
+  theme,
+}) => {
+  const radius = size / 2;
+  const innerRadius = radius - strokeWidth;
+  const center = radius;
+
+  if (total <= 0 || slices.length === 0) {
+    return (
+      <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+        <Svg width={size} height={size}>
+          <Circle
+            cx={center}
+            cy={center}
+            r={radius - strokeWidth / 2}
+            stroke={theme.divider}
+            strokeWidth={strokeWidth}
+            fill="none"
+          />
+        </Svg>
+        <View pointerEvents="none" style={[styles.pieCenterLabel, { width: innerRadius * 1.8, height: innerRadius * 1.8 }]}>
+          <Text style={[styles.pieCenterSub, { color: theme.onSurfaceVariant }]}>No Data</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (slices.length === 1 || slices[0].percent >= 99) {
+    const s = slices[0];
+    return (
+      <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+        <Svg width={size} height={size}>
+          <Circle
+            cx={center}
+            cy={center}
+            r={radius - strokeWidth / 2}
+            stroke={s.color}
+            strokeWidth={strokeWidth}
+            fill="none"
+          />
+        </Svg>
+        <View pointerEvents="none" style={[styles.pieCenterLabel, { width: innerRadius * 1.8, height: innerRadius * 1.8 }]}>
+          <Text style={[styles.pieCenterSub, { color: theme.onSurfaceVariant }]}>{centerSubtitle}</Text>
+          <Text style={[styles.pieCenterMain, { color: theme.onSurface }]} numberOfLines={1}>
+            {centerTitle}
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  let cumulativeAngle = -Math.PI / 2;
+
+  const paths = slices.map((slice, idx) => {
+    const sliceAngle = (slice.amount / total) * (2 * Math.PI);
+    const startAngle = cumulativeAngle;
+    const endAngle = cumulativeAngle + sliceAngle;
+    cumulativeAngle = endAngle;
+
+    const x1 = center + radius * Math.cos(startAngle);
+    const y1 = center + radius * Math.sin(startAngle);
+    const x2 = center + radius * Math.cos(endAngle);
+    const y2 = center + radius * Math.sin(endAngle);
+
+    const x3 = center + innerRadius * Math.cos(endAngle);
+    const y3 = center + innerRadius * Math.sin(endAngle);
+    const x4 = center + innerRadius * Math.cos(startAngle);
+    const y4 = center + innerRadius * Math.sin(startAngle);
+
+    const largeArc = sliceAngle > Math.PI ? 1 : 0;
+    const pathData = `M ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2} L ${x3} ${y3} A ${innerRadius} ${innerRadius} 0 ${largeArc} 0 ${x4} ${y4} Z`;
+
+    return (
+      <Path
+        key={idx}
+        d={pathData}
+        fill={slice.color}
+        stroke={theme.cardBg}
+        strokeWidth={1.5}
+      />
+    );
+  });
+
+  return (
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+      <Svg width={size} height={size}>
+        <G>{paths}</G>
+      </Svg>
+      <View pointerEvents="none" style={[styles.pieCenterLabel, { width: innerRadius * 1.8, height: innerRadius * 1.8 }]}>
+        <Text style={[styles.pieCenterSub, { color: theme.onSurfaceVariant }]}>{centerSubtitle}</Text>
+        <Text style={[styles.pieCenterMain, { color: theme.onSurface }]} numberOfLines={1}>
+          {centerTitle}
+        </Text>
+      </View>
+    </View>
+  );
+};
 
 export interface SubcategorySpendingItem {
   id: string;
@@ -89,6 +258,9 @@ export const AnalyticsScreen: React.FC = () => {
 
   // Accordion state for expandable categories
   const [expandedCategoryIds, setExpandedCategoryIds] = useState<Record<string, boolean>>({});
+
+  // Cash Flow Donut Pie flow selector ('expense' | 'income')
+  const [cashFlowPieType, setCashFlowPieType] = useState<'expense' | 'income'>('expense');
 
   const toggleCategoryExpand = (catId: string) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -522,6 +694,25 @@ export const AnalyticsScreen: React.FC = () => {
 
     return Object.values(map).sort((a, b) => b.amount - a.amount);
   }, [activeTransactions, categories]);
+
+  // Donut Pie chart slices for cash flow
+  const expensePieSlices = useMemo<DonutSlice[]>(() => {
+    return categorySpending.map((c) => ({
+      name: c.categoryName,
+      amount: c.amount,
+      color: c.color,
+      percent: c.percentOfTotal,
+    }));
+  }, [categorySpending]);
+
+  const incomePieSlices = useMemo<DonutSlice[]>(() => {
+    return categoryIncome.map((c) => ({
+      name: c.categoryName,
+      amount: c.amount,
+      color: c.color,
+      percent: totalIncome > 0 ? Math.round((c.amount / totalIncome) * 100) : 0,
+    }));
+  }, [categoryIncome, totalIncome]);
 
   // Daily average spending calculation
   const dailyAverageSpend = useMemo(() => {
@@ -1053,8 +1244,8 @@ export const AnalyticsScreen: React.FC = () => {
                                 ? 'rgba(255,255,255,0.1)'
                                 : theme.pillBg
                               : theme.cardBg,
-                            borderColor: isExpanded ? cat.color : theme.divider,
-                            borderWidth: isExpanded ? 1.5 : 1,
+                            borderColor: theme.divider,
+                            borderWidth: 1,
                           },
                         ]}
                         onPress={() => toggleCategoryExpand(cat.categoryId)}
@@ -1093,8 +1284,8 @@ export const AnalyticsScreen: React.FC = () => {
                       styles.categoryRowCard,
                       {
                         backgroundColor: theme.cardBg,
-                        borderColor: isExpanded ? cat.color : theme.divider,
-                        borderWidth: isExpanded ? 1.5 : 1,
+                        borderColor: theme.divider,
+                        borderWidth: 1,
                       },
                     ]}
                   >
@@ -1138,9 +1329,15 @@ export const AnalyticsScreen: React.FC = () => {
                       />
                     </TouchableOpacity>
 
-                    {/* Main Category Bar */}
-                    <View style={[styles.catBarBg, { backgroundColor: theme.pillBg }]}>
-                      <View style={[styles.catBarFill, { width: `${cat.percentOfTotal}%`, backgroundColor: cat.color }]} />
+                    {/* Main Category Gradient Bar */}
+                    <View style={styles.catBarWrap}>
+                      <GradientProgressBar
+                        percent={cat.percentOfTotal}
+                        color={cat.color}
+                        height={7}
+                        borderRadius={3.5}
+                        trackColor={theme.pillBg}
+                      />
                     </View>
 
                     {/* EXPANDED ACCORDION CONTENT: SUBCATEGORIES BREAKDOWN & HABIT INSIGHTS */}
@@ -1172,16 +1369,14 @@ export const AnalyticsScreen: React.FC = () => {
                               </View>
                             </View>
 
-                            {/* Subcategory micro progress bar */}
-                            <View style={[styles.subBarTrack, { backgroundColor: theme.pillBg }]}>
-                              <View
-                                style={[
-                                  styles.subBarFill,
-                                  {
-                                    width: `${Math.min(100, Math.max(3, sub.percentOfCategory))}%`,
-                                    backgroundColor: cat.color,
-                                  },
-                                ]}
+                            {/* Subcategory micro progress bar with Gradient */}
+                            <View style={styles.subBarWrap}>
+                              <GradientProgressBar
+                                percent={sub.percentOfCategory}
+                                color={cat.color}
+                                height={5}
+                                borderRadius={2.5}
+                                trackColor={theme.pillBg}
                               />
                             </View>
 
@@ -1357,8 +1552,14 @@ export const AnalyticsScreen: React.FC = () => {
                         {formatCurrency(cat.amount, settings.base_currency)}
                       </Text>
                     </View>
-                    <View style={[styles.catBarBg, { backgroundColor: theme.pillBg }]}>
-                      <View style={[styles.catBarFill, { width: `${percent}%`, backgroundColor: cat.color }]} />
+                    <View style={styles.catBarWrap}>
+                      <GradientProgressBar
+                        percent={percent}
+                        color={cat.color}
+                        height={7}
+                        borderRadius={3.5}
+                        trackColor={theme.pillBg}
+                      />
                     </View>
                   </View>
                 );
@@ -1370,34 +1571,100 @@ export const AnalyticsScreen: React.FC = () => {
         {/* 3. CASH FLOW OVERVIEW VIEW */}
         {analyticsFocus === 'overview' && (
           <View style={styles.focusContainer}>
-            {/* CASH FLOW COMPARISON HERO (INCOME VS EXPENSE) */}
+            {/* CASH FLOW COMPARISON HERO WITH INTERACTIVE DONUT PIE CHART */}
             <View style={[styles.cashflowCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
-              <Text style={[styles.cardHeading, { color: theme.onSurface }]}>Income & Expenses Dashboard</Text>
-
               <View style={styles.cashflowRow}>
-                {/* Income Col */}
-                <View style={styles.cashflowCol}>
+                {/* Income Col (Touchable to switch Pie to Income) */}
+                <TouchableOpacity
+                  style={[
+                    styles.cashflowCol,
+                    styles.cashflowTouchableCol,
+                    cashFlowPieType === 'income' && {
+                      backgroundColor: isDarkMode ? 'rgba(16, 185, 129, 0.14)' : 'rgba(16, 185, 129, 0.08)',
+                      borderColor: theme.success,
+                    },
+                  ]}
+                  onPress={() => setCashFlowPieType('income')}
+                  activeOpacity={0.7}
+                >
                   <View style={[styles.flowIcon, { backgroundColor: theme.successContainer }]}>
                     <MaterialCommunityIcons name="arrow-bottom-left" size={20} color={theme.success} />
                   </View>
-                  <Text style={[styles.flowLabel, { color: theme.onSurfaceVariant }]}>Total Income</Text>
+                  <View style={styles.flowLabelRow}>
+                    <Text style={[styles.flowLabel, { color: theme.onSurfaceVariant }]}>Total Income</Text>
+                    {cashFlowPieType === 'income' && (
+                      <View style={[styles.activePiePill, { backgroundColor: theme.success }]}>
+                        <Text style={styles.activePiePillText}>Pie</Text>
+                      </View>
+                    )}
+                  </View>
                   <Text style={[styles.flowAmount, { color: theme.success }]}>
                     {formatCurrency(totalIncome, settings.base_currency)}
                   </Text>
-                </View>
+                </TouchableOpacity>
 
                 <View style={[styles.flowDivider, { backgroundColor: theme.divider }]} />
 
-                {/* Expense Col */}
-                <View style={styles.cashflowCol}>
+                {/* Expense Col (Touchable to switch Pie to Expense) */}
+                <TouchableOpacity
+                  style={[
+                    styles.cashflowCol,
+                    styles.cashflowTouchableCol,
+                    cashFlowPieType === 'expense' && {
+                      backgroundColor: isDarkMode ? 'rgba(239, 68, 68, 0.14)' : 'rgba(239, 68, 68, 0.08)',
+                      borderColor: theme.error,
+                    },
+                  ]}
+                  onPress={() => setCashFlowPieType('expense')}
+                  activeOpacity={0.7}
+                >
                   <View style={[styles.flowIcon, { backgroundColor: theme.errorContainer }]}>
                     <MaterialCommunityIcons name="arrow-top-right" size={20} color={theme.error} />
                   </View>
-                  <Text style={[styles.flowLabel, { color: theme.onSurfaceVariant }]}>Total Expenses</Text>
+                  <View style={styles.flowLabelRow}>
+                    <Text style={[styles.flowLabel, { color: theme.onSurfaceVariant }]}>Total Expenses</Text>
+                    {cashFlowPieType === 'expense' && (
+                      <View style={[styles.activePiePill, { backgroundColor: theme.error }]}>
+                        <Text style={styles.activePiePillText}>Pie</Text>
+                      </View>
+                    )}
+                  </View>
                   <Text style={[styles.flowAmount, { color: theme.error }]}>
                     {formatCurrency(totalExpense, settings.base_currency)}
                   </Text>
-                </View>
+                </TouchableOpacity>
+              </View>
+
+              {/* Dynamic Donut Pie Chart */}
+              <View style={styles.pieContainer}>
+                <DonutPieChart
+                  slices={cashFlowPieType === 'expense' ? expensePieSlices : incomePieSlices}
+                  total={cashFlowPieType === 'expense' ? totalExpense : totalIncome}
+                  centerTitle={formatCurrency(
+                    cashFlowPieType === 'expense' ? totalExpense : totalIncome,
+                    settings.base_currency
+                  )}
+                  centerSubtitle={cashFlowPieType === 'expense' ? 'Expenses' : 'Income'}
+                  size={155}
+                  strokeWidth={20}
+                  theme={theme}
+                />
+
+                {/* Pie Chart Legend Dots */}
+                {(cashFlowPieType === 'expense' ? expensePieSlices : incomePieSlices).length > 0 && (
+                  <View style={styles.pieLegendRow}>
+                    {(cashFlowPieType === 'expense' ? expensePieSlices : incomePieSlices)
+                      .slice(0, 4)
+                      .map((slice, i) => (
+                        <View key={i} style={styles.pieLegendItem}>
+                          <View style={[styles.pieLegendDot, { backgroundColor: slice.color }]} />
+                          <Text style={[styles.pieLegendText, { color: theme.onSurface }]} numberOfLines={1}>
+                            {slice.name} <Text style={{ color: theme.onSurfaceVariant, fontWeight: '700' }}>{slice.percent}%</Text>
+                          </Text>
+                        </View>
+                      ))}
+                  </View>
+                )}
               </View>
 
               {/* Net Balance / Savings Ratio Bar */}
@@ -1475,25 +1742,162 @@ export const AnalyticsScreen: React.FC = () => {
               </View>
             )}
 
-            {categorySpending.slice(0, 4).map((cat, idx) => {
-              const percent = totalExpense > 0 ? Math.round((cat.amount / totalExpense) * 100) : 0;
+            {/* Expandable Top Expense Categories with Subcategories & Gradient Bars */}
+            {categorySpending.slice(0, 4).map((cat) => {
+              const isExpanded = Boolean(expandedCategoryIds[cat.categoryId]);
+              const hasSubcategories = cat.subcategories.length > 0;
+
               return (
-                <View key={idx} style={[styles.categoryRowCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }]}>
-                  <View style={styles.catRowHeader}>
+                <View
+                  key={cat.categoryId}
+                  style={[
+                    styles.categoryRowCard,
+                    {
+                      backgroundColor: theme.cardBg,
+                      borderColor: theme.divider,
+                      borderWidth: 1,
+                    },
+                  ]}
+                >
+                  <TouchableOpacity
+                    style={styles.catRowHeader}
+                    onPress={() => toggleCategoryExpand(cat.categoryId)}
+                    activeOpacity={0.7}
+                  >
                     <View style={[styles.catIconCircle, { backgroundColor: cat.color }]}>
                       <MaterialCommunityIcons name={cat.icon as any} size={18} color="#FFFFFF" />
                     </View>
                     <View style={styles.catNameWrap}>
-                      <Text style={[styles.catNameText, { color: theme.onSurface }]}>{cat.categoryName}</Text>
-                      <Text style={[styles.catPercentText, { color: theme.onSurfaceVariant }]}>{percent}% of total</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={[styles.catNameText, { color: theme.onSurface }]}>{cat.categoryName}</Text>
+                        {hasSubcategories && (
+                          <View style={[styles.subCountBadge, { backgroundColor: theme.pillBg }]}>
+                            <Text style={[styles.subCountBadgeText, { color: theme.onSurfaceVariant }]}>
+                              {cat.subcategories.length} subs
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={[styles.catPercentText, { color: theme.onSurfaceVariant }]}>
+                        {cat.percentOfTotal}% of total • {cat.count} tx
+                      </Text>
                     </View>
-                    <Text style={[styles.catAmountText, { color: theme.onSurface }]}>
-                      {formatCurrency(cat.amount, settings.base_currency)}
-                    </Text>
+                    <View style={{ alignItems: 'flex-end', marginRight: 4 }}>
+                      <Text style={[styles.catAmountText, { color: theme.onSurface, fontWeight: '700' }]}>
+                        {formatCurrency(cat.amount, curr)}
+                      </Text>
+                      {cat.budgetLimit !== undefined && cat.budgetLimit > 0 && (
+                        <Text
+                          style={{
+                            fontSize: 10,
+                            color: cat.isOverBudget ? theme.error : theme.success,
+                            fontWeight: '700',
+                          }}
+                        >
+                          {cat.isOverBudget ? 'Over Cap' : `Cap: ${formatCurrency(cat.budgetLimit, curr)}`}
+                        </Text>
+                      )}
+                    </View>
+                    <MaterialCommunityIcons
+                      name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                      size={20}
+                      color={theme.onSurfaceVariant}
+                    />
+                  </TouchableOpacity>
+
+                  {/* Main Category Gradient Bar */}
+                  <View style={styles.catBarWrap}>
+                    <GradientProgressBar
+                      percent={cat.percentOfTotal}
+                      color={cat.color}
+                      height={6}
+                      borderRadius={3}
+                      trackColor={theme.pillBg}
+                    />
                   </View>
-                  <View style={[styles.catBarBg, { backgroundColor: theme.pillBg }]}>
-                    <View style={[styles.catBarFill, { width: `${percent}%`, backgroundColor: cat.color }]} />
-                  </View>
+
+                  {/* EXPANDED ACCORDION: SUBCATEGORIES BREAKDOWN */}
+                  {isExpanded && (
+                    <View style={[styles.expandedAccordionContent, { borderTopColor: theme.divider }]}>
+                      <Text style={[styles.subSectionHeaderTitle, { color: theme.onSurfaceVariant }]}>
+                        SUBCATEGORY BREAKDOWN
+                      </Text>
+
+                      {cat.subcategories.map((sub) => (
+                        <View key={sub.id} style={styles.subItemRow}>
+                          <View style={styles.subItemHeader}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                              <View style={[styles.subDot, { backgroundColor: cat.color }]} />
+                              <Text style={[styles.subNameText, { color: theme.onSurface }]} numberOfLines={1}>
+                                {sub.name}
+                              </Text>
+                              <Text style={[styles.subTxCount, { color: theme.onSurfaceVariant }]}>
+                                ({sub.count} tx)
+                              </Text>
+                            </View>
+                            <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
+                              <Text style={[styles.subAmountText, { color: theme.onSurface }]}>
+                                {formatCurrency(sub.amount, curr)}
+                              </Text>
+                              <Text style={[styles.subPercentText, { color: theme.onSurfaceVariant }]}>
+                                {sub.percentOfCategory}%
+                              </Text>
+                            </View>
+                          </View>
+
+                          {/* Subcategory micro gradient progress bar */}
+                          <View style={styles.subBarWrap}>
+                            <GradientProgressBar
+                              percent={sub.percentOfCategory}
+                              color={cat.color}
+                              height={4}
+                              borderRadius={2}
+                              trackColor={theme.pillBg}
+                            />
+                          </View>
+
+                          {/* Subcategory Budget Envelope tag */}
+                          {sub.budgetLimit !== undefined && sub.budgetLimit > 0 && (
+                            <View style={styles.subEnvelopeTag}>
+                              <MaterialCommunityIcons
+                                name={sub.isOverBudget ? 'alert-circle-outline' : 'check-circle-outline'}
+                                size={12}
+                                color={sub.isOverBudget ? theme.error : theme.success}
+                              />
+                              <Text
+                                style={[
+                                  styles.subEnvelopeText,
+                                  { color: sub.isOverBudget ? theme.error : theme.success },
+                                ]}
+                              >
+                                {sub.isOverBudget
+                                  ? `Over cap by ${formatCurrency(Math.abs(sub.budgetRemaining || 0), curr)}`
+                                  : `Under cap: ${formatCurrency(sub.budgetRemaining || 0, curr)} left`}
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                      ))}
+
+                      {/* Category Savings / Habit Insight if any */}
+                      {cat.savingsInsight && (
+                        <View
+                          style={[
+                            styles.categoryInsightBox,
+                            {
+                              backgroundColor: isDarkMode ? 'rgba(56, 189, 248, 0.1)' : 'rgba(14, 165, 233, 0.08)',
+                              borderColor: isDarkMode ? 'rgba(56, 189, 248, 0.25)' : 'rgba(14, 165, 233, 0.2)',
+                            },
+                          ]}
+                        >
+                          <MaterialCommunityIcons name="lightbulb-on-outline" size={16} color={theme.tertiary} />
+                          <Text style={[styles.categoryInsightText, { color: theme.onSurface }]}>
+                            {cat.savingsInsight}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  )}
                 </View>
               );
             })}
@@ -2466,5 +2870,83 @@ const styles = StyleSheet.create({
     flex: 1,
     lineHeight: 16,
     fontWeight: '600',
+  },
+  cashflowTouchableCol: {
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: M3Shape.medium,
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+  },
+  flowLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginVertical: 2,
+  },
+  activePiePill: {
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 8,
+  },
+  activePiePillText: {
+    fontSize: 8.5,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.3,
+  },
+  pieContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 12,
+  },
+  pieCenterLabel: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pieCenterSub: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 2,
+  },
+  pieCenterMain: {
+    fontSize: 14.5,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  pieLegendRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 8,
+    paddingHorizontal: 10,
+  },
+  pieLegendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  pieLegendDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  pieLegendText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  catBarWrap: {
+    marginTop: 8,
+    width: '100%',
+  },
+  subBarWrap: {
+    marginTop: 4,
+    marginBottom: 4,
+    width: '100%',
   },
 });

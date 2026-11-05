@@ -982,7 +982,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
             {
               backgroundColor: theme.surface,
               borderTopColor: theme.divider,
-              paddingBottom: keyboardHeight > 0 ? 8 : Math.max(insets.bottom, 16),
+              paddingBottom: keyboardHeight > 0 ? 8 : Math.max(insets.bottom, Platform.OS === 'android' ? 32 : 16),
             },
             M3Elevation.level2,
           ]}
