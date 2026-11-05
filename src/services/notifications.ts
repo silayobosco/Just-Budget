@@ -6,11 +6,10 @@ import { formatCurrency } from '../utils/format';
 // Configure foreground presentation behavior
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
     shouldShowBanner: true,
     shouldShowList: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
   }),
 });
 
@@ -21,7 +20,6 @@ export const setupNotificationChannelAsync = async () => {
       importance: Notifications.AndroidImportance.HIGH,
       vibrationPattern: [0, 250, 250, 250],
       lightColor: '#6366F1',
-      sound: 'default',
     });
   }
 };
@@ -85,7 +83,7 @@ export const scheduleBillReminderAsync = async (
         content: {
           title: `Bill Due Today: ${bill.name}`,
           body: `Your ${bill.name} bill (${formatCurrency(bill.amount, currency)}) is due today. Tap to mark as paid.`,
-          sound: 'default',
+          sound: true,
           data: { billId: bill.id, type: 'bill-reminder' },
         },
         trigger: {
@@ -118,7 +116,7 @@ export const scheduleDailyAllowanceReminderAsync = async (
       content: {
         title: `Daily Spending Allowance`,
         body: `Good morning! Check today's daily allowance and track your spending.`,
-        sound: 'default',
+        sound: true,
         data: { type: 'daily-allowance' },
       },
       trigger: {
@@ -149,7 +147,7 @@ export const scheduleEveningLogReminderAsync = async (
       content: {
         title: `Evening Expense Check-in`,
         body: `Did you spend any cash today? Take 15 seconds to log your expenses!`,
-        sound: 'default',
+        sound: true,
         data: { type: 'evening-checkin' },
       },
       trigger: {
@@ -176,7 +174,7 @@ export const sendTestNotificationAsync = async (): Promise<boolean> => {
     content: {
       title: 'Just Budget Reminders Active! 🔔',
       body: 'Notifications and bill reminders are working perfectly on your device.',
-      sound: 'default',
+      sound: true,
     },
     trigger: {
       channelId: 'budget-reminders',
