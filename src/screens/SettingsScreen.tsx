@@ -20,6 +20,7 @@ import { formatCurrency } from '../utils/format';
 import { CategoryManagerModal } from '../components/CategoryManagerModal';
 import { RecurringBillsModal } from '../components/RecurringBillsModal';
 import { SecuritySetupModal } from '../components/SecuritySetupModal';
+import { sendTestNotificationAsync, requestNotificationPermissionsAsync } from '../services/notifications';
 
 const CURRENCY_LIST = [
   { code: 'TZS', symbol: 'TSh', name: 'Tanzanian Shilling' },
@@ -119,6 +120,33 @@ export const SettingsScreen: React.FC = () => {
 
   const handleToggleTheme = async (isDark: boolean) => {
     await updateSettings({ theme_mode: isDark ? 'dark' : 'light' });
+  };
+
+  const handleToggleNotifications = async (enabled: boolean) => {
+    if (enabled) {
+      const granted = await requestNotificationPermissionsAsync();
+      if (!granted) {
+        Alert.alert(
+          'Notification Permission Required',
+          'Please grant notification permission in Android settings to receive reminders.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+    }
+    await updateSettings({ notifications_enabled: enabled });
+  };
+
+  const handleTestNotification = async () => {
+    const success = await sendTestNotificationAsync();
+    if (success) {
+      Alert.alert('Notification Sent', 'A test reminder has been delivered to your notification tray!');
+    } else {
+      Alert.alert(
+        'Permission Needed',
+        'Please allow notification permissions in your phone settings to receive reminders.'
+      );
+    }
   };
 
   const handleContactSupport = async () => {
@@ -342,8 +370,8 @@ export const SettingsScreen: React.FC = () => {
               <Text style={[styles.itemTitle, { color: theme.onSurface }]}>App Lock & Biometrics</Text>
               <Text style={[styles.itemSubtitle, { color: theme.onSurfaceVariant }]}>
                 {settings.app_lock_enabled
-                  ? (settings.biometrics_enabled ? 'Protected with Passcode & Fingerprint' : 'Protected with 4-to-6 Digit Passcode')
-                  : 'Off • Optional PIN & fingerprint protection'}
+                  ? (settings.biometrics_enabled ? 'Protected on launch with Passcode & Fingerprint' : 'Protected on launch with Passcode')
+                  : 'Off • Never asks for authentication during regular app use'}
               </Text>
             </View>
             <View style={[
@@ -375,7 +403,7 @@ export const SettingsScreen: React.FC = () => {
             <View style={styles.itemTextWrap}>
               <Text style={[styles.itemTitle, { color: theme.onSurface }]}>Encrypted Backup Archive</Text>
               <Text style={[styles.itemSubtitle, { color: theme.onSurfaceVariant }]}>
-                {settings.data_encryption_enabled ? 'Active • Passphrase protection on export & restore' : 'Off • Plain JSON backup files'}
+                {settings.data_encryption_enabled ? 'Active • Passphrase required when exporting or restoring' : 'Off • Standard backup archives'}
               </Text>
             </View>
             <Switch
@@ -389,7 +417,127 @@ export const SettingsScreen: React.FC = () => {
           </View>
         </View>
 
-        {/* SECTION 3: GOOGLE DRIVE & CLOUD BACKUP (Cleaned: Disclaimer & Dashboard Removed) */}
+        {/* SECTION 3: NOTIFICATIONS & REMINDERS */}
+        <Text style={[styles.sectionHeader, { color: theme.primary }]}>NOTIFICATIONS & REMINDERS</Text>
+        <View style={[styles.cardGroup, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
+          {/* Master Notifications Toggle */}
+          <View style={styles.listItemRow}>
+            <View style={[styles.itemIconCircle, { backgroundColor: settings.notifications_enabled !== false ? '#E0E7FF' : (isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F9') }]}>
+              <MaterialCommunityIcons
+                name={settings.notifications_enabled !== false ? 'bell-ring-outline' : 'bell-off-outline'}
+                size={20}
+                color={settings.notifications_enabled !== false ? '#4F46E5' : theme.onSurfaceVariant}
+              />
+            </View>
+            <View style={styles.itemTextWrap}>
+              <Text style={[styles.itemTitle, { color: theme.onSurface }]}>Local Reminders & Alerts</Text>
+              <Text style={[styles.itemSubtitle, { color: theme.onSurfaceVariant }]}>
+                {settings.notifications_enabled !== false ? 'Active • Offline on-device notifications' : 'Disabled'}
+              </Text>
+            </View>
+            <Switch
+              value={settings.notifications_enabled !== false}
+              onValueChange={handleToggleNotifications}
+              thumbColor={settings.notifications_enabled !== false ? theme.primary : '#FFFFFF'}
+              trackColor={{ false: theme.divider, true: theme.primaryContainer }}
+            />
+          </View>
+
+          {settings.notifications_enabled !== false && (
+            <>
+              <View style={[styles.itemDivider, { backgroundColor: theme.divider }]} />
+
+              {/* Bill Due Date Reminders */}
+              <View style={styles.listItemRow}>
+                <View style={[styles.itemIconCircle, { backgroundColor: '#DCFCE7' }]}>
+                  <MaterialCommunityIcons name="calendar-alert" size={20} color="#15803D" />
+                </View>
+                <View style={styles.itemTextWrap}>
+                  <Text style={[styles.itemTitle, { color: theme.onSurface }]}>Upcoming Bill Reminders</Text>
+                  <Text style={[styles.itemSubtitle, { color: theme.onSurfaceVariant }]}>
+                    Morning notification on the due date of upcoming bills
+                  </Text>
+                </View>
+                <Switch
+                  value={settings.bill_reminders_enabled !== false}
+                  onValueChange={async (val) => {
+                    await updateSettings({ bill_reminders_enabled: val });
+                  }}
+                  thumbColor={settings.bill_reminders_enabled !== false ? theme.primary : '#FFFFFF'}
+                  trackColor={{ false: theme.divider, true: theme.primaryContainer }}
+                />
+              </View>
+
+              <View style={[styles.itemDivider, { backgroundColor: theme.divider }]} />
+
+              {/* Morning Daily Allowance Reminder */}
+              <View style={styles.listItemRow}>
+                <View style={[styles.itemIconCircle, { backgroundColor: '#FEF3C7' }]}>
+                  <MaterialCommunityIcons name="weather-sunny" size={20} color="#D97706" />
+                </View>
+                <View style={styles.itemTextWrap}>
+                  <Text style={[styles.itemTitle, { color: theme.onSurface }]}>Daily Allowance Briefing</Text>
+                  <Text style={[styles.itemSubtitle, { color: theme.onSurfaceVariant }]}>
+                    Daily 8:30 AM summary of your available spending limit
+                  </Text>
+                </View>
+                <Switch
+                  value={Boolean(settings.daily_allowance_reminder_enabled)}
+                  onValueChange={async (val) => {
+                    await updateSettings({ daily_allowance_reminder_enabled: val });
+                  }}
+                  thumbColor={settings.daily_allowance_reminder_enabled ? theme.primary : '#FFFFFF'}
+                  trackColor={{ false: theme.divider, true: theme.primaryContainer }}
+                />
+              </View>
+
+              <View style={[styles.itemDivider, { backgroundColor: theme.divider }]} />
+
+              {/* Evening Expense Logging Reminder */}
+              <View style={styles.listItemRow}>
+                <View style={[styles.itemIconCircle, { backgroundColor: '#F3E8FF' }]}>
+                  <MaterialCommunityIcons name="moon-waning-crescent" size={20} color="#9333EA" />
+                </View>
+                <View style={styles.itemTextWrap}>
+                  <Text style={[styles.itemTitle, { color: theme.onSurface }]}>Evening Expense Check-in</Text>
+                  <Text style={[styles.itemSubtitle, { color: theme.onSurfaceVariant }]}>
+                    Daily 8:30 PM reminder to log unrecorded cash expenses
+                  </Text>
+                </View>
+                <Switch
+                  value={Boolean(settings.evening_reminder_enabled)}
+                  onValueChange={async (val) => {
+                    await updateSettings({ evening_reminder_enabled: val });
+                  }}
+                  thumbColor={settings.evening_reminder_enabled ? theme.primary : '#FFFFFF'}
+                  trackColor={{ false: theme.divider, true: theme.primaryContainer }}
+                />
+              </View>
+
+              <View style={[styles.itemDivider, { backgroundColor: theme.divider }]} />
+
+              {/* Send Test Notification Button */}
+              <TouchableOpacity
+                style={styles.listItemRow}
+                onPress={handleTestNotification}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.itemIconCircle, { backgroundColor: theme.primaryContainer }]}>
+                  <MaterialCommunityIcons name="bell-check-outline" size={20} color={theme.primary} />
+                </View>
+                <View style={styles.itemTextWrap}>
+                  <Text style={[styles.itemTitle, { color: theme.onSurface }]}>Send Test Notification</Text>
+                  <Text style={[styles.itemSubtitle, { color: theme.onSurfaceVariant }]}>
+                    Deliver an instant sample reminder to your status bar
+                  </Text>
+                </View>
+                <MaterialCommunityIcons name="send-outline" size={18} color={theme.primary} />
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+
+        {/* SECTION 4: GOOGLE DRIVE & CLOUD BACKUP (Cleaned: Disclaimer & Dashboard Removed) */}
         <Text style={[styles.sectionHeader, { color: theme.primary }]}>GOOGLE DRIVE & CLOUD BACKUP</Text>
         <View style={[styles.cardGroup, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
           {/* Export to Google Drive */}

@@ -123,6 +123,12 @@ export interface AppSettings {
   biometrics_enabled?: boolean;
   app_pin_hash?: string;
   data_encryption_enabled?: boolean;
+  notifications_enabled?: boolean;
+  bill_reminders_enabled?: boolean;
+  daily_allowance_reminder_enabled?: boolean;
+  evening_reminder_enabled?: boolean;
+  daily_reminder_time?: string;
+  evening_reminder_time?: string;
 }
 
 export type DailyAllowanceStatus =

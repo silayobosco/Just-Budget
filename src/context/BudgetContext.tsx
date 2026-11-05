@@ -1,8 +1,9 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import { getDB, initDatabase, ensureDefaultWallets, ensureDefaultExpenseCategories, ensureDefaultIncomeCategories, restoreAllDefaultCategories } from '../services/db';
 import { exportBackupData, importBackupData } from '../services/backup';
 import { hashPin, verifyPin, authenticateWithBiometrics, checkBiometricsAvailable } from '../services/security';
+import { syncAllRemindersAsync, requestNotificationPermissionsAsync } from '../services/notifications';
 import { formatCycleDateRange, getRegularCycleDates, formatCurrency } from '../utils/format';
 import {
   Wallet,
@@ -187,6 +188,7 @@ interface BudgetContextType {
 
   exportBackup: (passphrase?: string) => Promise<boolean>;
   importBackup: (passphrase?: string) => Promise<{ success: boolean; message: string; requiresPassphrase?: boolean }>;
+  requestNotificationPermissions: () => Promise<boolean>;
   reloadAllData: () => Promise<void>;
 }
 
@@ -228,15 +230,27 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     app_lock_enabled: false,
     biometrics_enabled: false,
     data_encryption_enabled: false,
+    notifications_enabled: true,
+    bill_reminders_enabled: true,
+    daily_allowance_reminder_enabled: false,
+    evening_reminder_enabled: false,
+    daily_reminder_time: '08:30',
+    evening_reminder_time: '20:30',
   });
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isAppLocked, setIsAppLocked] = useState<boolean>(false);
   const [hasInitializedLock, setHasInitializedLock] = useState<boolean>(false);
+  const lastBackgroundTimeRef = useRef<number | null>(null);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
       if (nextAppState === 'background') {
-        if (settings.app_lock_enabled && settings.app_pin_hash) {
+        lastBackgroundTimeRef.current = Date.now();
+      } else if (nextAppState === 'active') {
+        // Only lock if the app was left in the background for more than 60 seconds.
+        // Short system interruptions (camera, photo picker, file share, quick notification check) do NOT lock the app.
+        const elapsed = lastBackgroundTimeRef.current ? (Date.now() - lastBackgroundTimeRef.current) / 1000 : 0;
+        if (elapsed > 60 && settings.app_lock_enabled && settings.app_pin_hash) {
           setIsAppLocked(true);
         }
       }
@@ -271,6 +285,12 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         biometrics_enabled: sMap['biometrics_enabled'] === '1',
         app_pin_hash: sMap['app_pin_hash'] || undefined,
         data_encryption_enabled: sMap['data_encryption_enabled'] === '1',
+        notifications_enabled: sMap['notifications_enabled'] !== '0',
+        bill_reminders_enabled: sMap['bill_reminders_enabled'] !== '0',
+        daily_allowance_reminder_enabled: sMap['daily_allowance_reminder_enabled'] === '1',
+        evening_reminder_enabled: sMap['evening_reminder_enabled'] === '1',
+        daily_reminder_time: sMap['daily_reminder_time'] || '08:30',
+        evening_reminder_time: sMap['evening_reminder_time'] || '20:30',
       };
       setSettings(newSettings);
 
@@ -428,13 +448,17 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       // Recurring Bills
       const billsRows = db.getAllSync<RecurringBill>(`SELECT * FROM recurring_bills ORDER BY next_due_date ASC`);
-      setRecurringBills(
-        billsRows.map((b) => ({
-          ...b,
-          reminder_enabled: Boolean(b.reminder_enabled),
-          is_active: Boolean(b.is_active),
-        }))
-      );
+      const parsedBills = billsRows.map((b) => ({
+        ...b,
+        reminder_enabled: Boolean(b.reminder_enabled),
+        is_active: Boolean(b.is_active),
+      }));
+      setRecurringBills(parsedBills);
+
+      // Sync offline reminders (due bills, daily allowance & evening check-in)
+      syncAllRemindersAsync({ settings: newSettings, recurringBills: parsedBills }).catch((err) => {
+        console.warn('Reminder sync notice:', err);
+      });
 
       // Budgets (overall, category, subcategory limits)
       const budgetRows = db.getAllSync<BudgetLimit>(`SELECT * FROM budgets`);
@@ -1441,7 +1465,29 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (newSettings.data_encryption_enabled !== undefined) {
       db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('data_encryption_enabled', ?)`, [newSettings.data_encryption_enabled ? '1' : '0']);
     }
+    if (newSettings.notifications_enabled !== undefined) {
+      db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('notifications_enabled', ?)`, [newSettings.notifications_enabled ? '1' : '0']);
+    }
+    if (newSettings.bill_reminders_enabled !== undefined) {
+      db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('bill_reminders_enabled', ?)`, [newSettings.bill_reminders_enabled ? '1' : '0']);
+    }
+    if (newSettings.daily_allowance_reminder_enabled !== undefined) {
+      db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('daily_allowance_reminder_enabled', ?)`, [newSettings.daily_allowance_reminder_enabled ? '1' : '0']);
+    }
+    if (newSettings.evening_reminder_enabled !== undefined) {
+      db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('evening_reminder_enabled', ?)`, [newSettings.evening_reminder_enabled ? '1' : '0']);
+    }
+    if (newSettings.daily_reminder_time !== undefined) {
+      db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('daily_reminder_time', ?)`, [newSettings.daily_reminder_time]);
+    }
+    if (newSettings.evening_reminder_time !== undefined) {
+      db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('evening_reminder_time', ?)`, [newSettings.evening_reminder_time]);
+    }
     await loadData();
+  };
+
+  const requestNotificationPermissions = async (): Promise<boolean> => {
+    return await requestNotificationPermissionsAsync();
   };
 
   const updateAllWalletsCurrency = async (currency: string) => {
@@ -1694,6 +1740,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         authenticateBiometrics,
         exportBackup,
         importBackup,
+        requestNotificationPermissions,
         reloadAllData: loadData,
       }}
     >
