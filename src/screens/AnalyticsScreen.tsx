@@ -259,8 +259,41 @@ export const AnalyticsScreen: React.FC = () => {
   // Accordion state for expandable categories
   const [expandedCategoryIds, setExpandedCategoryIds] = useState<Record<string, boolean>>({});
 
-  // Cash Flow Donut Pie flow selector ('expense' | 'income')
+  // Cash Flow Donut Pie flow selector ('expense' | 'income') and 3D Flip animation
   const [cashFlowPieType, setCashFlowPieType] = useState<'expense' | 'income'>('expense');
+  const flipAnim = useRef(new Animated.Value(0)).current;
+  const isFlipping = useRef(false);
+
+  const handleFlipPie = () => {
+    if (isFlipping.current) return;
+    isFlipping.current = true;
+
+    Animated.timing(flipAnim, {
+      toValue: 90,
+      duration: 170,
+      useNativeDriver: true,
+    }).start(() => {
+      setCashFlowPieType((prev) => (prev === 'expense' ? 'income' : 'expense'));
+      flipAnim.setValue(270);
+      Animated.timing(flipAnim, {
+        toValue: 360,
+        duration: 170,
+        useNativeDriver: true,
+      }).start(() => {
+        flipAnim.setValue(0);
+        isFlipping.current = false;
+      });
+    });
+  };
+
+  const cardRotateY = flipAnim.interpolate({
+    inputRange: [0, 360],
+    outputRange: ['0deg', '360deg'],
+  });
+
+  const handleToggleScope = () => {
+    setScope((prev) => (prev === 'cycle' ? 'all' : 'cycle'));
+  };
 
   const toggleCategoryExpand = (catId: string) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -913,53 +946,55 @@ export const AnalyticsScreen: React.FC = () => {
           </View>
         )}
 
-        {/* SCOPE TOGGLE PILL BAR & EXPORT BUTTON */}
-        <View style={styles.scopeRow}>
-          <View style={[styles.scopeBar, { backgroundColor: theme.pillBg }]}>
-            <TouchableOpacity
-              style={[styles.scopePill, scope === 'cycle' && { backgroundColor: theme.primaryContainer }]}
-              onPress={() => setScope('cycle')}
-            >
-              <Text
-                style={[
-                  styles.scopePillText,
-                  {
-                    color: scope === 'cycle' ? theme.onPrimaryContainer : theme.onSurfaceVariant,
-                    fontWeight: scope === 'cycle' ? '700' : '500',
-                  },
-                ]}
+        {/* SCOPE TOGGLE PILL BAR & EXPORT BUTTON (Only shown for Expense / Income detail views) */}
+        {analyticsFocus !== 'overview' && (
+          <View style={styles.scopeRow}>
+            <View style={[styles.scopeBar, { backgroundColor: theme.pillBg }]}>
+              <TouchableOpacity
+                style={[styles.scopePill, scope === 'cycle' && { backgroundColor: theme.primaryContainer }]}
+                onPress={() => setScope('cycle')}
               >
-                Cycle ({effectiveCycle?.name || 'Cycle'})
-              </Text>
-            </TouchableOpacity>
+                <Text
+                  style={[
+                    styles.scopePillText,
+                    {
+                      color: scope === 'cycle' ? theme.onPrimaryContainer : theme.onSurfaceVariant,
+                      fontWeight: scope === 'cycle' ? '700' : '500',
+                    },
+                  ]}
+                >
+                  Cycle ({effectiveCycle?.name || 'Cycle'})
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.scopePill, scope === 'all' && { backgroundColor: theme.primaryContainer }]}
+                onPress={() => setScope('all')}
+              >
+                <Text
+                  style={[
+                    styles.scopePillText,
+                    {
+                      color: scope === 'all' ? theme.onPrimaryContainer : theme.onSurfaceVariant,
+                      fontWeight: scope === 'all' ? '700' : '500',
+                    },
+                  ]}
+                >
+                  All Time
+                </Text>
+              </TouchableOpacity>
+            </View>
 
             <TouchableOpacity
-              style={[styles.scopePill, scope === 'all' && { backgroundColor: theme.primaryContainer }]}
-              onPress={() => setScope('all')}
+              style={[styles.exportBtn, { backgroundColor: theme.primaryContainer }]}
+              onPress={() => setExportModalVisible(true)}
+              activeOpacity={0.7}
             >
-              <Text
-                style={[
-                  styles.scopePillText,
-                  {
-                    color: scope === 'all' ? theme.onPrimaryContainer : theme.onSurfaceVariant,
-                    fontWeight: scope === 'all' ? '700' : '500',
-                  },
-                ]}
-              >
-                All Time
-              </Text>
+              <MaterialCommunityIcons name="export-variant" size={16} color={theme.onPrimaryContainer} />
+              <Text style={[styles.exportBtnText, { color: theme.onPrimaryContainer }]}>Export</Text>
             </TouchableOpacity>
           </View>
-
-          <TouchableOpacity
-            style={[styles.exportBtn, { backgroundColor: theme.primaryContainer }]}
-            onPress={() => setExportModalVisible(true)}
-            activeOpacity={0.7}
-          >
-            <MaterialCommunityIcons name="export-variant" size={16} color={theme.onPrimaryContainer} />
-            <Text style={[styles.exportBtnText, { color: theme.onPrimaryContainer }]}>Export</Text>
-          </TouchableOpacity>
-        </View>
+        )}
 
         {/* 1. EXPENSE ANALYZER FOCUS VIEW */}
         {analyticsFocus === 'expense' && (
@@ -1571,72 +1606,85 @@ export const AnalyticsScreen: React.FC = () => {
         {/* 3. CASH FLOW OVERVIEW VIEW */}
         {analyticsFocus === 'overview' && (
           <View style={styles.focusContainer}>
-            {/* CASH FLOW COMPARISON HERO WITH INTERACTIVE DONUT PIE CHART */}
-            <View style={[styles.cashflowCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
-              <View style={styles.cashflowRow}>
-                {/* Income Col (Touchable to switch Pie to Income) */}
+            {/* CASH FLOW COMPARISON HERO WITH 3D FLIP PIE CARD */}
+            <Animated.View
+              style={[
+                styles.cashflowCard,
+                {
+                  backgroundColor: theme.cardBg,
+                  borderColor: theme.divider,
+                  transform: [{ perspective: 1000 }, { rotateY: cardRotateY }],
+                },
+                M3Elevation.level1,
+              ]}
+            >
+              {/* Card Top Header: Left = Filter Button, Center = Flip Switch, Right = Export Button */}
+              <View style={styles.pieCardTopBar}>
+                {/* Top Left: Filter Button replacing All Time / Cycle tab */}
                 <TouchableOpacity
                   style={[
-                    styles.cashflowCol,
-                    styles.cashflowTouchableCol,
-                    cashFlowPieType === 'income' && {
-                      backgroundColor: isDarkMode ? 'rgba(16, 185, 129, 0.14)' : 'rgba(16, 185, 129, 0.08)',
-                      borderColor: theme.success,
+                    styles.cardHeaderFilterBtn,
+                    {
+                      backgroundColor: theme.pillBg,
+                      borderColor: theme.outlineVariant,
                     },
                   ]}
-                  onPress={() => setCashFlowPieType('income')}
+                  onPress={handleToggleScope}
                   activeOpacity={0.7}
                 >
-                  <View style={[styles.flowIcon, { backgroundColor: theme.successContainer }]}>
-                    <MaterialCommunityIcons name="arrow-bottom-left" size={20} color={theme.success} />
-                  </View>
-                  <View style={styles.flowLabelRow}>
-                    <Text style={[styles.flowLabel, { color: theme.onSurfaceVariant }]}>Total Income</Text>
-                    {cashFlowPieType === 'income' && (
-                      <View style={[styles.activePiePill, { backgroundColor: theme.success }]}>
-                        <Text style={styles.activePiePillText}>Pie</Text>
-                      </View>
-                    )}
-                  </View>
-                  <Text style={[styles.flowAmount, { color: theme.success }]}>
-                    {formatCurrency(totalIncome, settings.base_currency)}
+                  <MaterialCommunityIcons name="filter-variant" size={14} color={theme.primary} />
+                  <Text style={[styles.cardHeaderFilterText, { color: theme.onSurface }]} numberOfLines={1}>
+                    {scope === 'cycle' ? (effectiveCycle?.name || 'Cycle') : 'All Time'}
+                  </Text>
+                  <MaterialCommunityIcons name="chevron-down" size={13} color={theme.onSurfaceVariant} />
+                </TouchableOpacity>
+
+                {/* Top Center: 3D Flip Toggle Button */}
+                <TouchableOpacity
+                  style={[
+                    styles.cardHeaderFlipBtn,
+                    {
+                      backgroundColor: cashFlowPieType === 'expense'
+                        ? (isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)')
+                        : (isDarkMode ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.1)'),
+                      borderColor: cashFlowPieType === 'expense' ? theme.error : theme.success,
+                    },
+                  ]}
+                  onPress={handleFlipPie}
+                  activeOpacity={0.7}
+                >
+                  <MaterialCommunityIcons
+                    name="swap-horizontal"
+                    size={14}
+                    color={cashFlowPieType === 'expense' ? theme.error : theme.success}
+                  />
+                  <Text
+                    style={[
+                      styles.cardHeaderFlipText,
+                      { color: cashFlowPieType === 'expense' ? theme.error : theme.success },
+                    ]}
+                  >
+                    {cashFlowPieType === 'expense' ? 'Expenses' : 'Income'}
                   </Text>
                 </TouchableOpacity>
 
-                <View style={[styles.flowDivider, { backgroundColor: theme.divider }]} />
-
-                {/* Expense Col (Touchable to switch Pie to Expense) */}
+                {/* Top Right: Export Button */}
                 <TouchableOpacity
-                  style={[
-                    styles.cashflowCol,
-                    styles.cashflowTouchableCol,
-                    cashFlowPieType === 'expense' && {
-                      backgroundColor: isDarkMode ? 'rgba(239, 68, 68, 0.14)' : 'rgba(239, 68, 68, 0.08)',
-                      borderColor: theme.error,
-                    },
-                  ]}
-                  onPress={() => setCashFlowPieType('expense')}
+                  style={[styles.cardHeaderExportBtn, { backgroundColor: theme.primaryContainer }]}
+                  onPress={() => setExportModalVisible(true)}
                   activeOpacity={0.7}
                 >
-                  <View style={[styles.flowIcon, { backgroundColor: theme.errorContainer }]}>
-                    <MaterialCommunityIcons name="arrow-top-right" size={20} color={theme.error} />
-                  </View>
-                  <View style={styles.flowLabelRow}>
-                    <Text style={[styles.flowLabel, { color: theme.onSurfaceVariant }]}>Total Expenses</Text>
-                    {cashFlowPieType === 'expense' && (
-                      <View style={[styles.activePiePill, { backgroundColor: theme.error }]}>
-                        <Text style={styles.activePiePillText}>Pie</Text>
-                      </View>
-                    )}
-                  </View>
-                  <Text style={[styles.flowAmount, { color: theme.error }]}>
-                    {formatCurrency(totalExpense, settings.base_currency)}
-                  </Text>
+                  <MaterialCommunityIcons name="export-variant" size={14} color={theme.onPrimaryContainer} />
+                  <Text style={[styles.cardHeaderExportText, { color: theme.onPrimaryContainer }]}>Export</Text>
                 </TouchableOpacity>
               </View>
 
-              {/* Dynamic Donut Pie Chart */}
-              <View style={styles.pieContainer}>
+              {/* Dynamic Donut Pie Chart (Tappable to flip as well) */}
+              <TouchableOpacity
+                style={styles.pieContainer}
+                activeOpacity={0.88}
+                onPress={handleFlipPie}
+              >
                 <DonutPieChart
                   slices={cashFlowPieType === 'expense' ? expensePieSlices : incomePieSlices}
                   total={cashFlowPieType === 'expense' ? totalExpense : totalIncome}
@@ -1665,7 +1713,15 @@ export const AnalyticsScreen: React.FC = () => {
                       ))}
                   </View>
                 )}
-              </View>
+
+                {/* Subtle Flip Hint Indicator */}
+                <View style={[styles.flipHintRow, { backgroundColor: theme.pillBg }]}>
+                  <MaterialCommunityIcons name="rotate-3d-variant" size={12} color={theme.onSurfaceVariant} />
+                  <Text style={[styles.flipHintText, { color: theme.onSurfaceVariant }]}>
+                    Tap card to flip to {cashFlowPieType === 'expense' ? 'Income' : 'Expenses'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
 
               {/* Net Balance / Savings Ratio Bar */}
               <View style={styles.ratioBarContainer}>
@@ -1692,7 +1748,7 @@ export const AnalyticsScreen: React.FC = () => {
                   </Text>
                 </View>
               </View>
-            </View>
+            </Animated.View>
 
             {/* DAILY SPENDING STATS */}
             <View style={styles.statsCardsRow}>
@@ -2948,5 +3004,65 @@ const styles = StyleSheet.create({
     marginTop: 4,
     marginBottom: 4,
     width: '100%',
+  },
+  pieCardTopBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+    gap: 6,
+  },
+  cardHeaderFilterBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 5,
+    paddingHorizontal: 9,
+    borderRadius: M3Shape.full,
+    borderWidth: 1,
+    maxWidth: 135,
+  },
+  cardHeaderFilterText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  cardHeaderFlipBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 4.5,
+    paddingHorizontal: 9,
+    borderRadius: M3Shape.full,
+    borderWidth: 1,
+  },
+  cardHeaderFlipText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  cardHeaderExportBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 5,
+    paddingHorizontal: 9,
+    borderRadius: M3Shape.full,
+  },
+  cardHeaderExportText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  flipHintRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: M3Shape.full,
+    marginTop: 8,
+  },
+  flipHintText: {
+    fontSize: 10,
+    fontWeight: '600',
   },
 });
