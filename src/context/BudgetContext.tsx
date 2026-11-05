@@ -250,7 +250,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         // Only lock if the app was left in the background for more than 15 minutes (900 seconds).
         // Regular app usage, switching between apps, or brief checks NEVER lock the app.
         const elapsed = lastBackgroundTimeRef.current ? (Date.now() - lastBackgroundTimeRef.current) / 1000 : 0;
-        if (elapsed > 900 && settings.app_lock_enabled && settings.app_pin_hash) {
+        if (elapsed > 60 && settings.app_lock_enabled && settings.app_pin_hash) {
           setIsAppLocked(true);
         }
       }
