@@ -215,10 +215,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
   });
   const amountInputRef = useRef<any>(null);
 
-  // Keep amount input focused so cursor is ALWAYS visible and blinking
+  // Keep amount input focused so cursor is visible, ensuring system soft keyboard is never shown
   useEffect(() => {
+    Keyboard.dismiss();
     const timer = setTimeout(() => {
       amountInputRef.current?.focus();
+      Keyboard.dismiss();
     }, 150);
     return () => clearTimeout(timer);
   }, []);
@@ -914,7 +916,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
                 caretHidden={false}
                 cursorColor={theme.primary}
                 selectionColor={theme.primary + '55'}
-                autoFocus={true}
+                autoFocus={false}
+                onFocus={() => Keyboard.dismiss()}
                 contextMenuHidden={false}
                 scrollEnabled={false}
               />

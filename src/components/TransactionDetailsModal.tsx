@@ -176,25 +176,18 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
     }
   }, [visible]);
 
-  // Focus helper: blur then focus forces React Native & native IMM to pop up the soft keyboard
+  // Focus helper: focuses the amount input cleanly without bouncing the keyboard
   const focusAmountInput = () => {
-    if (amountInputRef.current) {
-      amountInputRef.current.blur();
+    if (amountInputRef.current && !amountInputRef.current.isFocused?.()) {
       amountInputRef.current.focus();
     }
   };
 
-  // Automatically focus amount input and open numeric keyboard when modal opens
+  // Automatically focus amount input once when modal becomes visible
   useEffect(() => {
     if (visible) {
-      const t1 = setTimeout(focusAmountInput, 150);
-      const t2 = setTimeout(focusAmountInput, 350);
-      const t3 = setTimeout(focusAmountInput, 600);
-      return () => {
-        clearTimeout(t1);
-        clearTimeout(t2);
-        clearTimeout(t3);
-      };
+      const timer = setTimeout(focusAmountInput, 150);
+      return () => clearTimeout(timer);
     }
   }, [visible]);
   const [selectedWalletId, setSelectedWalletId] = useState<string>(initialWalletId);
@@ -396,8 +389,6 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       statusBarTranslucent={true}
       onShow={() => {
         focusAmountInput();
-        setTimeout(focusAmountInput, 150);
-        setTimeout(focusAmountInput, 350);
       }}
     >
       <View
