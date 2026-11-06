@@ -89,54 +89,60 @@ export const CalendarPickerModal: React.FC<CalendarPickerModalProps> = ({
         </View>
 
         {/* Weekday indicators */}
-        <View style={styles.calWeekdayRow}>
+        <View style={[styles.calWeekdayRow, { borderBottomColor: theme.divider }]}>
           {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((w, idx) => (
-            <Text key={idx} style={[styles.calWeekdayText, { color: theme.onSurfaceVariant }]}>
-              {w}
-            </Text>
+            <View key={idx} style={styles.calWeekdaySlot}>
+              <Text style={[styles.calWeekdayText, { color: theme.onSurfaceVariant }]}>
+                {w}
+              </Text>
+            </View>
           ))}
         </View>
 
         {/* Month Days Grid */}
         <View style={styles.calDaysGrid}>
           {calendarGrid.map((cell, idx) => {
-            if (cell.dayNum === 0) {
-              return <View key={idx} style={styles.calEmptyCell} />;
-            }
             const isSelected = cell.dateString === selectedDate;
             const isToday = cell.dateString === new Date().toISOString().slice(0, 10);
 
             return (
-              <TouchableOpacity
-                key={idx}
-                style={[
-                  styles.calDayCell,
-                  {
-                    backgroundColor: isSelected ? theme.primaryContainer : 'transparent',
-                    borderColor: isSelected ? theme.primary : isToday ? theme.secondary : 'transparent',
-                  },
-                ]}
-                onPress={() => {
-                  onSelectDate(cell.dateString);
-                  onClose();
-                }}
-              >
-                <Text
-                  style={[
-                    styles.calDayNum,
-                    {
-                      color: isSelected
-                        ? theme.onPrimaryContainer
-                        : isToday
-                        ? theme.primary
-                        : theme.onSurface,
-                      fontWeight: isSelected || isToday ? '700' : '500',
-                    },
-                  ]}
-                >
-                  {cell.dayNum}
-                </Text>
-              </TouchableOpacity>
+              <View key={idx} style={styles.calDaySlot}>
+                {cell.dayNum > 0 && (
+                  <TouchableOpacity
+                    style={[
+                      styles.calDayCell,
+                      {
+                        backgroundColor: isSelected ? theme.primaryContainer : 'transparent',
+                        borderColor: isSelected ? theme.primary : isToday ? theme.secondary : 'transparent',
+                      },
+                    ]}
+                    onPress={() => {
+                      onSelectDate(cell.dateString);
+                      onClose();
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      numberOfLines={1}
+                      adjustsFontSizeToFit={true}
+                      minimumFontScale={0.7}
+                      style={[
+                        styles.calDayNum,
+                        {
+                          color: isSelected
+                            ? theme.onPrimaryContainer
+                            : isToday
+                            ? theme.primary
+                            : theme.onSurface,
+                          fontWeight: isSelected || isToday ? '700' : '600',
+                        },
+                      ]}
+                    >
+                      {cell.dayNum}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
             );
           })}
         </View>
@@ -179,10 +185,12 @@ const styles = StyleSheet.create({
   },
   quickModalBox: {
     width: '100%',
-    maxWidth: 340,
+    maxWidth: 350,
     borderRadius: M3Shape.extraLarge,
-    padding: 20,
-    gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    paddingBottom: 16,
+    gap: 8,
   },
   quickModalTitle: {
     fontSize: 18,
@@ -203,7 +211,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 4,
+    paddingHorizontal: 4,
   },
   calNavRow: {
     flexDirection: 'row',
@@ -218,35 +227,43 @@ const styles = StyleSheet.create({
   },
   calWeekdayRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
     paddingVertical: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    marginBottom: 4,
+  },
+  calWeekdaySlot: {
+    width: `${100 / 7}%`,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   calWeekdayText: {
     fontSize: 11,
     fontWeight: '700',
-    width: 36,
     textAlign: 'center',
   },
   calDaysGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'space-around',
   },
-  calEmptyCell: {
-    width: 38,
-    height: 38,
-    marginVertical: 2,
+  calDaySlot: {
+    width: `${100 / 7}%`,
+    height: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 1,
   },
   calDayCell: {
-    width: 38,
-    height: 38,
-    marginVertical: 2,
-    borderRadius: 19,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1.5,
   },
   calDayNum: {
     fontSize: 13,
+    textAlign: 'center',
+    includeFontPadding: false,
+    width: '100%',
   },
 });
