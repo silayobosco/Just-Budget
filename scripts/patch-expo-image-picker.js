@@ -19,29 +19,16 @@ const targetFile = path.join(
 if (fs.existsSync(targetFile)) {
   let content = fs.readFileSync(targetFile, 'utf8');
 
-  const oldCode = `  private fun ensureTargetActivityIsAvailable(options: ImagePickerOptions) {
-    val cameraIntent = Intent(options.nativeMediaTypes.toCameraIntentAction())
-    if (cameraIntent.resolveActivity(appContext.throwingActivity.application.packageManager) == null) {
-      throw MissingActivityToHandleIntent(cameraIntent.type)
-    }
+  // Match any variation of ensureTargetActivityIsAvailable
+  const regex = /private fun ensureTargetActivityIsAvailable\(options: ImagePickerOptions\) \{[\s\S]*?\n  \}/;
+
+  const noOpMethod = `private fun ensureTargetActivityIsAvailable(options: ImagePickerOptions) {
+    // No-op: bypass resolveActivity check to support Android 11+ and Google Pixel devices
   }`;
 
-  const newCode = `  private fun ensureTargetActivityIsAvailable(options: ImagePickerOptions) {
-    try {
-      val pm = appContext.throwingActivity.application.packageManager
-      if (!pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY)) {
-        throw MissingActivityToHandleIntent(options.nativeMediaTypes.toCameraIntentAction())
-      }
-    } catch (e: MissingActivityToHandleIntent) {
-      throw e
-    } catch (_: Throwable) {
-      // Allow ActivityResultLauncher to dispatch intent directly on modern Android
-    }
-  }`;
-
-  if (content.includes(oldCode)) {
-    content = content.replace(oldCode, newCode);
+  if (regex.test(content)) {
+    content = content.replace(regex, noOpMethod);
     fs.writeFileSync(targetFile, content, 'utf8');
-    console.log('[patch] Successfully patched expo-image-picker for Android 11+ camera resolution.');
+    console.log('[patch] Successfully patched expo-image-picker ensureTargetActivityIsAvailable to no-op.');
   }
 }
