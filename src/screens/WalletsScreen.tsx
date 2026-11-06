@@ -886,6 +886,15 @@ export const WalletsScreen: React.FC = () => {
               <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.onPrimary} />
               <Text style={[styles.detailEditActionBtnText, { color: theme.onPrimary }]}>Edit Wallet</Text>
             </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.detailCloseActionBtn, { borderColor: theme.outlineVariant, backgroundColor: theme.pillBg }]}
+              onPress={() => setSelectedWallet(null)}
+              activeOpacity={0.7}
+              accessibilityLabel="Close Wallet Details"
+            >
+              <MaterialCommunityIcons name="close" size={20} color={theme.onSurface} />
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -1401,6 +1410,14 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   detailDeleteActionBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  detailCloseActionBtn: {
     width: 48,
     height: 48,
     borderRadius: 24,

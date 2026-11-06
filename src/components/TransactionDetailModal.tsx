@@ -355,6 +355,15 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
             <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.onPrimary} />
             <Text style={[styles.editActionBtnText, { color: theme.onPrimary }]}>Edit Transaction</Text>
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.closeActionBtn, { borderColor: theme.outlineVariant, backgroundColor: theme.pillBg }]}
+            onPress={onClose}
+            activeOpacity={0.7}
+            accessibilityLabel="Close Details"
+          >
+            <MaterialCommunityIcons name="close" size={20} color={theme.onSurface} />
+          </TouchableOpacity>
         </View>
 
         {/* FULLSCREEN PHOTO PREVIEW MODAL */}
@@ -565,6 +574,14 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   deleteActionBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeActionBtn: {
     width: 48,
     height: 48,
     borderRadius: 24,
