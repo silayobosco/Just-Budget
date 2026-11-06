@@ -253,17 +253,16 @@ const styles = StyleSheet.create({
     marginVertical: 1,
   },
   calDayCell: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1.5,
   },
   calDayNum: {
-    fontSize: 13,
+    fontSize: 12,
     textAlign: 'center',
     includeFontPadding: false,
-    width: '100%',
   },
 });
