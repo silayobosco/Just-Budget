@@ -347,22 +347,22 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.editActionBtn, { backgroundColor: theme.primary }, M3Elevation.level2]}
-            onPress={() => onEdit(transaction)}
+            style={[styles.doneActionBtn, { backgroundColor: theme.primary }, M3Elevation.level2]}
+            onPress={onClose}
             activeOpacity={0.85}
-            accessibilityLabel="Edit Transaction"
+            accessibilityLabel="Done"
           >
-            <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.onPrimary} />
-            <Text style={[styles.editActionBtnText, { color: theme.onPrimary }]}>Edit Transaction</Text>
+            <MaterialCommunityIcons name="check" size={18} color={theme.onPrimary} />
+            <Text style={[styles.doneActionBtnText, { color: theme.onPrimary }]}>Done</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.closeActionBtn, { borderColor: theme.outlineVariant, backgroundColor: theme.pillBg }]}
-            onPress={onClose}
+            style={[styles.editActionBtn, { borderColor: theme.outlineVariant, backgroundColor: theme.pillBg }]}
+            onPress={() => onEdit(transaction)}
             activeOpacity={0.7}
-            accessibilityLabel="Close Details"
+            accessibilityLabel="Edit Transaction"
           >
-            <MaterialCommunityIcons name="close" size={20} color={theme.onSurface} />
+            <MaterialCommunityIcons name="pencil-outline" size={20} color={theme.primary} />
           </TouchableOpacity>
         </View>
 
@@ -560,19 +560,6 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     borderTopWidth: 1,
   },
-  editActionBtn: {
-    flex: 1,
-    height: 48,
-    borderRadius: 24,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  editActionBtnText: {
-    fontSize: 15,
-    fontWeight: '800',
-  },
   deleteActionBtn: {
     width: 48,
     height: 48,
@@ -581,7 +568,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  closeActionBtn: {
+  doneActionBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  doneActionBtnText: {
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  editActionBtn: {
     width: 48,
     height: 48,
     borderRadius: 24,

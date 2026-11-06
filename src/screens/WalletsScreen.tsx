@@ -874,26 +874,26 @@ export const WalletsScreen: React.FC = () => {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.detailEditActionBtn, { backgroundColor: theme.primary }, M3Elevation.level2]}
+              style={[styles.detailDoneActionBtn, { backgroundColor: theme.primary }, M3Elevation.level2]}
+              onPress={() => setSelectedWallet(null)}
+              activeOpacity={0.85}
+              accessibilityLabel="Done"
+            >
+              <MaterialCommunityIcons name="check" size={18} color={theme.onPrimary} />
+              <Text style={[styles.detailDoneActionBtnText, { color: theme.onPrimary }]}>Done</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.detailEditActionBtn, { borderColor: theme.outlineVariant, backgroundColor: theme.pillBg }]}
               onPress={() => {
                 if (currentSelectedWallet) {
                   handleOpenEditWallet(currentSelectedWallet);
                 }
               }}
-              activeOpacity={0.85}
+              activeOpacity={0.7}
               accessibilityLabel="Edit Wallet"
             >
-              <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.onPrimary} />
-              <Text style={[styles.detailEditActionBtnText, { color: theme.onPrimary }]}>Edit Wallet</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.detailCloseActionBtn, { borderColor: theme.outlineVariant, backgroundColor: theme.pillBg }]}
-              onPress={() => setSelectedWallet(null)}
-              activeOpacity={0.7}
-              accessibilityLabel="Close Wallet Details"
-            >
-              <MaterialCommunityIcons name="close" size={20} color={theme.onSurface} />
+              <MaterialCommunityIcons name="pencil-outline" size={20} color={theme.primary} />
             </TouchableOpacity>
           </View>
         </View>
@@ -1417,15 +1417,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  detailCloseActionBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  detailEditActionBtn: {
+  detailDoneActionBtn: {
     flex: 1,
     flexDirection: 'row',
     height: 48,
@@ -1434,8 +1426,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
   },
-  detailEditActionBtnText: {
-    fontSize: 14,
-    fontWeight: '700',
+  detailDoneActionBtnText: {
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  detailEditActionBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
