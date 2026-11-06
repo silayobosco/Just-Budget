@@ -239,24 +239,9 @@ export const CategoryPickerSheet: React.FC<CategoryPickerSheetProps> = ({
           </View>
         </View>
 
-        {/* Section Header with Quick Edit Link */}
-        <View style={styles.sectionHeaderRow}>
-          <Text style={[styles.sectionLabel, { color: theme.onSurfaceVariant, marginBottom: 0 }]}>
-            SELECT CATEGORY
-          </Text>
-
-          <TouchableOpacity
-            style={[styles.editSectionLink, { backgroundColor: theme.pillBg }]}
-            onPress={handleOpenCategoryManager}
-            activeOpacity={0.7}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <MaterialCommunityIcons name="tune" size={13} color={theme.primary} />
-            <Text style={[styles.editSectionLinkText, { color: theme.primary }]}>
-              Manage
-            </Text>
-          </TouchableOpacity>
-        </View>
+        <Text style={[styles.sectionLabel, { color: theme.onSurfaceVariant }]}>
+          SELECT CATEGORY
+        </Text>
 
           {/* Category Grid */}
           <ScrollView
@@ -698,24 +683,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  editSectionLink: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: M3Shape.full,
-  },
-  editSectionLinkText: {
-    fontSize: 11,
-    fontWeight: '700',
   },
   sectionLabel: {
     fontSize: 11,
