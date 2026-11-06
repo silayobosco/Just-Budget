@@ -327,15 +327,22 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
 
   const handleTakePhoto = async () => {
     try {
-      const perm = await ImagePicker.requestCameraPermissionsAsync();
-      if (!perm.granted) {
+      const current = await ImagePicker.getCameraPermissionsAsync();
+      let granted = current.granted;
+      if (!granted) {
+        const req = await ImagePicker.requestCameraPermissionsAsync();
+        granted = req.granted;
+      }
+      if (!granted) {
         Alert.alert(
           'Camera Permission',
-          'Camera permission is required to capture photo receipts. Please grant permission in device settings if previously denied.'
+          'Camera permission is required to capture photo receipts. Please enable camera permission in device settings.',
+          [{ text: 'OK' }]
         );
         return;
       }
       const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'],
         allowsEditing: false,
         quality: 0.8,
       });
@@ -345,10 +352,12 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
     } catch (err: any) {
       console.warn('Camera capture error:', err);
       Alert.alert(
-        'Unable to Capture Photo',
-        err?.message?.includes('ActivityNotFound')
-          ? 'No camera application found on this device or emulator. You can select photos from the gallery instead.'
-          : `Camera error: ${err?.message || 'Unable to open camera.'}`
+        'Camera Unavailable',
+        'Unable to launch camera on this device or emulator. Would you like to choose a receipt photo from your gallery instead?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Open Gallery', onPress: () => handlePickFromGallery() },
+        ]
       );
     }
   };
