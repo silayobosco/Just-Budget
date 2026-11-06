@@ -181,4 +181,4 @@ Have questions, suggestions, or feedback? Reach out directly:
 
 ## 🛡️ License
 
-Private / Proprietary. Built with ❤️ for financial freedom.
+This project is licensed under the [MIT License](LICENSE) — see the [LICENSE](LICENSE) file for details. Built with ❤️ for financial freedom.
