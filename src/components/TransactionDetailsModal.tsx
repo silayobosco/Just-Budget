@@ -19,6 +19,7 @@ import {
   UIManager,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { CameraView } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Category, Subcategory, Wallet, TransactionType, BillFrequency, RecurrenceEndType } from '../types';
@@ -203,6 +204,8 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   const [timeStr, setTimeStr] = useState<string>('');
   const [isPaid, setIsPaid] = useState<boolean>(true);
   const [mediaUri, setMediaUri] = useState<string | null>(null);
+  const [cameraVisible, setCameraVisible] = useState(false);
+  const cameraRef = useRef<CameraView>(null);
 
   // Recurrence states
   const [repeatEnabled, setRepeatEnabled] = useState<boolean>(false);
@@ -341,24 +344,29 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
         );
         return;
       }
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ['images'],
-        allowsEditing: false,
-        quality: 0.8,
-      });
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        setMediaUri(result.assets[0].uri);
-      }
+      setCameraVisible(true);
     } catch (err: any) {
       console.warn('Camera capture error:', err);
       Alert.alert(
         'Camera Unavailable',
-        'Unable to launch camera on this device or emulator. Would you like to choose a receipt photo from your gallery instead?',
+        'Unable to open the camera on this device. Would you like to choose a receipt photo from your gallery instead?',
         [
           { text: 'Cancel', style: 'cancel' },
           { text: 'Open Gallery', onPress: () => handlePickFromGallery() },
         ]
       );
+    }
+  };
+
+  const handleCapturePhoto = async () => {
+    try {
+      const photo = await cameraRef.current?.takePictureAsync({ quality: 0.8 });
+      if (photo?.uri) {
+        setMediaUri(photo.uri);
+        setCameraVisible(false);
+      }
+    } catch (err: any) {
+      Alert.alert('Camera Error', err?.message || 'Unable to take the photo. Please try again.');
     }
   };
 
@@ -1149,6 +1157,44 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
             </View>
           </Modal>
         )}
+
+        <Modal
+          visible={cameraVisible}
+          animationType="fade"
+          presentationStyle="fullScreen"
+          statusBarTranslucent
+          onRequestClose={() => setCameraVisible(false)}
+        >
+          <View style={styles.cameraScreen}>
+            <CameraView
+              ref={cameraRef}
+              style={styles.cameraPreview}
+              facing="back"
+              onMountError={({ message }) => {
+                setCameraVisible(false);
+                Alert.alert('Camera Unavailable', message);
+              }}
+            />
+            <View style={[styles.cameraControls, { paddingBottom: bottomInset + 16 }]}> 
+              <TouchableOpacity
+                style={[styles.cameraCloseButton, { backgroundColor: 'rgba(0, 0, 0, 0.55)' }]}
+                onPress={() => setCameraVisible(false)}
+                accessibilityLabel="Close camera"
+              >
+                <MaterialCommunityIcons name="close" size={26} color="#FFFFFF" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.cameraShutter, { borderColor: '#FFFFFF' }]}
+                onPress={handleCapturePhoto}
+                accessibilityLabel="Take photo"
+              >
+                <View style={[styles.cameraShutterInner, { backgroundColor: '#FFFFFF' }]} />
+              </TouchableOpacity>
+              <View style={styles.cameraControlSpacer} />
+            </View>
+          </View>
+        </Modal>
+
         {/* QUICK NEW SUBCATEGORY MODAL */}
         {quickSubModalVisible && (
           <View style={styles.quickModalBackdrop}>
@@ -1630,6 +1676,47 @@ const styles = StyleSheet.create({
   mediaActionText: {
     fontSize: 13,
     fontWeight: '700',
+  },
+  cameraScreen: {
+    flex: 1,
+    backgroundColor: '#000000',
+  },
+  cameraPreview: {
+    flex: 1,
+  },
+  cameraControls: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 28,
+    paddingTop: 20,
+  },
+  cameraCloseButton: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cameraShutter: {
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    borderWidth: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cameraShutterInner: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+  },
+  cameraControlSpacer: {
+    width: 46,
   },
   categorySelectorRow: {
     flexDirection: 'row',

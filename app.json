@@ -39,7 +39,17 @@
         "expo-image-picker",
         {
           "photosPermission": "The app accesses your photos to let you attach receipts to transactions.",
-          "cameraPermission": "The app accesses your camera to let you take photos of receipts."
+          "cameraPermission": "The app accesses your camera to let you take photos of receipts.",
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "The app accesses your camera to scan receipt photos.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false,
+          "barcodeScannerEnabled": false
         }
       ]
     ],
