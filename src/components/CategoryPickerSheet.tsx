@@ -15,6 +15,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Category, Subcategory, Wallet, TransactionType } from '../types';
 import { formatCurrency } from '../utils/format';
 import { M3Elevation, M3Shape } from '../theme';
+import { useBudget } from '../context/BudgetContext';
 
 interface CategoryPickerSheetProps {
   visible: boolean;
@@ -39,6 +40,9 @@ interface CategoryPickerSheetProps {
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 
+const QUICK_CAT_COLORS = ['#FF6F61', '#3B82F6', '#10B981', '#8B5CF6', '#F59E0B', '#EC4899', '#06B6D4', '#6366F1'];
+const QUICK_CAT_ICONS = ['tag-outline', 'gift-outline', 'store-outline', 'shape-outline', 'heart-outline', 'cash', 'account-group-outline', 'briefcase-outline'];
+
 export const CategoryPickerSheet: React.FC<CategoryPickerSheetProps> = ({
   visible,
   txType,
@@ -60,10 +64,19 @@ export const CategoryPickerSheet: React.FC<CategoryPickerSheetProps> = ({
   useNativeModal = true,
 }) => {
   const insets = useSafeAreaInsets();
+  const { addCategory: ctxAddCategory, addSubcategory: ctxAddSubcategory } = useBudget();
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>(initialCategoryId || '');
   const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<string>(initialSubcategoryId || '');
+  
+  // Quick Subcategory Modal state
   const [quickSubModalVisible, setQuickSubModalVisible] = useState(false);
   const [newSubName, setNewSubName] = useState('');
+
+  // Quick Category Modal state
+  const [quickCatModalVisible, setQuickCatModalVisible] = useState(false);
+  const [newCatName, setNewCatName] = useState('');
+  const [newCatColor, setNewCatColor] = useState('#8B5CF6');
+  const [newCatIcon, setNewCatIcon] = useState('tag-outline');
 
   const activeCategories = categories.filter((c) => c.type === txType);
   const selectedWallet = wallets.find((w) => w.id === walletId) || wallets[0];
@@ -86,11 +99,36 @@ export const CategoryPickerSheet: React.FC<CategoryPickerSheetProps> = ({
     }
   };
 
+  const handleSaveQuickCat = async () => {
+    if (!newCatName.trim()) return;
+    try {
+      const newId = await ctxAddCategory({
+        name: newCatName.trim(),
+        type: txType === 'income' ? 'income' : 'expense',
+        icon: newCatIcon || 'tag-outline',
+        color: newCatColor || '#8B5CF6',
+      });
+      setSelectedCategoryId(newId);
+      setSelectedSubcategoryId('');
+    } catch (err) {
+      console.error('Error adding category:', err);
+    }
+    setNewCatName('');
+    setQuickCatModalVisible(false);
+  };
+
   const handleSaveQuickSub = async () => {
     if (!newSubName.trim() || !selectedCategoryId) return;
-    if (onAddSubcategory) {
-      const newId = await onAddSubcategory(selectedCategoryId, newSubName.trim());
-      setSelectedSubcategoryId(newId);
+    try {
+      if (onAddSubcategory) {
+        const newId = await onAddSubcategory(selectedCategoryId, newSubName.trim());
+        setSelectedSubcategoryId(newId);
+      } else if (ctxAddSubcategory) {
+        const newId = await ctxAddSubcategory(selectedCategoryId, newSubName.trim());
+        setSelectedSubcategoryId(newId);
+      }
+    } catch (err) {
+      console.error('Error adding subcategory:', err);
     }
     setNewSubName('');
     setQuickSubModalVisible(false);
@@ -236,26 +274,21 @@ export const CategoryPickerSheet: React.FC<CategoryPickerSheetProps> = ({
                 );
               })}
 
-              {/* Add / Manage Categories */}
-              {onManageCategories && (
-                <TouchableOpacity
-                  style={[
-                    styles.categoryCard,
-                    styles.manageCatCard,
-                    { backgroundColor: theme.pillBg, borderColor: theme.outlineVariant },
-                  ]}
-                  onPress={() => {
-                    onClose();
-                    onManageCategories();
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <MaterialCommunityIcons name="plus" size={20} color={theme.primary} />
-                  <Text style={[styles.categoryName, { color: theme.primary, fontWeight: '700' }]}>
-                    New
-                  </Text>
-                </TouchableOpacity>
-              )}
+              {/* + New Category Button */}
+              <TouchableOpacity
+                style={[
+                  styles.categoryCard,
+                  styles.manageCatCard,
+                  { backgroundColor: theme.pillBg, borderColor: theme.outlineVariant },
+                ]}
+                onPress={() => setQuickCatModalVisible(true)}
+                activeOpacity={0.7}
+              >
+                <MaterialCommunityIcons name="plus" size={20} color={theme.primary} />
+                <Text style={[styles.categoryName, { color: theme.primary, fontWeight: '700' }]}>
+                  New
+                </Text>
+              </TouchableOpacity>
             </View>
 
             {/* Subcategories grid if category selected */}
@@ -405,6 +438,108 @@ export const CategoryPickerSheet: React.FC<CategoryPickerSheetProps> = ({
                 <TouchableOpacity
                   style={[styles.quickModalBtn, { backgroundColor: theme.primary }]}
                   onPress={handleSaveQuickSub}
+                >
+                  <Text style={{ color: theme.onPrimary, fontWeight: '700' }}>Save</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* QUICK NEW CATEGORY MODAL */}
+        {quickCatModalVisible && (
+          <View style={styles.quickModalBackdrop}>
+            <View style={[styles.quickModalBox, { backgroundColor: theme.surface }]}>
+              <Text style={[styles.quickModalTitle, { color: theme.onSurface }]}>New Category</Text>
+              <Text style={[styles.quickModalSubtitle, { color: theme.onSurfaceVariant }]}>
+                Add to {isExpense ? 'Expenses' : 'Income'}
+              </Text>
+
+              <TextInput
+                style={[
+                  styles.quickModalInput,
+                  { backgroundColor: theme.pillBg, color: theme.onSurface },
+                ]}
+                placeholder="Category Name (e.g. Gifts, Business)"
+                placeholderTextColor={theme.onSurfaceVariant}
+                value={newCatName}
+                onChangeText={setNewCatName}
+                autoFocus={true}
+              />
+
+              {/* Color Selector */}
+              <Text style={[styles.quickSectionLabel, { color: theme.onSurfaceVariant }]}>COLOR</Text>
+              <View style={styles.quickPickerRow}>
+                {QUICK_CAT_COLORS.map((c) => {
+                  const isSel = newCatColor === c;
+                  return (
+                    <TouchableOpacity
+                      key={c}
+                      onPress={() => setNewCatColor(c)}
+                      style={[
+                        styles.colorDot,
+                        { backgroundColor: c },
+                        isSel && styles.colorDotSelected,
+                      ]}
+                      activeOpacity={0.8}
+                    />
+                  );
+                })}
+              </View>
+
+              {/* Icon Selector */}
+              <Text style={[styles.quickSectionLabel, { color: theme.onSurfaceVariant }]}>ICON</Text>
+              <View style={styles.quickPickerRow}>
+                {QUICK_CAT_ICONS.map((ic) => {
+                  const isSel = newCatIcon === ic;
+                  return (
+                    <TouchableOpacity
+                      key={ic}
+                      onPress={() => setNewCatIcon(ic)}
+                      style={[
+                        styles.iconCircle,
+                        { backgroundColor: isSel ? newCatColor : theme.pillBg },
+                      ]}
+                      activeOpacity={0.8}
+                    >
+                      <MaterialCommunityIcons
+                        name={ic as any}
+                        size={18}
+                        color={isSel ? '#FFFFFF' : theme.onSurfaceVariant}
+                      />
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {onManageCategories && (
+                <TouchableOpacity
+                  onPress={() => {
+                    setQuickCatModalVisible(false);
+                    onClose();
+                    onManageCategories();
+                  }}
+                  style={{ alignSelf: 'flex-start', paddingVertical: 4 }}
+                >
+                  <Text style={{ fontSize: 12, color: theme.primary, fontWeight: '600' }}>
+                    Open full Category Manager →
+                  </Text>
+                </TouchableOpacity>
+              )}
+
+              <View style={styles.quickModalBtnRow}>
+                <TouchableOpacity
+                  style={[styles.quickModalBtn, { backgroundColor: theme.pillBg }]}
+                  onPress={() => {
+                    setNewCatName('');
+                    setQuickCatModalVisible(false);
+                  }}
+                >
+                  <Text style={{ color: theme.onSurface }}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.quickModalBtn, { backgroundColor: theme.primary }]}
+                  onPress={handleSaveQuickCat}
                 >
                   <Text style={{ color: theme.onPrimary, fontWeight: '700' }}>Save</Text>
                 </TouchableOpacity>
@@ -648,5 +783,35 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: M3Shape.full,
+  },
+  quickSectionLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    marginTop: 4,
+  },
+  quickPickerRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  colorDot: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+  },
+  colorDotSelected: {
+    borderWidth: 2.5,
+    borderColor: '#FFFFFF',
+    transform: [{ scale: 1.15 }],
+  },
+  iconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

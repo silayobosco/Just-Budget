@@ -213,6 +213,36 @@ export const DEFAULT_EXPENSE_CATEGORIES: {
     color: '#06B6D4',
     subs: ['Doctor & Pharmacy', 'Fitness & Gym', 'Dental & Vision', 'Therapy'],
   },
+  {
+    id: 'cat-gifts-expense',
+    name: 'Gifts',
+    type: 'expense',
+    icon: 'gift-outline',
+    color: '#EC4899',
+    subs: [
+      'Family & Friends',
+      'Donations',
+      'Grants',
+      'Allowances',
+      'Weddings & Celebrations',
+      'Condolences & Funerals',
+    ],
+  },
+  {
+    id: 'cat-business-expense',
+    name: 'Business',
+    type: 'expense',
+    icon: 'store-outline',
+    color: '#6366F1',
+    subs: [
+      'Inventory & Stock',
+      'Supplies & Equipment',
+      'Marketing & Ads',
+      'Shipping & Logistics',
+      'Wages & Freelancers',
+      'Licenses & Taxes',
+    ],
+  },
 ];
 
 export const ensureDefaultExpenseCategories = (db: SQLite.SQLiteDatabase) => {
@@ -397,62 +427,8 @@ const seedInitialData = (db: SQLite.SQLiteDatabase) => {
   // Check categories (Seed standard categories taxonomy if empty, without monetary amounts)
   const catCount = db.getFirstSync<{ count: number }>(`SELECT COUNT(*) as count FROM categories`);
   if (!catCount || catCount.count === 0) {
-    const defaultCategories: {
-      id: string;
-      name: string;
-      type: 'expense' | 'income';
-      icon: string;
-      color: string;
-      subs: string[];
-    }[] = [
-      {
-        id: 'cat-food',
-        name: 'Food & Dining',
-        type: 'expense',
-        icon: 'silverware-fork-knife',
-        color: '#FF6F61',
-        subs: ['Breakfast', 'Lunch', 'Dinner', 'Drinks', 'Snacks', 'Groceries', 'Delivery', 'Restaurant'],
-      },
-      {
-        id: 'cat-housing',
-        name: 'Housing & Bills',
-        type: 'expense',
-        icon: 'home-outline',
-        color: '#3B82F6',
-        subs: ['Rent / Mortgage', 'Electricity', 'Water', 'Internet / Wi-Fi', 'Repairs & Upkeep'],
-      },
-      {
-        id: 'cat-transport',
-        name: 'Transportation',
-        type: 'expense',
-        icon: 'car-outline',
-        color: '#F59E0B',
-        subs: ['Fuel & Gas', 'Public Transit', 'Taxi & Rideshare', 'Parking & Tolls', 'Vehicle Maintenance'],
-      },
-      {
-        id: 'cat-shopping',
-        name: 'Shopping & Goods',
-        type: 'expense',
-        icon: 'shopping-outline',
-        color: '#8B5CF6',
-        subs: ['Clothing & Shoes', 'Electronics', 'Home Goods', 'Personal Care', 'Gifts'],
-      },
-      {
-        id: 'cat-entertainment',
-        name: 'Fun & Leisure',
-        type: 'expense',
-        icon: 'gamepad-variant-outline',
-        color: '#EC4899',
-        subs: ['Subscriptions & Streaming', 'Cinema & Events', 'Hobbies', 'Travel & Outings'],
-      },
-      {
-        id: 'cat-health',
-        name: 'Health & Wellness',
-        type: 'expense',
-        icon: 'heart-pulse',
-        color: '#06B6D4',
-        subs: ['Doctor & Pharmacy', 'Fitness & Gym', 'Dental & Vision', 'Therapy'],
-      },
+    const defaultCategories = [
+      ...DEFAULT_EXPENSE_CATEGORIES,
       ...DEFAULT_INCOME_CATEGORIES,
     ];
 
