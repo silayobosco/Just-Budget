@@ -215,7 +215,7 @@ export const DEFAULT_EXPENSE_CATEGORIES: {
   },
   {
     id: 'cat-gifts-expense',
-    name: 'Gifts',
+    name: 'Gifts & Contributions',
     type: 'expense',
     icon: 'gift-outline',
     color: '#EC4899',
@@ -252,6 +252,11 @@ export const ensureDefaultExpenseCategories = (db: SQLite.SQLiteDatabase) => {
         `INSERT OR IGNORE INTO categories (id, name, type, icon, color, is_default) VALUES (?, ?, ?, ?, ?, 1)`,
         [cat.id, cat.name, cat.type, cat.icon, cat.color]
       );
+
+      // Keep default Gifts & Contributions name in sync
+      if (cat.id === 'cat-gifts-expense') {
+        db.runSync(`UPDATE categories SET name = ? WHERE id = ? AND name = 'Gifts'`, [cat.name, cat.id]);
+      }
 
       // Clean up legacy default Food subcategories if they have no transactions
       if (cat.id === 'cat-food') {

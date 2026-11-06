@@ -16,6 +16,7 @@ import { Category, Subcategory, Wallet, TransactionType } from '../types';
 import { formatCurrency } from '../utils/format';
 import { M3Elevation, M3Shape } from '../theme';
 import { useBudget } from '../context/BudgetContext';
+import { CategoryManagerModal } from './CategoryManagerModal';
 
 interface CategoryPickerSheetProps {
   visible: boolean;
@@ -77,6 +78,9 @@ export const CategoryPickerSheet: React.FC<CategoryPickerSheetProps> = ({
   const [newCatName, setNewCatName] = useState('');
   const [newCatColor, setNewCatColor] = useState('#8B5CF6');
   const [newCatIcon, setNewCatIcon] = useState('tag-outline');
+
+  // Full Category Manager Modal state
+  const [categoryManagerVisible, setCategoryManagerVisible] = useState(false);
 
   const activeCategories = categories.filter((c) => c.type === txType);
   const selectedWallet = wallets.find((w) => w.id === walletId) || wallets[0];
@@ -148,6 +152,15 @@ export const CategoryPickerSheet: React.FC<CategoryPickerSheetProps> = ({
     });
   };
 
+  const handleOpenCategoryManager = () => {
+    if (onManageCategories) {
+      onClose();
+      onManageCategories();
+    } else {
+      setCategoryManagerVisible(true);
+    }
+  };
+
   if (!visible) return null;
 
   const isExpense = txType === 'expense';
@@ -206,18 +219,44 @@ export const CategoryPickerSheet: React.FC<CategoryPickerSheetProps> = ({
             )}
           </View>
 
-          <TouchableOpacity
-            onPress={onClose}
-            style={[styles.closeBtn, { backgroundColor: theme.pillBg }]}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <MaterialCommunityIcons name="close" size={18} color={theme.onSurfaceVariant} />
-          </TouchableOpacity>
+          <View style={styles.headerRightActions}>
+            <TouchableOpacity
+              onPress={handleOpenCategoryManager}
+              style={[styles.headerIconBtn, { backgroundColor: theme.pillBg }]}
+              accessibilityLabel="Edit Categories in Manager"
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <MaterialCommunityIcons name="pencil-outline" size={17} color={theme.primary} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={onClose}
+              style={[styles.closeBtn, { backgroundColor: theme.pillBg }]}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <MaterialCommunityIcons name="close" size={18} color={theme.onSurfaceVariant} />
+            </TouchableOpacity>
+          </View>
         </View>
 
-          <Text style={[styles.sectionLabel, { color: theme.onSurfaceVariant }]}>
+        {/* Section Header with Quick Edit Link */}
+        <View style={styles.sectionHeaderRow}>
+          <Text style={[styles.sectionLabel, { color: theme.onSurfaceVariant, marginBottom: 0 }]}>
             SELECT CATEGORY
           </Text>
+
+          <TouchableOpacity
+            style={[styles.editSectionLink, { backgroundColor: theme.pillBg }]}
+            onPress={handleOpenCategoryManager}
+            activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <MaterialCommunityIcons name="tune" size={13} color={theme.primary} />
+            <Text style={[styles.editSectionLinkText, { color: theme.primary }]}>
+              Manage
+            </Text>
+          </TouchableOpacity>
+        </View>
 
           {/* Category Grid */}
           <ScrollView
@@ -547,6 +586,14 @@ export const CategoryPickerSheet: React.FC<CategoryPickerSheetProps> = ({
             </View>
           </View>
         )}
+
+        {/* FULL CATEGORY MANAGER MODAL */}
+        {categoryManagerVisible && (
+          <CategoryManagerModal
+            visible={categoryManagerVisible}
+            onClose={() => setCategoryManagerVisible(false)}
+          />
+        )}
       </View>
   );
 
@@ -633,12 +680,42 @@ const styles = StyleSheet.create({
   walletSubText: {
     fontSize: 12,
   },
+  headerRightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerIconBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   closeBtn: {
     width: 32,
     height: 32,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  editSectionLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: M3Shape.full,
+  },
+  editSectionLinkText: {
+    fontSize: 11,
+    fontWeight: '700',
   },
   sectionLabel: {
     fontSize: 11,
