@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import { getDB, initDatabase, ensureDefaultWallets, ensureDefaultExpenseCategories, ensureDefaultIncomeCategories, restoreAllDefaultCategories } from '../services/db';
-import { exportBackupData, importBackupData } from '../services/backup';
+import { exportBackupData, importBackupData, pickBackupFileAsync, restoreFromBackupContentAsync } from '../services/backup';
 import { hashPin, verifyPin, authenticateWithBiometrics, checkBiometricsAvailable } from '../services/security';
 import { syncAllRemindersAsync, requestNotificationPermissionsAsync } from '../services/notifications';
 import { formatCycleDateRange, getRegularCycleDates, formatCurrency } from '../utils/format';
@@ -187,7 +187,9 @@ interface BudgetContextType {
   authenticateBiometrics: () => Promise<boolean>;
 
   exportBackup: (passphrase?: string) => Promise<boolean>;
-  importBackup: (passphrase?: string) => Promise<{ success: boolean; message: string; requiresPassphrase?: boolean }>;
+  importBackup: (passphrase?: string) => Promise<{ success: boolean; message: string; requiresPassphrase?: boolean; incorrectPassphrase?: boolean }>;
+  pickBackupFile: () => Promise<{ canceled: boolean; content?: string; isEncrypted?: boolean; fileName?: string; error?: string }>;
+  restoreBackupContent: (content: string, passphrase?: string) => Promise<{ success: boolean; message: string; requiresPassphrase?: boolean; incorrectPassphrase?: boolean }>;
   requestNotificationPermissions: () => Promise<boolean>;
   reloadAllData: () => Promise<void>;
 }
@@ -480,6 +482,17 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           if (lockRow?.value === '1' && pinRow?.value) {
             setIsAppLocked(true);
           }
+        }
+
+        // Prompt for notification permission on startup if notifications are active
+        try {
+          const db = getDB();
+          const notifRow = db.getFirstSync<{ value: string }>(`SELECT value FROM settings WHERE key = 'notifications_enabled'`);
+          if (notifRow?.value !== '0') {
+            await requestNotificationPermissionsAsync();
+          }
+        } catch (e) {
+          console.warn('Initial notification permission prompt error:', e);
         }
       } catch (err) {
         console.error('Database initialization error:', err);
@@ -1555,8 +1568,20 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return await exportBackupData(passphrase);
   };
 
-  const importBackup = async (passphrase?: string): Promise<{ success: boolean; message: string; requiresPassphrase?: boolean }> => {
+  const importBackup = async (passphrase?: string): Promise<{ success: boolean; message: string; requiresPassphrase?: boolean; incorrectPassphrase?: boolean }> => {
     const result = await importBackupData(passphrase);
+    if (result.success) {
+      await loadData();
+    }
+    return result;
+  };
+
+  const pickBackupFile = async () => {
+    return await pickBackupFileAsync();
+  };
+
+  const restoreBackupContent = async (content: string, passphrase?: string) => {
+    const result = await restoreFromBackupContentAsync(content, passphrase);
     if (result.success) {
       await loadData();
     }
@@ -1746,6 +1771,8 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         authenticateBiometrics,
         exportBackup,
         importBackup,
+        pickBackupFile,
+        restoreBackupContent,
         requestNotificationPermissions,
         reloadAllData: loadData,
       }}

@@ -307,16 +307,21 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
 
   const handlePickFromGallery = async () => {
     try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert('Permission Denied', 'Gallery permission is required to select receipt photos.');
+        return;
+      }
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
-        allowsEditing: true,
+        allowsEditing: false,
         quality: 0.8,
       });
       if (!result.canceled && result.assets && result.assets.length > 0) {
         setMediaUri(result.assets[0].uri);
       }
-    } catch (err) {
-      Alert.alert('Error', 'Unable to pick image');
+    } catch (err: any) {
+      Alert.alert('Error', `Unable to pick image: ${err?.message || 'Unknown error'}`);
     }
   };
 
@@ -324,18 +329,27 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
     try {
       const perm = await ImagePicker.requestCameraPermissionsAsync();
       if (!perm.granted) {
-        Alert.alert('Camera Permission', 'Camera permission is required to capture photo receipts.');
+        Alert.alert(
+          'Camera Permission',
+          'Camera permission is required to capture photo receipts. Please grant permission in device settings if previously denied.'
+        );
         return;
       }
       const result = await ImagePicker.launchCameraAsync({
-        allowsEditing: true,
+        allowsEditing: false,
         quality: 0.8,
       });
       if (!result.canceled && result.assets && result.assets.length > 0) {
         setMediaUri(result.assets[0].uri);
       }
-    } catch (err) {
-      Alert.alert('Error', 'Unable to capture photo');
+    } catch (err: any) {
+      console.warn('Camera capture error:', err);
+      Alert.alert(
+        'Unable to Capture Photo',
+        err?.message?.includes('ActivityNotFound')
+          ? 'No camera application found on this device or emulator. You can select photos from the gallery instead.'
+          : `Camera error: ${err?.message || 'Unable to open camera.'}`
+      );
     }
   };
 

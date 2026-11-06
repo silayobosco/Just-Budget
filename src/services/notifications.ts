@@ -176,9 +176,7 @@ export const sendTestNotificationAsync = async (): Promise<boolean> => {
       body: 'Notifications and bill reminders are working perfectly on your device.',
       sound: true,
     },
-    trigger: {
-      channelId: 'budget-reminders',
-    },
+    trigger: null,
   });
   return true;
 };

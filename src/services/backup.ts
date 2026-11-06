@@ -78,7 +78,13 @@ export const exportBackupData = async (passphrase?: string): Promise<boolean> =>
   return false;
 };
 
-export const importBackupData = async (passphrase?: string): Promise<{ success: boolean; message: string; requiresPassphrase?: boolean }> => {
+export const pickBackupFileAsync = async (): Promise<{
+  canceled: boolean;
+  content?: string;
+  isEncrypted?: boolean;
+  fileName?: string;
+  error?: string;
+}> => {
   try {
     const result = await DocumentPicker.getDocumentAsync({
       type: ['*/*'],
@@ -86,16 +92,44 @@ export const importBackupData = async (passphrase?: string): Promise<{ success: 
     });
 
     if (result.canceled || !result.assets || result.assets.length === 0) {
-      return { success: false, message: 'Restore cancelled by user' };
+      return { canceled: true };
     }
 
-    const fileUri = result.assets[0].uri;
-    let fileContent = await FileSystem.readAsStringAsync(fileUri, {
+    const asset = result.assets[0];
+    const fileContent = await FileSystem.readAsStringAsync(asset.uri, {
       encoding: FileSystem.EncodingType.UTF8,
     });
 
+    const isEncrypted = fileContent.includes('"encrypted":true') || fileContent.includes('"encrypted": true');
+
+    return {
+      canceled: false,
+      content: fileContent,
+      isEncrypted,
+      fileName: asset.name,
+    };
+  } catch (err: any) {
+    return {
+      canceled: false,
+      error: err.message || 'Failed to read the selected backup file.',
+    };
+  }
+};
+
+export const restoreFromBackupContentAsync = async (
+  fileContent: string,
+  passphrase?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  requiresPassphrase?: boolean;
+  incorrectPassphrase?: boolean;
+}> => {
+  try {
+    let payloadStr = fileContent;
+
     // Check if the backup is encrypted
-    if (fileContent.includes('"encrypted":true') || fileContent.includes('"encrypted": true')) {
+    if (payloadStr.includes('"encrypted":true') || payloadStr.includes('"encrypted": true')) {
       if (!passphrase || !passphrase.trim()) {
         return {
           success: false,
@@ -104,16 +138,26 @@ export const importBackupData = async (passphrase?: string): Promise<{ success: 
         };
       }
       try {
-        fileContent = await decryptBackupPayload(fileContent, passphrase.trim());
+        payloadStr = await decryptBackupPayload(payloadStr, passphrase.trim());
       } catch (err: any) {
         return {
           success: false,
-          message: err.message || 'Incorrect decryption password.',
+          incorrectPassphrase: true,
+          message: 'Incorrect decryption password. Please check your password and try again.',
         };
       }
     }
 
-    const parsed: BackupData = JSON.parse(fileContent);
+    let parsed: BackupData;
+    try {
+      parsed = JSON.parse(payloadStr);
+    } catch {
+      return {
+        success: false,
+        incorrectPassphrase: true,
+        message: 'Could not decrypt backup file. Incorrect password or corrupted data.',
+      };
+    }
 
     if (!parsed || parsed.app !== 'just budget' || !parsed.wallets || !parsed.categories) {
       return { success: false, message: 'Invalid backup file format for "just budget"' };
@@ -253,4 +297,17 @@ export const importBackupData = async (passphrase?: string): Promise<{ success: 
   } catch (error: any) {
     return { success: false, message: error.message || 'Failed to restore backup' };
   }
+};
+
+export const importBackupData = async (
+  passphrase?: string
+): Promise<{ success: boolean; message: string; requiresPassphrase?: boolean; incorrectPassphrase?: boolean }> => {
+  const pick = await pickBackupFileAsync();
+  if (pick.canceled || !pick.content) {
+    return { success: false, message: 'Restore cancelled by user' };
+  }
+  if (pick.error) {
+    return { success: false, message: pick.error };
+  }
+  return await restoreFromBackupContentAsync(pick.content, passphrase);
 };

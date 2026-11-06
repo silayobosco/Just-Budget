@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   Image,
   Modal,
   Linking,
+  ActivityIndicator,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -20,7 +21,7 @@ import { formatCurrency } from '../utils/format';
 import { CategoryManagerModal } from '../components/CategoryManagerModal';
 import { RecurringBillsModal } from '../components/RecurringBillsModal';
 import { SecuritySetupModal } from '../components/SecuritySetupModal';
-import { sendTestNotificationAsync, requestNotificationPermissionsAsync } from '../services/notifications';
+import { sendTestNotificationAsync, requestNotificationPermissionsAsync, checkNotificationPermissionsAsync } from '../services/notifications';
 
 const CURRENCY_LIST = [
   { code: 'TZS', symbol: 'TSh', name: 'Tanzanian Shilling' },
@@ -80,6 +81,8 @@ export const SettingsScreen: React.FC = () => {
     updateSettings,
     exportBackup,
     importBackup,
+    pickBackupFile,
+    restoreBackupContent,
     transactions,
     wallets,
     categories,
@@ -103,7 +106,16 @@ export const SettingsScreen: React.FC = () => {
   const [backupPassphrase, setBackupPassphrase] = useState('');
   const [backupPassError, setBackupPassError] = useState('');
   const [showBackupPassword, setShowBackupPassword] = useState(false);
+  const [pendingEncryptedBackup, setPendingEncryptedBackup] = useState<string | null>(null);
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [hasSystemNotifPerm, setHasSystemNotifPerm] = useState<boolean>(true);
   const [statusMessage, setStatusMessage] = useState<string>('');
+
+  useEffect(() => {
+    checkNotificationPermissionsAsync().then((granted) => {
+      setHasSystemNotifPerm(granted);
+    });
+  }, []);
 
   const filteredCurrencies = useMemo(() => {
     const q = currencySearch.trim().toLowerCase();
@@ -125,6 +137,7 @@ export const SettingsScreen: React.FC = () => {
   const handleToggleNotifications = async (enabled: boolean) => {
     if (enabled) {
       const granted = await requestNotificationPermissionsAsync();
+      setHasSystemNotifPerm(granted);
       if (!granted) {
         Alert.alert(
           'Notification Permission Required',
@@ -139,6 +152,7 @@ export const SettingsScreen: React.FC = () => {
 
   const handleTestNotification = async () => {
     const success = await sendTestNotificationAsync();
+    setHasSystemNotifPerm(success);
     if (success) {
       Alert.alert('Notification Sent', 'A test reminder has been delivered to your notification tray!');
     } else {
@@ -235,22 +249,46 @@ export const SettingsScreen: React.FC = () => {
     }
   };
 
-  const handleImport = async (passphrase?: string) => {
+  const handleImport = async () => {
     try {
       setStatusMessage('Opening document picker...');
-      const result = await importBackup(passphrase);
-      setStatusMessage(result.message);
-      if (result.success) {
-        Alert.alert('Success', 'Your budget session has been restored completely!');
-        setBackupPasswordModalVisible(false);
-      } else if (result.requiresPassphrase) {
+      const pickResult = await pickBackupFile();
+      if (pickResult.canceled || !pickResult.content) {
+        setStatusMessage('Restore cancelled');
+        return;
+      }
+      if (pickResult.error) {
+        setStatusMessage(`Restore failed: ${pickResult.error}`);
+        Alert.alert('Error', pickResult.error);
+        return;
+      }
+
+      if (pickResult.isEncrypted) {
+        setPendingEncryptedBackup(pickResult.content);
         setBackupAction('import');
         setBackupPassphrase('');
-        setBackupPassError(result.message || 'Please enter decryption password.');
+        setBackupPassError('');
         setBackupPasswordModalVisible(true);
+        setStatusMessage('Encrypted backup selected. Enter password to restore.');
+        return;
+      }
+
+      // Plain unencrypted backup
+      setStatusMessage('Restoring backup...');
+      setIsRestoring(true);
+      const restoreResult = await restoreBackupContent(pickResult.content);
+      setIsRestoring(false);
+      if (restoreResult.success) {
+        Alert.alert('Success', 'Your budget session has been restored completely!');
+        setStatusMessage('Backup restored successfully.');
+      } else {
+        Alert.alert('Restore Failed', restoreResult.message);
+        setStatusMessage(`Restore failed: ${restoreResult.message}`);
       }
     } catch (err: any) {
+      setIsRestoring(false);
       setStatusMessage(`Restore failed: ${err.message}`);
+      Alert.alert('Restore Error', err.message || 'Failed to restore backup file.');
     }
   };
 
@@ -263,8 +301,41 @@ export const SettingsScreen: React.FC = () => {
         setBackupPassError('Please enter the password to decrypt the backup file.');
         return;
       }
-      await handleImport(backupPassphrase.trim());
+      if (!pendingEncryptedBackup) {
+        setBackupPassError('No backup file selected. Please select a backup file first.');
+        return;
+      }
+
+      setStatusMessage('Decrypting and restoring backup...');
+      setIsRestoring(true);
+      const restoreResult = await restoreBackupContent(pendingEncryptedBackup, backupPassphrase.trim());
+      setIsRestoring(false);
+
+      if (restoreResult.success) {
+        setBackupPasswordModalVisible(false);
+        setPendingEncryptedBackup(null);
+        setBackupPassphrase('');
+        setBackupPassError('');
+        Alert.alert('Success', 'Your budget session has been restored completely!');
+        setStatusMessage('Backup restored successfully.');
+      } else if (restoreResult.incorrectPassphrase) {
+        // Keep the modal open and do NOT re-pick the file!
+        setBackupPassError('Incorrect decryption password. Please check your password and try again.');
+        Alert.alert('Incorrect Password', 'The password you entered is incorrect. Please check your password and try again.');
+        setStatusMessage('Incorrect decryption password.');
+      } else {
+        setBackupPassError(restoreResult.message);
+        Alert.alert('Restore Failed', restoreResult.message);
+        setStatusMessage(`Restore failed: ${restoreResult.message}`);
+      }
     }
+  };
+
+  const handleClosePasswordModal = () => {
+    setBackupPasswordModalVisible(false);
+    setPendingEncryptedBackup(null);
+    setBackupPassphrase('');
+    setBackupPassError('');
   };
 
   return (
@@ -473,6 +544,29 @@ export const SettingsScreen: React.FC = () => {
               trackColor={{ false: theme.divider, true: theme.primaryContainer }}
             />
           </View>
+
+          {settings.notifications_enabled !== false && !hasSystemNotifPerm && (
+            <TouchableOpacity
+              style={[styles.notifPermBanner, { backgroundColor: theme.errorContainer }]}
+              onPress={async () => {
+                const granted = await requestNotificationPermissionsAsync();
+                setHasSystemNotifPerm(granted);
+                if (!granted) {
+                  Alert.alert(
+                    'Permission Required',
+                    'Notification permission was previously denied. Please enable notifications for Just Budget in Android App Settings.',
+                    [{ text: 'OK' }]
+                  );
+                }
+              }}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons name="alert-circle-outline" size={18} color={theme.error} />
+              <Text style={[styles.notifPermBannerText, { color: theme.error }]}>
+                System notification permission is not granted. Tap here to allow notifications.
+              </Text>
+            </TouchableOpacity>
+          )}
 
           {settings.notifications_enabled !== false && (
             <>
@@ -929,7 +1023,7 @@ export const SettingsScreen: React.FC = () => {
         visible={backupPasswordModalVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => setBackupPasswordModalVisible(false)}
+        onRequestClose={handleClosePasswordModal}
       >
         <View style={styles.modalOverlay}>
           <View style={[styles.passwordModalBox, { backgroundColor: theme.surface }]}>
@@ -945,7 +1039,7 @@ export const SettingsScreen: React.FC = () => {
                 </Text>
               </View>
               <TouchableOpacity
-                onPress={() => setBackupPasswordModalVisible(false)}
+                onPress={handleClosePasswordModal}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
                 <MaterialCommunityIcons name="close" size={22} color={theme.onSurface} />
@@ -994,17 +1088,26 @@ export const SettingsScreen: React.FC = () => {
             <View style={styles.passwordModalActions}>
               <TouchableOpacity
                 style={[styles.passwordCancelBtn, { borderColor: theme.divider }]}
-                onPress={() => setBackupPasswordModalVisible(false)}
+                onPress={handleClosePasswordModal}
+                disabled={isRestoring}
               >
                 <Text style={[styles.passwordCancelText, { color: theme.onSurfaceVariant }]}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.passwordConfirmBtn, { backgroundColor: theme.primary }]}
+                style={[
+                  styles.passwordConfirmBtn,
+                  { backgroundColor: theme.primary, opacity: isRestoring ? 0.7 : 1 },
+                ]}
                 onPress={handleBackupPasswordSubmit}
+                disabled={isRestoring}
               >
-                <Text style={[styles.passwordConfirmText, { color: theme.onPrimary }]}>
-                  {backupAction === 'export' ? 'Export' : 'Restore'}
-                </Text>
+                {isRestoring ? (
+                  <ActivityIndicator size="small" color={theme.onPrimary} />
+                ) : (
+                  <Text style={[styles.passwordConfirmText, { color: theme.onPrimary }]}>
+                    {backupAction === 'export' ? 'Export' : 'Restore'}
+                  </Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -1461,5 +1564,19 @@ const styles = StyleSheet.create({
   passwordConfirmText: {
     fontSize: 13,
     fontWeight: '700',
+  },
+  notifPermBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    marginVertical: 8,
+    padding: 10,
+    borderRadius: 8,
+  },
+  notifPermBannerText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '600',
   },
 });
