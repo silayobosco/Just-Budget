@@ -98,8 +98,10 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   const insets = useSafeAreaInsets();
   const insetsRef = useRef(insets);
   insetsRef.current = insets;
+  const topInset = Math.max(insets.top, Platform.OS === 'android' ? Math.max(StatusBar.currentHeight || 0, 28) : 0);
+  const bottomInset = Math.max(insets.bottom, Platform.OS === 'android' ? 48 : 20);
   const { height: windowHeight } = useWindowDimensions();
-  const bottomScrollPadding = Math.max(360, Math.round(windowHeight * 0.52)) + (insets.bottom || 0);
+  const bottomScrollPadding = Math.max(360, Math.round(windowHeight * 0.52)) + bottomInset;
   const [currentType, setCurrentType] = useState<TransactionType>(defaultTxType);
   const [amountStr, setAmountStr] = useState<string>('');
   const amountInputRef = useRef<any>(null);
@@ -394,13 +396,21 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
           styles.container,
           {
             backgroundColor: theme.background,
-            paddingTop: Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 0),
             paddingBottom: keyboardHeight,
           },
         ]}
       >
         {/* Top App Bar */}
-        <View style={[styles.topBar, { backgroundColor: theme.surface, borderBottomColor: theme.divider }]}>
+        <View
+          style={[
+            styles.topBar,
+            {
+              backgroundColor: theme.surface,
+              borderBottomColor: theme.divider,
+              paddingTop: topInset + 8,
+            },
+          ]}
+        >
           <TouchableOpacity
             onPress={onClose}
             style={[styles.backBtn, { backgroundColor: theme.pillBg }]}
@@ -982,7 +992,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
             {
               backgroundColor: theme.surface,
               borderTopColor: theme.divider,
-              paddingBottom: keyboardHeight > 0 ? 8 : Math.max(insets.bottom, Platform.OS === 'android' ? 32 : 16),
+              paddingBottom: keyboardHeight > 0 ? 10 : bottomInset + 12,
             },
             M3Elevation.level2,
           ]}

@@ -8,7 +8,8 @@ import {
   TextInput,
   Modal,
   Alert,
-  SafeAreaView,
+  Platform,
+  StatusBar,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -20,6 +21,8 @@ import { TransactionDetailModal } from '../components/TransactionDetailModal';
 
 export const WalletsScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
+  const topInset = Math.max(insets.top, Platform.OS === 'android' ? Math.max(StatusBar.currentHeight || 0, 28) : 0);
+  const bottomInset = Math.max(insets.bottom, Platform.OS === 'android' ? 48 : 20);
   const {
     wallets,
     totalConvertedBalance,
@@ -587,11 +590,22 @@ export const WalletsScreen: React.FC = () => {
       <Modal
         visible={Boolean(selectedWallet)}
         animationType="slide"
+        statusBarTranslucent={true}
         onRequestClose={() => setSelectedWallet(null)}
       >
-        <SafeAreaView style={[styles.detailContainer, { backgroundColor: theme.background }]}>
+        <View style={[styles.detailContainer, { backgroundColor: theme.background }]}>
           {/* TOP NAV BAR */}
-          <View style={[styles.detailNavBar, { borderBottomColor: theme.divider, backgroundColor: theme.surface }]}>
+          <View
+            style={[
+              styles.detailNavBarWrapper,
+              {
+                backgroundColor: theme.surface,
+                borderBottomColor: theme.divider,
+                paddingTop: topInset,
+              },
+            ]}
+          >
+            <View style={styles.detailNavBar}>
             <TouchableOpacity
               style={styles.detailNavBackBtn}
               onPress={() => setSelectedWallet(null)}
@@ -635,6 +649,7 @@ export const WalletsScreen: React.FC = () => {
               </TouchableOpacity>
             </View>
           </View>
+        </View>
 
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.detailScrollContent}>
             {/* HERO WALLET CARD */}
@@ -839,7 +854,16 @@ export const WalletsScreen: React.FC = () => {
           </ScrollView>
 
           {/* Action Buttons Footer */}
-          <View style={[styles.detailFooterBar, { backgroundColor: theme.surface, borderTopColor: theme.divider }]}>
+          <View
+            style={[
+              styles.detailFooterBar,
+              {
+                backgroundColor: theme.surface,
+                borderTopColor: theme.divider,
+                paddingBottom: bottomInset + 12,
+              },
+            ]}
+          >
             <TouchableOpacity
               style={[styles.detailDeleteActionBtn, { borderColor: theme.error, backgroundColor: theme.pillBg }]}
               onPress={() => handleDeleteWalletPrompt(currentSelectedWallet)}
@@ -863,7 +887,7 @@ export const WalletsScreen: React.FC = () => {
               <Text style={[styles.detailEditActionBtnText, { color: theme.onPrimary }]}>Edit Wallet</Text>
             </TouchableOpacity>
           </View>
-        </SafeAreaView>
+        </View>
       </Modal>
 
       {/* TRANSACTION FULL DETAILS MODAL */}
@@ -1155,12 +1179,14 @@ const styles = StyleSheet.create({
   detailContainer: {
     flex: 1,
   },
+  detailNavBarWrapper: {
+    borderBottomWidth: 1,
+  },
   detailNavBar: {
     height: 56,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    borderBottomWidth: 1,
     gap: 12,
   },
   detailNavBackBtn: {
@@ -1369,7 +1395,8 @@ const styles = StyleSheet.create({
   detailFooterBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 12,
     borderTopWidth: 1,
     gap: 12,
   },

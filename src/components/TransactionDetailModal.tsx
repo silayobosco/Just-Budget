@@ -8,8 +8,10 @@ import {
   ScrollView,
   Image,
   Alert,
-  SafeAreaView,
+  Platform,
+  StatusBar,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Transaction, Category, Wallet } from '../types';
 import { formatCurrency } from '../utils/format';
@@ -38,6 +40,9 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
   onEdit,
   onDelete,
 }) => {
+  const insets = useSafeAreaInsets();
+  const topInset = Math.max(insets.top, Platform.OS === 'android' ? Math.max(StatusBar.currentHeight || 0, 28) : 0);
+  const bottomInset = Math.max(insets.bottom, Platform.OS === 'android' ? 48 : 20);
   const [photoPreviewVisible, setPhotoPreviewVisible] = useState(false);
 
   if (!visible || !transaction) return null;
@@ -107,38 +112,49 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
   };
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]}>
+    <Modal visible={visible} animationType="slide" statusBarTranslucent={true} onRequestClose={onClose}>
+      <View style={[styles.safeArea, { backgroundColor: theme.background }]}>
         {/* Top App Bar */}
-        <View style={[styles.topBar, { backgroundColor: theme.surface, borderBottomColor: theme.divider }]}>
-          <TouchableOpacity
-            onPress={onClose}
-            style={[styles.backBtn, { backgroundColor: theme.pillBg }]}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <MaterialCommunityIcons name="arrow-left" size={20} color={theme.onSurface} />
-          </TouchableOpacity>
-
-          <Text style={[styles.topBarTitle, { color: theme.onSurface }]}>Transaction Details</Text>
-
-          <View style={styles.topBarActions}>
+        <View
+          style={[
+            styles.topBarWrapper,
+            {
+              backgroundColor: theme.surface,
+              borderBottomColor: theme.divider,
+              paddingTop: topInset,
+            },
+          ]}
+        >
+          <View style={styles.topBar}>
             <TouchableOpacity
-              onPress={handleDeletePrompt}
-              style={[styles.topIconBtn, { backgroundColor: theme.pillBg }]}
+              onPress={onClose}
+              style={[styles.backBtn, { backgroundColor: theme.pillBg }]}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <MaterialCommunityIcons name="trash-can-outline" size={18} color={theme.error} />
+              <MaterialCommunityIcons name="arrow-left" size={20} color={theme.onSurface} />
             </TouchableOpacity>
 
-            <TouchableOpacity
-              onPress={() => {
-                onEdit(transaction);
-              }}
-              style={[styles.topIconBtn, { backgroundColor: theme.primaryContainer }]}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.onPrimaryContainer} />
-            </TouchableOpacity>
+            <Text style={[styles.topBarTitle, { color: theme.onSurface }]}>Transaction Details</Text>
+
+            <View style={styles.topBarActions}>
+              <TouchableOpacity
+                onPress={handleDeletePrompt}
+                style={[styles.topIconBtn, { backgroundColor: theme.pillBg }]}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <MaterialCommunityIcons name="trash-can-outline" size={18} color={theme.error} />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => {
+                  onEdit(transaction);
+                }}
+                style={[styles.topIconBtn, { backgroundColor: theme.primaryContainer }]}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.onPrimaryContainer} />
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
 
@@ -311,7 +327,16 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
         </ScrollView>
 
         {/* Action Buttons Footer */}
-        <View style={[styles.footerBar, { backgroundColor: theme.surface, borderTopColor: theme.divider }]}>
+        <View
+          style={[
+            styles.footerBar,
+            {
+              backgroundColor: theme.surface,
+              borderTopColor: theme.divider,
+              paddingBottom: bottomInset + 12,
+            },
+          ]}
+        >
           <TouchableOpacity
             style={[styles.deleteActionBtn, { borderColor: theme.error, backgroundColor: theme.pillBg }]}
             onPress={handleDeletePrompt}
@@ -334,16 +359,19 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
 
         {/* FULLSCREEN PHOTO PREVIEW MODAL */}
         {photoPreviewVisible && Boolean(transaction.media_uri) && (
-          <Modal visible={photoPreviewVisible} transparent animationType="fade" onRequestClose={() => setPhotoPreviewVisible(false)}>
+          <Modal visible={photoPreviewVisible} transparent animationType="fade" statusBarTranslucent={true} onRequestClose={() => setPhotoPreviewVisible(false)}>
             <View style={styles.photoOverlay}>
-              <TouchableOpacity style={styles.photoCloseBtn} onPress={() => setPhotoPreviewVisible(false)}>
+              <TouchableOpacity
+                style={[styles.photoCloseBtn, { top: topInset + 12 }]}
+                onPress={() => setPhotoPreviewVisible(false)}
+              >
                 <MaterialCommunityIcons name="close" size={24} color="#FFFFFF" />
               </TouchableOpacity>
               <Image source={{ uri: transaction.media_uri }} style={styles.photoFull} resizeMode="contain" />
             </View>
           </Modal>
         )}
-      </SafeAreaView>
+      </View>
     </Modal>
   );
 };
@@ -352,13 +380,15 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
+  topBarWrapper: {
+    borderBottomWidth: 1,
+  },
   topBar: {
     height: 56,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    borderBottomWidth: 1,
   },
   backBtn: {
     width: 36,
@@ -518,7 +548,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingTop: 12,
     borderTopWidth: 1,
   },
   editActionBtn: {
