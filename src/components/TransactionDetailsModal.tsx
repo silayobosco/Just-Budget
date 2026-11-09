@@ -200,6 +200,18 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   const [selectedToWalletId, setSelectedToWalletId] = useState<string>(initialToWalletId || '');
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>(initialCategoryId || '');
   const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<string>(initialSubcategoryId || '');
+  const [lastExpenseCatId, setLastExpenseCatId] = useState<string>(
+    defaultTxType === 'expense' ? (initialCategoryId || '') : ''
+  );
+  const [lastExpenseSubId, setLastExpenseSubId] = useState<string>(
+    defaultTxType === 'expense' ? (initialSubcategoryId || '') : ''
+  );
+  const [lastIncomeCatId, setLastIncomeCatId] = useState<string>(
+    defaultTxType === 'income' ? (initialCategoryId || '') : ''
+  );
+  const [lastIncomeSubId, setLastIncomeSubId] = useState<string>(
+    defaultTxType === 'income' ? (initialSubcategoryId || '') : ''
+  );
   const [quickSubModalVisible, setQuickSubModalVisible] = useState(false);
   const [newSubName, setNewSubName] = useState('');
   const [note, setNote] = useState<string>('');
@@ -262,6 +274,18 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       setSelectedToWalletId(initTo);
       setSelectedCategoryId(initialCategoryId || '');
       setSelectedSubcategoryId(initialSubcategoryId || '');
+      const initCat = categories.find((c) => c.id === initialCategoryId);
+      if (initCat?.type === 'income' || defaultTxType === 'income') {
+        setLastIncomeCatId(initialCategoryId || '');
+        setLastIncomeSubId(initialSubcategoryId || '');
+        setLastExpenseCatId('');
+        setLastExpenseSubId('');
+      } else {
+        setLastExpenseCatId(initialCategoryId || '');
+        setLastExpenseSubId(initialSubcategoryId || '');
+        setLastIncomeCatId('');
+        setLastIncomeSubId('');
+      }
       setNote(initialNote || '');
       setCurrency(initialCurrency || baseCurrency);
       const initD = initialDate || new Date().toISOString().slice(0, 10);
@@ -312,9 +336,23 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
     if (selectedCategoryId === cat.id) {
       setSelectedCategoryId('');
       setSelectedSubcategoryId('');
+      if (currentType === 'expense') {
+        setLastExpenseCatId('');
+        setLastExpenseSubId('');
+      } else if (currentType === 'income') {
+        setLastIncomeCatId('');
+        setLastIncomeSubId('');
+      }
     } else {
       setSelectedCategoryId(cat.id);
       setSelectedSubcategoryId('');
+      if (currentType === 'expense') {
+        setLastExpenseCatId(cat.id);
+        setLastExpenseSubId('');
+      } else if (currentType === 'income') {
+        setLastIncomeCatId(cat.id);
+        setLastIncomeSubId('');
+      }
     }
   };
 
@@ -505,10 +543,8 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
                 ]}
                 onPress={() => {
                   setCurrentType('income');
-                  if (selectedCategory && selectedCategory.type !== 'income') {
-                    setSelectedCategoryId('');
-                    setSelectedSubcategoryId('');
-                  }
+                  setSelectedCategoryId(lastIncomeCatId);
+                  setSelectedSubcategoryId(lastIncomeSubId);
                 }}
               >
                 <MaterialCommunityIcons
@@ -533,10 +569,8 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
                 ]}
                 onPress={() => {
                   setCurrentType('expense');
-                  if (selectedCategory && selectedCategory.type !== 'expense') {
-                    setSelectedCategoryId('');
-                    setSelectedSubcategoryId('');
-                  }
+                  setSelectedCategoryId(lastExpenseCatId);
+                  setSelectedSubcategoryId(lastExpenseSubId);
                 }}
               >
                 <MaterialCommunityIcons
@@ -1252,7 +1286,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
         {/* CATEGORY SELECTOR BOTTOM SHEET */}
         <CategoryPickerSheet
           visible={categorySheetVisible}
-          txType={currentType}
+          txType={currentType === 'transfer' ? 'expense' : currentType}
           amount={parseCleanNumber(amountStr)}
           walletId={selectedWalletId}
           wallets={wallets}
@@ -1270,8 +1304,17 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
             }, 120);
           }}
           onSave={({ categoryId, subcategoryId }) => {
-            setSelectedCategoryId(categoryId || '');
-            setSelectedSubcategoryId(subcategoryId || '');
+            const catId = categoryId || '';
+            const subId = subcategoryId || '';
+            setSelectedCategoryId(catId);
+            setSelectedSubcategoryId(subId);
+            if (currentType === 'expense') {
+              setLastExpenseCatId(catId);
+              setLastExpenseSubId(subId);
+            } else if (currentType === 'income') {
+              setLastIncomeCatId(catId);
+              setLastIncomeSubId(subId);
+            }
             setCategorySheetVisible(false);
             setTimeout(() => {
               amountInputRef.current?.focus();
