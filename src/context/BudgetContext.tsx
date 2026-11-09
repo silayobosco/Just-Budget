@@ -4,6 +4,7 @@ import { getDB, initDatabase, ensureDefaultWallets, ensureDefaultExpenseCategori
 import { exportBackupData, importBackupData, pickBackupFileAsync, restoreFromBackupContentAsync } from '../services/backup';
 import { hashPin, verifyPin, authenticateWithBiometrics, checkBiometricsAvailable } from '../services/security';
 import { syncAllRemindersAsync, requestNotificationPermissionsAsync } from '../services/notifications';
+import { DeepLinkTransaction } from '../services/deepLinking';
 import { formatCycleDateRange, getRegularCycleDates, formatCurrency } from '../utils/format';
 import {
   Wallet,
@@ -64,6 +65,8 @@ interface BudgetContextType {
   selectedAnalyticsCycle: BudgetCycle | null;
   setSelectedAnalyticsCycle: (cycle: BudgetCycle | null) => void;
   isViewingCurrentCycle: boolean;
+  pendingDeepLinkTx: DeepLinkTransaction | null;
+  setPendingDeepLinkTx: (tx: DeepLinkTransaction | null) => void;
 
   // Computed
   totalConvertedBalance: number;
@@ -210,6 +213,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [selectedTransactionIdForCalendar, setSelectedTransactionIdForCalendar] = useState<string | null>(null);
   const [selectedCalendarCycle, setSelectedCalendarCycle] = useState<BudgetCycle | null>(null);
   const [selectedAnalyticsCycle, setSelectedAnalyticsCycle] = useState<BudgetCycle | null>(null);
+  const [pendingDeepLinkTx, setPendingDeepLinkTx] = useState<DeepLinkTransaction | null>(null);
 
   const isViewingCurrentCycle = useMemo(() => {
     const now = new Date();
@@ -1774,6 +1778,8 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         pickBackupFile,
         restoreBackupContent,
         requestNotificationPermissions,
+        pendingDeepLinkTx,
+        setPendingDeepLinkTx,
         reloadAllData: loadData,
       }}
     >

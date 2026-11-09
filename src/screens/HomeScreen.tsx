@@ -144,6 +144,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
     setSelectedTransactionIdForCalendar,
     isCycleModalOpen,
     closeCycleModal,
+    pendingDeepLinkTx,
+    setPendingDeepLinkTx,
   } = useBudget();
 
   const theme = settings.theme_mode === 'dark' ? darkTheme : lightTheme;
@@ -186,6 +188,49 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
   const [detailsModalVisible, setDetailsModalVisible] = useState(false);
   const [prefilledCategoryId, setPrefilledCategoryId] = useState<string | undefined>(undefined);
   const [prefilledSubcategoryId, setPrefilledSubcategoryId] = useState<string | undefined>(undefined);
+  const [prefilledNote, setPrefilledNote] = useState<string>('');
+
+  // Handle incoming deep links from Android shortcuts, Google Assistant, or Gemini
+  useEffect(() => {
+    if (pendingDeepLinkTx) {
+      const { type, amount, categoryNameOrId, note, walletNameOrId } = pendingDeepLinkTx;
+
+      setActiveTxType(type || 'expense');
+
+      if (amount !== undefined && amount > 0) {
+        setAmountStr(formatTypingNumber(amount.toString()));
+      } else {
+        setAmountStr('0');
+      }
+
+      let matchedCatId = '';
+      if (categoryNameOrId) {
+        const query = categoryNameOrId.trim().toLowerCase();
+        const matched = categories.find(
+          (c) => c.id === categoryNameOrId || c.name.toLowerCase() === query
+        );
+        if (matched) {
+          matchedCatId = matched.id;
+        }
+      }
+      setPrefilledCategoryId(matchedCatId || undefined);
+      setPrefilledSubcategoryId(undefined);
+
+      if (walletNameOrId) {
+        const query = walletNameOrId.trim().toLowerCase();
+        const matchedW = wallets.find(
+          (w) => w.id === walletNameOrId || w.name.toLowerCase() === query
+        );
+        if (matchedW) {
+          setSelectedWalletId(matchedW.id);
+        }
+      }
+
+      setPrefilledNote(note || '');
+      setDetailsModalVisible(true);
+      setPendingDeepLinkTx(null);
+    }
+  }, [pendingDeepLinkTx, categories, wallets, setPendingDeepLinkTx]);
 
   // Quick Wallet modal
   const [quickWalletModalVisible, setQuickWalletModalVisible] = useState(false);
@@ -600,6 +645,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
     }
 
     setAmountStr('0');
+    setPrefilledNote('');
     setDetailsModalVisible(false);
   };
 
@@ -1905,11 +1951,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
         initialWalletId={selectedWalletId}
         initialCategoryId={prefilledCategoryId}
         initialSubcategoryId={prefilledSubcategoryId}
+        initialNote={prefilledNote}
         wallets={wallets}
         categories={categories}
         theme={theme}
         baseCurrency={curr}
-        onClose={() => setDetailsModalVisible(false)}
+        onClose={() => {
+          setDetailsModalVisible(false);
+          setPrefilledNote('');
+        }}
         onSave={handleSaveTransactionDetails}
         onManageCategories={() => setCategoryModalVisible(true)}
         onAddSubcategory={addSubcategory}

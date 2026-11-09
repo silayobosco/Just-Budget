@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { StyleSheet, View, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { StyleSheet, View, ActivityIndicator, Linking } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { BudgetProvider, useBudget } from './src/context/BudgetContext';
@@ -14,12 +14,38 @@ import { WalletsScreen } from './src/screens/WalletsScreen';
 import { AnalyticsScreen } from './src/screens/AnalyticsScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { lightTheme, darkTheme } from './src/theme';
+import { parseDeepLinkUrl } from './src/services/deepLinking';
 
 const MainApp: React.FC = () => {
-  const { settings, isLoading, isCycleModalOpen, closeCycleModal } = useBudget();
+  const { settings, isLoading, isCycleModalOpen, closeCycleModal, setPendingDeepLinkTx } = useBudget();
   const theme = settings.theme_mode === 'dark' ? darkTheme : lightTheme;
 
   const [currentTab, setCurrentTab] = useState<TabType>('home');
+
+  // Handle incoming deep links (from Android shortcuts, Google Assistant, or Gemini)
+  useEffect(() => {
+    const handleIncomingUrl = (rawUrl?: string | null) => {
+      if (!rawUrl) return;
+      const parsed = parseDeepLinkUrl(rawUrl);
+      if (!parsed) return;
+
+      if (parsed.action === 'tab' && parsed.tab) {
+        setCurrentTab(parsed.tab);
+      } else if (parsed.action === 'transaction' && parsed.transaction) {
+        setCurrentTab('home');
+        setPendingDeepLinkTx(parsed.transaction);
+      }
+    };
+
+    // Cold start (app launched by deep link)
+    Linking.getInitialURL().then(handleIncomingUrl);
+
+    // Warm start (app brought to foreground by deep link)
+    const subscription = Linking.addEventListener('url', ({ url }) => handleIncomingUrl(url));
+    return () => {
+      subscription.remove();
+    };
+  }, [setPendingDeepLinkTx]);
 
   if (isLoading) {
     return (
