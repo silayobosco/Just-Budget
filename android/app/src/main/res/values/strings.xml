@@ -1,0 +1,10 @@
+<resources>
+  <string name="app_name">just-budget</string>
+  <string name="expo_system_ui_user_interface_style" translatable="false">light</string>
+  <string name="shortcut_add_expense_short">Add Expense</string>
+  <string name="shortcut_add_expense_long">Log an expense</string>
+  <string name="shortcut_add_income_short">Add Income</string>
+  <string name="shortcut_add_income_long">Log income</string>
+  <string name="shortcut_analytics_short">Analytics</string>
+  <string name="shortcut_analytics_long">View spending analytics</string>
+</resources>

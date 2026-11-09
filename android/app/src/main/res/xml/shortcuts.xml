@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+
+  <!-- Assistant / Gemini BII: CREATE_MONEY_TRANSFER for logging expenses or income -->
+  <capability android:name="actions.intent.CREATE_MONEY_TRANSFER">
+    <intent
+      android:action="android.intent.action.VIEW"
+      android:targetPackage="com.anonymous.justbudget"
+      android:targetClass="com.anonymous.justbudget.MainActivity"
+      android:data="justbudget://new-transaction?type={type}&amp;amount={amount}&amp;note={note}&amp;category={category}">
+      <parameter
+        android:name="moneyTransfer.transferType"
+        android:key="type"/>
+      <parameter
+        android:name="moneyTransfer.amount"
+        android:key="amount"/>
+      <parameter
+        android:name="moneyTransfer.note"
+        android:key="note"/>
+      <parameter
+        android:name="moneyTransfer.recipient.name"
+        android:key="category"/>
+    </intent>
+  </capability>
+
+  <!-- Assistant / Gemini BII: OPEN_APP_FEATURE for jumping into Analytics/Reports -->
+  <capability android:name="actions.intent.OPEN_APP_FEATURE">
+    <intent
+      android:action="android.intent.action.VIEW"
+      android:targetPackage="com.anonymous.justbudget"
+      android:targetClass="com.anonymous.justbudget.MainActivity"
+      android:data="justbudget://{feature}">
+      <parameter
+        android:name="feature"
+        android:key="feature"/>
+    </intent>
+  </capability>
+
+  <!-- Static Shortcut: Add Expense -->
+  <shortcut
+    android:shortcutId="add_expense"
+    android:enabled="true"
+    android:icon="@drawable/ic_shortcut_expense"
+    android:shortcutShortLabel="@string/shortcut_add_expense_short"
+    android:shortcutLongLabel="@string/shortcut_add_expense_long">
+    <intent
+      android:action="android.intent.action.VIEW"
+      android:targetPackage="com.anonymous.justbudget"
+      android:targetClass="com.anonymous.justbudget.MainActivity"
+      android:data="justbudget://new-transaction?type=expense" />
+    <capability-binding android:key="actions.intent.CREATE_MONEY_TRANSFER" />
+  </shortcut>
+
+  <!-- Static Shortcut: Add Income -->
+  <shortcut
+    android:shortcutId="add_income"
+    android:enabled="true"
+    android:icon="@drawable/ic_shortcut_income"
+    android:shortcutShortLabel="@string/shortcut_add_income_short"
+    android:shortcutLongLabel="@string/shortcut_add_income_long">
+    <intent
+      android:action="android.intent.action.VIEW"
+      android:targetPackage="com.anonymous.justbudget"
+      android:targetClass="com.anonymous.justbudget.MainActivity"
+      android:data="justbudget://new-transaction?type=income" />
+  </shortcut>
+
+  <!-- Static Shortcut: Analytics -->
+  <shortcut
+    android:shortcutId="open_analytics"
+    android:enabled="true"
+    android:icon="@drawable/ic_shortcut_analytics"
+    android:shortcutShortLabel="@string/shortcut_analytics_short"
+    android:shortcutLongLabel="@string/shortcut_analytics_long">
+    <intent
+      android:action="android.intent.action.VIEW"
+      android:targetPackage="com.anonymous.justbudget"
+      android:targetClass="com.anonymous.justbudget.MainActivity"
+      android:data="justbudget://analytics" />
+    <capability-binding android:key="actions.intent.OPEN_APP_FEATURE" />
+  </shortcut>
+
+</shortcuts>
+
