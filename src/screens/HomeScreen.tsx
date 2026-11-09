@@ -547,6 +547,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
   const handleSaveTransactionDetails = async (txData: {
     amount: number;
     wallet_id: string;
+    to_wallet_id?: string;
     category_id?: string;
     subcategory_id?: string;
     type: TransactionType;
@@ -565,6 +566,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
   }) => {
     await addTransaction({
       wallet_id: txData.wallet_id,
+      to_wallet_id: txData.to_wallet_id,
       category_id: txData.category_id,
       subcategory_id: txData.subcategory_id,
       type: txData.type,

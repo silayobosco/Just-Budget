@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -34,6 +34,7 @@ interface TransactionDetailsModalProps {
   txType: TransactionType;
   initialAmount: number;
   initialWalletId: string;
+  initialToWalletId?: string;
   initialCategoryId?: string;
   initialSubcategoryId?: string;
   initialDate?: string;
@@ -51,6 +52,7 @@ interface TransactionDetailsModalProps {
   onSave: (tx: {
     amount: number;
     wallet_id: string;
+    to_wallet_id?: string;
     category_id?: string;
     subcategory_id?: string;
     type: TransactionType;
@@ -78,6 +80,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   txType: defaultTxType,
   initialAmount,
   initialWalletId,
+  initialToWalletId,
   initialCategoryId,
   initialSubcategoryId,
   initialDate,
@@ -194,6 +197,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
     }
   }, [visible]);
   const [selectedWalletId, setSelectedWalletId] = useState<string>(initialWalletId);
+  const [selectedToWalletId, setSelectedToWalletId] = useState<string>(initialToWalletId || '');
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>(initialCategoryId || '');
   const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<string>(initialSubcategoryId || '');
   const [quickSubModalVisible, setQuickSubModalVisible] = useState(false);
@@ -206,6 +210,13 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   const [mediaUri, setMediaUri] = useState<string | null>(null);
   const [cameraVisible, setCameraVisible] = useState(false);
   const cameraRef = useRef<CameraView>(null);
+
+  const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const yesterdayStr = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return d.toISOString().slice(0, 10);
+  }, []);
 
   // Recurrence states
   const [repeatEnabled, setRepeatEnabled] = useState<boolean>(false);
@@ -230,7 +241,12 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
     if (visible) {
       setCurrentType(defaultTxType);
       setAmountStr(initialAmount > 0 ? formatTypingNumber(initialAmount.toString()) : '');
-      setSelectedWalletId(initialWalletId || (wallets.length > 0 ? wallets[0].id : ''));
+      const initFrom = initialWalletId || (wallets.length > 0 ? wallets[0].id : '');
+      setSelectedWalletId(initFrom);
+      const initTo =
+        initialToWalletId ||
+        (wallets.length > 1 ? (wallets.find((w) => w.id !== initFrom)?.id || '') : '');
+      setSelectedToWalletId(initTo);
       setSelectedCategoryId(initialCategoryId || '');
       setSelectedSubcategoryId(initialSubcategoryId || '');
       setNote(initialNote || '');
@@ -259,6 +275,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
     defaultTxType,
     initialAmount,
     initialWalletId,
+    initialToWalletId,
     initialCategoryId,
     initialSubcategoryId,
     initialDate,
@@ -380,12 +397,23 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       Alert.alert('No Wallet', 'Please create a wallet first');
       return;
     }
+    if (currentType === 'transfer') {
+      if (wallets.length < 2) {
+        Alert.alert('Transfer Requires 2 Wallets', 'Please create at least two wallets to record a transfer.');
+        return;
+      }
+      if (!selectedToWalletId || selectedToWalletId === selectedWalletId) {
+        Alert.alert('Invalid Destination', 'Source and destination wallets must be different.');
+        return;
+      }
+    }
 
     await onSave({
       amount: parsed,
       wallet_id: selectedWalletId || wallets[0].id,
-      category_id: selectedCategoryId || undefined,
-      subcategory_id: selectedSubcategoryId || undefined,
+      to_wallet_id: currentType === 'transfer' ? selectedToWalletId : undefined,
+      category_id: currentType === 'transfer' ? undefined : (selectedCategoryId || undefined),
+      subcategory_id: currentType === 'transfer' ? undefined : (selectedSubcategoryId || undefined),
       type: currentType,
       currency,
       date: dateStr,
@@ -409,9 +437,10 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   if (!visible) return null;
 
   const isExpense = currentType === 'expense';
-  const accentColor = isExpense ? theme.error : theme.success;
-  const accentContainer = isExpense ? theme.errorContainer : theme.successContainer;
-  const onAccentContainer = isExpense ? theme.onErrorContainer : theme.onSuccessContainer;
+  const isTransfer = currentType === 'transfer';
+  const accentColor = isTransfer ? theme.primary : isExpense ? theme.error : theme.success;
+  const accentContainer = isTransfer ? theme.primaryContainer : isExpense ? theme.errorContainer : theme.successContainer;
+  const onAccentContainer = isTransfer ? theme.onPrimaryContainer : isExpense ? theme.onErrorContainer : theme.onSuccessContainer;
 
   return (
     <Modal
@@ -452,7 +481,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
             <MaterialCommunityIcons name="arrow-left" size={20} color={theme.onSurface} />
           </TouchableOpacity>
           <Text style={[styles.topBarTitle, { color: theme.onSurface }]}>
-            {isEditing ? 'Edit Transaction' : 'Transaction Details'}
+            {isEditing ? 'Edit Transaction' : isTransfer ? 'New Transfer' : 'Transaction Details'}
           </Text>
           <View style={styles.topBarPlaceholder} />
         </View>
@@ -463,7 +492,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* 1. CATEGORY (FIRST ITEM DISPLAYED) & TYPE SWITCHER */}
+          {/* 1. CATEGORY / DESTINATION WALLET & TYPE SWITCHER */}
           <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
             <View style={styles.typeSwitcherRow}>
               <TouchableOpacity
@@ -521,101 +550,188 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
                   Expense
                 </Text>
               </TouchableOpacity>
-            </View>
 
-            <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant, marginTop: 4 }]}>CATEGORY</Text>
-
-            {/* Breadcrumb Category Selector: clicking it opens CategoryPickerSheet */}
-            <TouchableOpacity
-              style={[
-                styles.categorySelectorRow,
-                {
-                  backgroundColor: theme.pillBg,
-                  borderColor: selectedCategory ? (selectedCategory.color || theme.primary) : theme.divider,
-                },
-              ]}
-              onPress={() => setCategorySheetVisible(true)}
-              activeOpacity={0.7}
-              accessibilityLabel="Select category"
-            >
-              <View style={styles.categorySelectorLeft}>
-                <View
+              <TouchableOpacity
+                style={[
+                  styles.typeTab,
+                  currentType === 'transfer' && { backgroundColor: theme.primaryContainer, borderColor: theme.primary },
+                ]}
+                onPress={() => {
+                  setCurrentType('transfer');
+                  if (!selectedToWalletId || selectedToWalletId === selectedWalletId) {
+                    const other = wallets.find((w) => w.id !== selectedWalletId);
+                    if (other) {
+                      setSelectedToWalletId(other.id);
+                    }
+                  }
+                }}
+              >
+                <MaterialCommunityIcons
+                  name="swap-horizontal-bold"
+                  size={16}
+                  color={currentType === 'transfer' ? theme.primary : theme.onSurfaceVariant}
+                />
+                <Text
                   style={[
-                    styles.catIconWrap,
-                    {
-                      backgroundColor: selectedCategory
-                        ? (selectedCategory.color || theme.primary)
-                        : theme.pillBg,
-                    },
+                    styles.typeTabText,
+                    { color: currentType === 'transfer' ? theme.onPrimaryContainer : theme.onSurfaceVariant },
                   ]}
                 >
-                  <MaterialCommunityIcons
-                    name={(selectedCategory?.icon as any) || 'shape-outline'}
-                    size={18}
-                    color={selectedCategory ? '#FFFFFF' : theme.onSurfaceVariant}
-                  />
-                </View>
+                  Transfer
+                </Text>
+              </TouchableOpacity>
+            </View>
 
-                <View style={styles.categoryBreadcrumbCol}>
-                  {selectedCategory ? (
-                    <Text style={[styles.categoryBreadcrumbText, { color: theme.onSurface }]} numberOfLines={1}>
-                      <Text style={{ fontWeight: '700' }}>{selectedCategory.name}</Text>
-                      {selectedSubcategory && (
-                        <>
-                          <Text style={{ color: theme.onSurfaceVariant, fontWeight: '400' }}>{' > '}</Text>
-                          <Text style={{ fontWeight: '700', color: theme.primary }}>{selectedSubcategory.name}</Text>
-                        </>
-                      )}
-                    </Text>
-                  ) : (
-                    <Text style={[styles.categoryPlaceholderText, { color: theme.onSurfaceVariant }]}>
-                      Select Category
-                    </Text>
-                  )}
-                </View>
+            {isTransfer ? (
+              <View style={{ gap: 6, marginTop: 4 }}>
+                <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant }]}>
+                  DESTINATION WALLET (TRANSFER TO)
+                </Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsScrollRow}>
+                  {wallets
+                    .filter((w) => w.id !== selectedWalletId)
+                    .map((w) => {
+                      const isSelected = w.id === selectedToWalletId;
+                      return (
+                        <TouchableOpacity
+                          key={w.id}
+                          style={[
+                            styles.walletChip,
+                            {
+                              backgroundColor: isSelected ? theme.primaryContainer : theme.pillBg,
+                              borderColor: isSelected ? theme.primary : 'transparent',
+                            },
+                          ]}
+                          onPress={() => setSelectedToWalletId(w.id)}
+                        >
+                          <MaterialCommunityIcons
+                            name={(w.icon as any) || 'bank-transfer-in'}
+                            size={15}
+                            color={isSelected ? theme.primary : theme.onSurfaceVariant}
+                          />
+                          <Text
+                            style={[
+                              styles.walletChipText,
+                              {
+                                color: isSelected ? theme.onPrimaryContainer : theme.onSurface,
+                                fontWeight: isSelected ? '700' : '500',
+                              },
+                            ]}
+                          >
+                            {w.name}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                </ScrollView>
               </View>
+            ) : (
+              <>
+                <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant, marginTop: 4 }]}>CATEGORY</Text>
 
-              <MaterialCommunityIcons name="chevron-right" size={20} color={theme.onSurfaceVariant} />
-            </TouchableOpacity>
+                {/* Breadcrumb Category Selector: clicking it opens CategoryPickerSheet */}
+                <TouchableOpacity
+                  style={[
+                    styles.categorySelectorRow,
+                    {
+                      backgroundColor: theme.pillBg,
+                      borderColor: selectedCategory ? (selectedCategory.color || theme.primary) : theme.divider,
+                    },
+                  ]}
+                  onPress={() => setCategorySheetVisible(true)}
+                  activeOpacity={0.7}
+                  accessibilityLabel="Select category"
+                >
+                  <View style={styles.categorySelectorLeft}>
+                    <View
+                      style={[
+                        styles.catIconWrap,
+                        {
+                          backgroundColor: selectedCategory
+                            ? (selectedCategory.color || theme.primary)
+                            : theme.pillBg,
+                        },
+                      ]}
+                    >
+                      <MaterialCommunityIcons
+                        name={(selectedCategory?.icon as any) || 'shape-outline'}
+                        size={18}
+                        color={selectedCategory ? '#FFFFFF' : theme.onSurfaceVariant}
+                      />
+                    </View>
+
+                    <View style={styles.categoryBreadcrumbCol}>
+                      {selectedCategory ? (
+                        <Text style={[styles.categoryBreadcrumbText, { color: theme.onSurface }]} numberOfLines={1}>
+                          <Text style={{ fontWeight: '700' }}>{selectedCategory.name}</Text>
+                          {selectedSubcategory && (
+                            <>
+                              <Text style={{ color: theme.onSurfaceVariant, fontWeight: '400' }}>{' > '}</Text>
+                              <Text style={{ fontWeight: '700', color: theme.primary }}>{selectedSubcategory.name}</Text>
+                            </>
+                          )}
+                        </Text>
+                      ) : (
+                        <Text style={[styles.categoryPlaceholderText, { color: theme.onSurfaceVariant }]}>
+                          Select Category
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+
+                  <MaterialCommunityIcons name="chevron-right" size={20} color={theme.onSurfaceVariant} />
+                </TouchableOpacity>
+              </>
+            )}
           </View>
 
           {/* 2. WALLET SELECTION */}
           <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
-            <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant }]}>SELECT WALLET</Text>
+            <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant }]}>
+              {isTransfer ? 'SOURCE WALLET (TRANSFER FROM)' : 'SELECT WALLET'}
+            </Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsScrollRow}>
-              {wallets.map((w) => {
-                const isSelected = w.id === selectedWalletId;
-                return (
-                  <TouchableOpacity
-                    key={w.id}
-                    style={[
-                      styles.walletChip,
-                      {
-                        backgroundColor: isSelected ? theme.primaryContainer : theme.pillBg,
-                        borderColor: isSelected ? theme.primary : 'transparent',
-                      },
-                    ]}
-                    onPress={() => setSelectedWalletId(w.id)}
-                  >
-                    <MaterialCommunityIcons
-                      name={(w.icon as any) || 'wallet'}
-                      size={15}
-                      color={isSelected ? theme.primary : theme.onSurfaceVariant}
-                    />
-                    <Text
+              {wallets
+                .filter((w) => !isTransfer || w.id !== selectedToWalletId)
+                .map((w) => {
+                  const isSelected = w.id === selectedWalletId;
+                  return (
+                    <TouchableOpacity
+                      key={w.id}
                       style={[
-                        styles.walletChipText,
+                        styles.walletChip,
                         {
-                          color: isSelected ? theme.onPrimaryContainer : theme.onSurface,
-                          fontWeight: isSelected ? '700' : '500',
+                          backgroundColor: isSelected ? theme.primaryContainer : theme.pillBg,
+                          borderColor: isSelected ? theme.primary : 'transparent',
                         },
                       ]}
+                      onPress={() => {
+                        setSelectedWalletId(w.id);
+                        if (isTransfer && w.id === selectedToWalletId) {
+                          const nextTo = wallets.find((o) => o.id !== w.id);
+                          if (nextTo) setSelectedToWalletId(nextTo.id);
+                        }
+                      }}
                     >
-                      {w.name}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
+                      <MaterialCommunityIcons
+                        name={(w.icon as any) || 'wallet'}
+                        size={15}
+                        color={isSelected ? theme.primary : theme.onSurfaceVariant}
+                      />
+                      <Text
+                        style={[
+                          styles.walletChipText,
+                          {
+                            color: isSelected ? theme.onPrimaryContainer : theme.onSurface,
+                            fontWeight: isSelected ? '700' : '500',
+                          },
+                        ]}
+                      >
+                        {w.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
             </ScrollView>
           </View>
 
@@ -641,58 +757,170 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
                 onChangeText={(text) => setAmountStr(formatTypingNumber(text))}
                 selectTextOnFocus={false}
               />
+
+              <TouchableOpacity
+                style={[
+                  styles.paidChip,
+                  {
+                    backgroundColor: isPaid ? theme.successContainer : theme.pillBg,
+                    borderColor: isPaid ? theme.success : theme.divider,
+                  },
+                ]}
+                onPress={() => setIsPaid((prev) => !prev)}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`Status: ${isPaid ? 'Paid' : 'Unpaid'}. Tap to toggle.`}
+              >
+                <MaterialCommunityIcons
+                  name={isPaid ? 'check-circle' : 'clock-outline'}
+                  size={15}
+                  color={isPaid ? theme.success : theme.onSurfaceVariant}
+                />
+                <Text
+                  style={[
+                    styles.paidChipText,
+                    {
+                      color: isPaid ? theme.onSuccessContainer : theme.onSurfaceVariant,
+                    },
+                  ]}
+                >
+                  {isPaid ? 'Paid' : 'Unpaid'}
+                </Text>
+              </TouchableOpacity>
             </View>
           </View>
 
-          {/* 4. DATE, TIME & PAID TOGGLE */}
+          {/* 4. DATE & TIME */}
           <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
             <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant }]}>DATE & TIME</Text>
-            <View style={styles.dateTimeRow}>
-              {/* Date chip */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.dateTimeChipsContainer}
+            >
+              {/* 1. Today chip */}
               <TouchableOpacity
-                style={[styles.dateTimeChip, { backgroundColor: theme.pillBg, borderColor: theme.divider }]}
-                onPress={() => setCalendarVisible(true)}
+                style={[
+                  styles.dateTimeQuickChip,
+                  {
+                    backgroundColor: dateStr === todayStr ? theme.primaryContainer : theme.pillBg,
+                    borderColor: dateStr === todayStr ? theme.primary : theme.divider,
+                  },
+                ]}
+                onPress={() => setDateStr(todayStr)}
+                activeOpacity={0.7}
               >
-                <MaterialCommunityIcons name="calendar-month-outline" size={16} color={theme.primary} />
-                <Text style={[styles.dateTimeChipText, { color: theme.onSurface }]}>{dateStr}</Text>
-                <MaterialCommunityIcons name="pencil-outline" size={13} color={theme.onSurfaceVariant} />
-              </TouchableOpacity>
-
-              {/* Time chip */}
-              <TouchableOpacity
-                style={[styles.dateTimeChip, { backgroundColor: theme.pillBg, borderColor: theme.divider }]}
-                onPress={() => setClockVisible(true)}
-              >
-                <MaterialCommunityIcons name="clock-time-four-outline" size={16} color={theme.primary} />
-                <Text style={[styles.dateTimeChipText, { color: theme.onSurface }]}>{timeStr}</Text>
-                <MaterialCommunityIcons name="pencil-outline" size={13} color={theme.onSurfaceVariant} />
-              </TouchableOpacity>
-            </View>
-
-            {/* Paid Toggle Switch */}
-            <View style={[styles.paidRow, { borderTopColor: theme.divider }]}>
-              <View style={styles.paidInfo}>
                 <MaterialCommunityIcons
-                  name={isPaid ? 'check-circle' : 'clock-alert-outline'}
-                  size={20}
-                  color={isPaid ? theme.success : theme.error}
+                  name="calendar-today"
+                  size={14}
+                  color={dateStr === todayStr ? theme.primary : theme.onSurfaceVariant}
                 />
-                <View>
-                  <Text style={[styles.paidTitle, { color: theme.onSurface }]}>
-                    {isPaid ? 'Paid' : 'Unpaid / Pending'}
-                  </Text>
-                  <Text style={[styles.paidSubtitle, { color: theme.onSurfaceVariant }]}>
-                    {isPaid ? 'Balance adjusted immediately' : 'Does not affect wallet balance yet'}
-                  </Text>
-                </View>
-              </View>
-              <Switch
-                value={isPaid}
-                onValueChange={setIsPaid}
-                trackColor={{ false: theme.outlineVariant, true: theme.successContainer }}
-                thumbColor={isPaid ? theme.success : '#f4f3f4'}
-              />
-            </View>
+                <Text
+                  style={[
+                    styles.dateTimeQuickChipText,
+                    {
+                      color: dateStr === todayStr ? theme.onPrimaryContainer : theme.onSurface,
+                      fontWeight: dateStr === todayStr ? '700' : '500',
+                    },
+                  ]}
+                >
+                  Today
+                </Text>
+              </TouchableOpacity>
+
+              {/* 2. Yesterday chip */}
+              <TouchableOpacity
+                style={[
+                  styles.dateTimeQuickChip,
+                  {
+                    backgroundColor: dateStr === yesterdayStr ? theme.primaryContainer : theme.pillBg,
+                    borderColor: dateStr === yesterdayStr ? theme.primary : theme.divider,
+                  },
+                ]}
+                onPress={() => setDateStr(yesterdayStr)}
+                activeOpacity={0.7}
+              >
+                <MaterialCommunityIcons
+                  name="history"
+                  size={14}
+                  color={dateStr === yesterdayStr ? theme.primary : theme.onSurfaceVariant}
+                />
+                <Text
+                  style={[
+                    styles.dateTimeQuickChipText,
+                    {
+                      color: dateStr === yesterdayStr ? theme.onPrimaryContainer : theme.onSurface,
+                      fontWeight: dateStr === yesterdayStr ? '700' : '500',
+                    },
+                  ]}
+                >
+                  Yesterday
+                </Text>
+              </TouchableOpacity>
+
+              {/* 3. Calendar chip */}
+              <TouchableOpacity
+                style={[
+                  styles.dateTimeQuickChip,
+                  {
+                    backgroundColor:
+                      dateStr !== todayStr && dateStr !== yesterdayStr
+                        ? theme.primaryContainer
+                        : theme.pillBg,
+                    borderColor:
+                      dateStr !== todayStr && dateStr !== yesterdayStr ? theme.primary : theme.divider,
+                  },
+                ]}
+                onPress={() => setCalendarVisible(true)}
+                activeOpacity={0.7}
+              >
+                <MaterialCommunityIcons
+                  name="calendar-month-outline"
+                  size={14}
+                  color={
+                    dateStr !== todayStr && dateStr !== yesterdayStr
+                      ? theme.primary
+                      : theme.onSurfaceVariant
+                  }
+                />
+                <Text
+                  style={[
+                    styles.dateTimeQuickChipText,
+                    {
+                      color:
+                        dateStr !== todayStr && dateStr !== yesterdayStr
+                          ? theme.onPrimaryContainer
+                          : theme.onSurface,
+                      fontWeight: dateStr !== todayStr && dateStr !== yesterdayStr ? '700' : '500',
+                    },
+                  ]}
+                >
+                  {dateStr}
+                </Text>
+                <MaterialCommunityIcons
+                  name="pencil-outline"
+                  size={12}
+                  color={
+                    dateStr !== todayStr && dateStr !== yesterdayStr
+                      ? theme.primary
+                      : theme.onSurfaceVariant
+                  }
+                />
+              </TouchableOpacity>
+
+              {/* 4. Time chip */}
+              <TouchableOpacity
+                style={[styles.dateTimeQuickChip, { backgroundColor: theme.pillBg, borderColor: theme.divider }]}
+                onPress={() => setClockVisible(true)}
+                activeOpacity={0.7}
+              >
+                <MaterialCommunityIcons name="clock-time-four-outline" size={14} color={theme.primary} />
+                <Text style={[styles.dateTimeQuickChipText, { color: theme.onSurface, fontWeight: '600' }]}>
+                  {timeStr}
+                </Text>
+                <MaterialCommunityIcons name="pencil-outline" size={12} color={theme.onSurfaceVariant} />
+              </TouchableOpacity>
+            </ScrollView>
           </View>
 
           {/* 5. NOTE INPUT */}
@@ -1037,7 +1265,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
           >
             <MaterialCommunityIcons name="check" size={20} color="#FFFFFF" />
             <Text style={styles.mainSaveBtnText}>
-              Save {isExpense ? 'Expense' : 'Income'}
+              {isEditing ? 'Update Transaction' : isTransfer ? 'Save Transfer' : isExpense ? 'Save Expense' : 'Save Income'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -1356,6 +1584,37 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     paddingVertical: 4,
     paddingHorizontal: 8,
+  },
+  paidChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    borderRadius: M3Shape.medium,
+    borderWidth: 1,
+    gap: 4,
+  },
+  paidChipText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+  },
+  dateTimeChipsContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingVertical: 2,
+    alignItems: 'center',
+  },
+  dateTimeQuickChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: M3Shape.medium,
+    borderWidth: 1,
+    gap: 5,
+  },
+  dateTimeQuickChipText: {
+    fontSize: 12.5,
   },
   chipsScrollRow: {
     gap: 8,
