@@ -189,32 +189,73 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
   const [prefilledCategoryId, setPrefilledCategoryId] = useState<string | undefined>(undefined);
   const [prefilledSubcategoryId, setPrefilledSubcategoryId] = useState<string | undefined>(undefined);
   const [prefilledNote, setPrefilledNote] = useState<string>('');
+  const [prefilledAmount, setPrefilledAmount] = useState<number>(0);
 
   // Handle incoming deep links from Android shortcuts, Google Assistant, or Gemini
   useEffect(() => {
     if (pendingDeepLinkTx) {
       const { type, amount, categoryNameOrId, note, walletNameOrId } = pendingDeepLinkTx;
 
-      setActiveTxType(type || 'expense');
+      const targetType = type || 'expense';
+      setActiveTxType(targetType);
 
-      if (amount !== undefined && amount > 0) {
-        setAmountStr(formatTypingNumber(amount.toString()));
-      } else {
-        setAmountStr('0');
-      }
+      const numAmount = amount !== undefined && amount > 0 ? amount : 0;
+      setPrefilledAmount(numAmount);
+      setAmountStr(numAmount > 0 ? formatTypingNumber(numAmount.toString()) : '0');
 
       let matchedCatId = '';
-      if (categoryNameOrId) {
-        const query = categoryNameOrId.trim().toLowerCase();
-        const matched = categories.find(
-          (c) => c.id === categoryNameOrId || c.name.toLowerCase() === query
+      let matchedSubId = '';
+
+      // Search matching categories and subcategories
+      const searchCat = (queryStr: string) => {
+        const q = queryStr.trim().toLowerCase();
+        if (!q) return false;
+
+        // 1. Exact match on category name or id
+        const exact = categories.find(
+          (c) => (c.type === targetType || !c.type) && (c.id === queryStr || c.name.toLowerCase() === q)
         );
-        if (matched) {
-          matchedCatId = matched.id;
+        if (exact) {
+          matchedCatId = exact.id;
+          return true;
         }
+
+        // 2. Partial match on category name (e.g. "Food" -> "Food & Dining")
+        const partial = categories.find(
+          (c) =>
+            (c.type === targetType || !c.type) &&
+            (c.name.toLowerCase().includes(q) || q.includes(c.name.toLowerCase()))
+        );
+        if (partial) {
+          matchedCatId = partial.id;
+          return true;
+        }
+
+        // 3. Subcategory match (e.g. "Lunch", "Groceries", "Snacks")
+        for (const cat of categories) {
+          if (cat.type && cat.type !== targetType) continue;
+          if (cat.subcategories && cat.subcategories.length > 0) {
+            const matchedSub = cat.subcategories.find(
+              (s) => s.name.toLowerCase() === q || s.name.toLowerCase().includes(q)
+            );
+            if (matchedSub) {
+              matchedCatId = cat.id;
+              matchedSubId = matchedSub.id;
+              return true;
+            }
+          }
+        }
+        return false;
+      };
+
+      if (categoryNameOrId) {
+        searchCat(categoryNameOrId);
+      } else if (note) {
+        searchCat(note);
       }
+
       setPrefilledCategoryId(matchedCatId || undefined);
-      setPrefilledSubcategoryId(undefined);
+      setPrefilledSubcategoryId(matchedSubId || undefined);
 
       if (walletNameOrId) {
         const query = walletNameOrId.trim().toLowerCase();
@@ -227,7 +268,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
       }
 
       setPrefilledNote(note || '');
-      setDetailsModalVisible(true);
+
+      // Force-cycle modal state to guarantee fresh prefilled values are consumed
+      setDetailsModalVisible(false);
+      setTimeout(() => {
+        setDetailsModalVisible(true);
+      }, 60);
+
       setPendingDeepLinkTx(null);
     }
   }, [pendingDeepLinkTx, categories, wallets, setPendingDeepLinkTx]);
@@ -645,7 +692,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
     }
 
     setAmountStr('0');
+    setPrefilledAmount(0);
     setPrefilledNote('');
+    setPrefilledCategoryId(undefined);
+    setPrefilledSubcategoryId(undefined);
     setDetailsModalVisible(false);
   };
 
@@ -1947,7 +1997,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
       <TransactionDetailsModal
         visible={detailsModalVisible}
         txType={activeTxType}
-        initialAmount={parsedAmount}
+        initialAmount={prefilledAmount > 0 ? prefilledAmount : parsedAmount}
         initialWalletId={selectedWalletId}
         initialCategoryId={prefilledCategoryId}
         initialSubcategoryId={prefilledSubcategoryId}
@@ -1958,7 +2008,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
         baseCurrency={curr}
         onClose={() => {
           setDetailsModalVisible(false);
+          setPrefilledAmount(0);
           setPrefilledNote('');
+          setPrefilledCategoryId(undefined);
+          setPrefilledSubcategoryId(undefined);
         }}
         onSave={handleSaveTransactionDetails}
         onManageCategories={() => setCategoryModalVisible(true)}
