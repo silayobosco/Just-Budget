@@ -330,6 +330,8 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   const selectedSubcategory = selectedCategory?.subcategories?.find(
     (s: Subcategory) => s.id === selectedSubcategoryId
   );
+  const selectedWallet = wallets.find((w) => w.id === selectedWalletId);
+  const selectedToWallet = wallets.find((w) => w.id === selectedToWalletId);
 
   const handleSelectCategory = (cat: Category) => {
     if (selectedCategoryId === cat.id) {
@@ -621,9 +623,16 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
           <View style={styles.section}>
             {isTransfer ? (
               <>
-                <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant }]}>
-                  DESTINATION WALLET (TRANSFER TO)
-                </Text>
+                <View style={styles.sectionHeaderRow}>
+                  <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant }]}>
+                    DESTINATION WALLET (TRANSFER TO)
+                  </Text>
+                  {selectedToWallet && (
+                    <Text style={[styles.fieldHeaderBalance, { color: theme.primary }]}>
+                      Bal: {formatCurrency(selectedToWallet.current_balance, selectedToWallet.currency || baseCurrency)}
+                    </Text>
+                  )}
+                </View>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsScrollRow}>
                   {wallets
                     .filter((w) => w.id !== selectedWalletId)
@@ -656,6 +665,14 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
                             ]}
                           >
                             {w.name}
+                            <Text
+                              style={[
+                                styles.walletChipBalText,
+                                { color: isSelected ? theme.primary : theme.onSurfaceVariant },
+                              ]}
+                            >
+                              {' '}({formatCurrency(w.current_balance, w.currency || baseCurrency)})
+                            </Text>
                           </Text>
                         </TouchableOpacity>
                       );
@@ -724,9 +741,16 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
 
           {/* 2. WALLET SELECTION */}
           <View style={styles.section}>
-            <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant }]}>
-              {isTransfer ? 'SOURCE WALLET (TRANSFER FROM)' : 'SELECT WALLET'}
-            </Text>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant }]}>
+                {isTransfer ? 'SOURCE WALLET (TRANSFER FROM)' : 'SELECT WALLET'}
+              </Text>
+              {selectedWallet && (
+                <Text style={[styles.fieldHeaderBalance, { color: theme.primary }]}>
+                  Bal: {formatCurrency(selectedWallet.current_balance, selectedWallet.currency || baseCurrency)}
+                </Text>
+              )}
+            </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsScrollRow}>
               {wallets
                 .filter((w) => !isTransfer || w.id !== selectedToWalletId)
@@ -765,6 +789,14 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
                         ]}
                       >
                         {w.name}
+                        <Text
+                          style={[
+                            styles.walletChipBalText,
+                            { color: isSelected ? theme.primary : theme.onSurfaceVariant },
+                          ]}
+                        >
+                          {' '}({formatCurrency(w.current_balance, w.currency || baseCurrency)})
+                        </Text>
                       </Text>
                     </TouchableOpacity>
                   );
@@ -1541,6 +1573,15 @@ const styles = StyleSheet.create({
   section: {
     gap: 6,
   },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  fieldHeaderBalance: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
   card: {
     borderRadius: M3Shape.large,
     padding: 14,
@@ -1670,6 +1711,10 @@ const styles = StyleSheet.create({
   },
   walletChipText: {
     fontSize: 12.5,
+  },
+  walletChipBalText: {
+    fontSize: 11,
+    fontWeight: '600',
   },
   categoryWrap: {
     flexDirection: 'row',
