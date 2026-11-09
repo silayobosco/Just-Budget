@@ -50,11 +50,11 @@ export const WalletsScreen: React.FC = () => {
 
   const currentSelectedWallet = wallets.find((w) => w.id === selectedWallet?.id) || selectedWallet;
 
-  // Transactions belonging to the currently viewed wallet
+  // Transactions belonging to the currently viewed wallet (both source and destination)
   const walletTransactions = useMemo(() => {
     if (!currentSelectedWallet) return [];
     return transactions
-      .filter((t) => t.wallet_id === currentSelectedWallet.id)
+      .filter((t) => t.wallet_id === currentSelectedWallet.id || t.to_wallet_id === currentSelectedWallet.id)
       .sort((a, b) => {
         if (a.date !== b.date) return b.date.localeCompare(a.date);
         const timeA = a.time || '';
@@ -72,8 +72,14 @@ export const WalletsScreen: React.FC = () => {
       const amt = t.amount || t.base_amount || 0;
       if (t.type === 'income') {
         inflow += amt;
-      } else if (t.type === 'expense' || t.type === 'transfer') {
+      } else if (t.type === 'expense') {
         outflow += amt;
+      } else if (t.type === 'transfer') {
+        if (t.to_wallet_id === currentSelectedWallet.id) {
+          inflow += amt;
+        } else if (t.wallet_id === currentSelectedWallet.id) {
+          outflow += amt;
+        }
       }
     }
     return {
@@ -115,10 +121,18 @@ export const WalletsScreen: React.FC = () => {
         else if (d === yesterdayStr) displayDate = 'Yesterday';
 
         const daySpent = items
-          .filter((t) => t.type === 'expense' || t.type === 'transfer')
+          .filter(
+            (t) =>
+              t.type === 'expense' ||
+              (t.type === 'transfer' && t.wallet_id === currentSelectedWallet?.id)
+          )
           .reduce((sum, t) => sum + (t.amount || t.base_amount || 0), 0);
         const dayIncome = items
-          .filter((t) => t.type === 'income')
+          .filter(
+            (t) =>
+              t.type === 'income' ||
+              (t.type === 'transfer' && t.to_wallet_id === currentSelectedWallet?.id)
+          )
           .reduce((sum, t) => sum + (t.amount || t.base_amount || 0), 0);
 
         groups.push({
@@ -131,7 +145,7 @@ export const WalletsScreen: React.FC = () => {
       });
 
     return groups;
-  }, [walletTransactions]);
+  }, [walletTransactions, currentSelectedWallet]);
 
   // New / Edit Wallet form states
   const [walletName, setWalletName] = useState('');
@@ -794,8 +808,20 @@ export const WalletsScreen: React.FC = () => {
                     const sub = cat?.subcategories?.find((s) => s.id === tx.subcategory_id);
                     const isExp = tx.type === 'expense';
                     const isTransfer = tx.type === 'transfer';
+                    const isIncomingTransfer = isTransfer && tx.to_wallet_id === currentSelectedWallet?.id;
+                    const isOutgoingTransfer = isTransfer && tx.wallet_id === currentSelectedWallet?.id;
 
-                    const mainTitle = isTransfer
+                    const otherWallet = isIncomingTransfer
+                      ? wallets.find((w) => w.id === tx.wallet_id)
+                      : isOutgoingTransfer
+                      ? wallets.find((w) => w.id === tx.to_wallet_id)
+                      : null;
+
+                    const mainTitle = isIncomingTransfer
+                      ? `Transfer from ${otherWallet?.name || 'Wallet'}`
+                      : isOutgoingTransfer
+                      ? `Transfer to ${otherWallet?.name || 'Wallet'}`
+                      : isTransfer
                       ? 'Transfer'
                       : sub?.name || cat?.name || 'Activity';
 
@@ -807,6 +833,9 @@ export const WalletsScreen: React.FC = () => {
                       .filter(Boolean)
                       .join(' • ');
 
+                    const isPositive = tx.type === 'income' || isIncomingTransfer;
+                    const amountColor = isPositive ? theme.success : theme.error;
+
                     return (
                       <TouchableOpacity
                         key={tx.id}
@@ -817,11 +846,23 @@ export const WalletsScreen: React.FC = () => {
                         <View
                           style={[
                             styles.detailTxIconCircle,
-                            { backgroundColor: isTransfer ? theme.primary : (cat?.color || (isExp ? '#EF4444' : '#10B981')) },
+                            {
+                              backgroundColor: isTransfer
+                                ? (isIncomingTransfer ? theme.success : theme.primary)
+                                : (cat?.color || (isExp ? '#EF4444' : '#10B981')),
+                            },
                           ]}
                         >
                           <MaterialCommunityIcons
-                            name={isTransfer ? 'swap-horizontal' : ((cat?.icon as any) || 'tag-outline')}
+                            name={
+                              isIncomingTransfer
+                                ? 'tray-arrow-down'
+                                : isOutgoingTransfer
+                                ? 'tray-arrow-up'
+                                : isTransfer
+                                ? 'swap-horizontal'
+                                : ((cat?.icon as any) || 'tag-outline')
+                            }
                             size={18}
                             color="#FFFFFF"
                           />
@@ -841,10 +882,10 @@ export const WalletsScreen: React.FC = () => {
                         <Text
                           style={[
                             styles.detailTxAmount,
-                            { color: isExp ? theme.error : theme.success },
+                            { color: amountColor },
                           ]}
                         >
-                          {isExp ? '-' : '+'}{formatCurrency(tx.amount || tx.base_amount || 0, settings.base_currency)}
+                          {isPositive ? '+' : '-'}{formatCurrency(tx.amount || tx.base_amount || 0, settings.base_currency)}
                         </Text>
                       </TouchableOpacity>
                     );
