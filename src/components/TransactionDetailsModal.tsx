@@ -218,6 +218,19 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
     return d.toISOString().slice(0, 10);
   }, []);
 
+  const displayDate = useMemo(() => {
+    if (!dateStr) return '';
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      const currentYear = new Date().getFullYear().toString();
+      if (parts[0] !== currentYear) {
+        return `${parts[2]}-${parts[1]}-${parts[0]}`;
+      }
+      return `${parts[2]}-${parts[1]}`;
+    }
+    return dateStr;
+  }, [dateStr]);
+
   // Recurrence states
   const [repeatEnabled, setRepeatEnabled] = useState<boolean>(false);
   const [repeatFrequency, setRepeatFrequency] = useState<BillFrequency>('monthly');
@@ -293,6 +306,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   const selectedSubcategory = selectedCategory?.subcategories?.find(
     (s: Subcategory) => s.id === selectedSubcategoryId
   );
+
 
   const handleSelectCategory = (cat: Category) => {
     if (selectedCategoryId === cat.id) {
@@ -787,34 +801,54 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.dateTimeChipsContainer}
             >
-              {/* 1. Today chip */}
+              {/* 1. Calendar chip (Default - DD-MM) */}
               <TouchableOpacity
                 style={[
                   styles.dateTimeQuickChip,
                   {
-                    backgroundColor: dateStr === todayStr ? theme.primaryContainer : theme.pillBg,
-                    borderColor: dateStr === todayStr ? theme.primary : theme.divider,
+                    backgroundColor:
+                      dateStr !== yesterdayStr
+                        ? theme.primaryContainer
+                        : theme.pillBg,
+                    borderColor:
+                      dateStr !== yesterdayStr ? theme.primary : theme.divider,
                   },
                 ]}
-                onPress={() => setDateStr(todayStr)}
+                onPress={() => setCalendarVisible(true)}
                 activeOpacity={0.7}
               >
                 <MaterialCommunityIcons
-                  name="calendar-today"
+                  name="calendar-month-outline"
                   size={14}
-                  color={dateStr === todayStr ? theme.primary : theme.onSurfaceVariant}
+                  color={
+                    dateStr !== yesterdayStr
+                      ? theme.primary
+                      : theme.onSurfaceVariant
+                  }
                 />
                 <Text
                   style={[
                     styles.dateTimeQuickChipText,
                     {
-                      color: dateStr === todayStr ? theme.onPrimaryContainer : theme.onSurface,
-                      fontWeight: dateStr === todayStr ? '700' : '500',
+                      color:
+                        dateStr !== yesterdayStr
+                          ? theme.onPrimaryContainer
+                          : theme.onSurface,
+                      fontWeight: dateStr !== yesterdayStr ? '700' : '500',
                     },
                   ]}
                 >
-                  Today
+                  {displayDate}
                 </Text>
+                <MaterialCommunityIcons
+                  name="pencil-outline"
+                  size={12}
+                  color={
+                    dateStr !== yesterdayStr
+                      ? theme.primary
+                      : theme.onSurfaceVariant
+                  }
+                />
               </TouchableOpacity>
 
               {/* 2. Yesterday chip */}
@@ -826,7 +860,13 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
                     borderColor: dateStr === yesterdayStr ? theme.primary : theme.divider,
                   },
                 ]}
-                onPress={() => setDateStr(yesterdayStr)}
+                onPress={() => {
+                  if (dateStr === yesterdayStr) {
+                    setDateStr(todayStr);
+                  } else {
+                    setDateStr(yesterdayStr);
+                  }
+                }}
                 activeOpacity={0.7}
               >
                 <MaterialCommunityIcons
@@ -847,57 +887,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
                 </Text>
               </TouchableOpacity>
 
-              {/* 3. Calendar chip */}
-              <TouchableOpacity
-                style={[
-                  styles.dateTimeQuickChip,
-                  {
-                    backgroundColor:
-                      dateStr !== todayStr && dateStr !== yesterdayStr
-                        ? theme.primaryContainer
-                        : theme.pillBg,
-                    borderColor:
-                      dateStr !== todayStr && dateStr !== yesterdayStr ? theme.primary : theme.divider,
-                  },
-                ]}
-                onPress={() => setCalendarVisible(true)}
-                activeOpacity={0.7}
-              >
-                <MaterialCommunityIcons
-                  name="calendar-month-outline"
-                  size={14}
-                  color={
-                    dateStr !== todayStr && dateStr !== yesterdayStr
-                      ? theme.primary
-                      : theme.onSurfaceVariant
-                  }
-                />
-                <Text
-                  style={[
-                    styles.dateTimeQuickChipText,
-                    {
-                      color:
-                        dateStr !== todayStr && dateStr !== yesterdayStr
-                          ? theme.onPrimaryContainer
-                          : theme.onSurface,
-                      fontWeight: dateStr !== todayStr && dateStr !== yesterdayStr ? '700' : '500',
-                    },
-                  ]}
-                >
-                  {dateStr}
-                </Text>
-                <MaterialCommunityIcons
-                  name="pencil-outline"
-                  size={12}
-                  color={
-                    dateStr !== todayStr && dateStr !== yesterdayStr
-                      ? theme.primary
-                      : theme.onSurfaceVariant
-                  }
-                />
-              </TouchableOpacity>
-
-              {/* 4. Time chip */}
+              {/* 3. Time chip */}
               <TouchableOpacity
                 style={[styles.dateTimeQuickChip, { backgroundColor: theme.pillBg, borderColor: theme.divider }]}
                 onPress={() => setClockVisible(true)}
