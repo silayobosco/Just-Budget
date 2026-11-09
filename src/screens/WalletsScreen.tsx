@@ -32,6 +32,7 @@ export const WalletsScreen: React.FC = () => {
     deleteWallet,
     transferBetweenWallets,
     transactions,
+    recurringBills,
     categories,
     deleteTransaction,
   } = useBudget();
@@ -905,6 +906,7 @@ export const WalletsScreen: React.FC = () => {
         transaction={viewingTransaction}
         categories={categories}
         wallets={wallets}
+        recurringBills={recurringBills}
         theme={theme}
         baseCurrency={settings.base_currency}
         onClose={() => setViewingTransaction(null)}

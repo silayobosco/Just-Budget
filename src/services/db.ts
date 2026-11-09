@@ -60,6 +60,7 @@ export const initDatabase = async () => {
       media_uri TEXT,
       note TEXT,
       to_wallet_id TEXT,
+      recurring_bill_id TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (wallet_id) REFERENCES wallets (id) ON DELETE CASCADE
     );
@@ -85,6 +86,7 @@ export const initDatabase = async () => {
       amount REAL NOT NULL,
       currency TEXT NOT NULL,
       frequency TEXT NOT NULL, -- 'weekly' | 'monthly' | 'yearly'
+      type TEXT NOT NULL DEFAULT 'expense', -- 'expense' | 'income'
       due_day INTEGER NOT NULL,
       next_due_date TEXT NOT NULL,
       category_id TEXT,
@@ -126,6 +128,12 @@ export const initDatabase = async () => {
   } catch {}
   try {
     db.runSync(`ALTER TABLE transactions ADD COLUMN media_uri TEXT`);
+  } catch {}
+  try {
+    db.runSync(`ALTER TABLE transactions ADD COLUMN recurring_bill_id TEXT`);
+  } catch {}
+  try {
+    db.runSync(`ALTER TABLE recurring_bills ADD COLUMN type TEXT DEFAULT 'expense'`);
   } catch {}
   try {
     db.runSync(`ALTER TABLE recurring_bills ADD COLUMN end_type TEXT DEFAULT 'never'`);

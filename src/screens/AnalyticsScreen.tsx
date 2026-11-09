@@ -30,7 +30,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
 import { formatCurrency } from '../utils/format';
-import { TransactionType } from '../types';
+import { TransactionType, BillFrequency, RecurrenceEndType } from '../types';
 import { CategoryPickerSheet } from '../components/CategoryPickerSheet';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
 import { CalendarPickerModal } from '../components/CalendarPickerModal';
@@ -909,6 +909,7 @@ export const AnalyticsScreen: React.FC = () => {
   const handleSaveNewTransaction = async (txData: {
     amount: number;
     wallet_id: string;
+    to_wallet_id?: string;
     category_id?: string;
     subcategory_id?: string;
     type: TransactionType;
@@ -918,9 +919,16 @@ export const AnalyticsScreen: React.FC = () => {
     is_paid: boolean;
     note?: string;
     media_uri?: string;
+    repeat_frequency?: BillFrequency;
+    repeat_due_day?: number;
+    repeat_end_type?: RecurrenceEndType;
+    repeat_end_occurrences?: number;
+    repeat_end_date?: string;
+    reminder_enabled?: boolean;
   }) => {
     await addTransaction({
       wallet_id: txData.wallet_id || wallets[0]?.id || '',
+      to_wallet_id: txData.to_wallet_id,
       category_id: txData.category_id,
       subcategory_id: txData.subcategory_id,
       type: txData.type,
@@ -931,6 +939,12 @@ export const AnalyticsScreen: React.FC = () => {
       is_paid: txData.is_paid,
       note: txData.note,
       media_uri: txData.media_uri,
+      repeat_frequency: txData.repeat_frequency,
+      repeat_due_day: txData.repeat_due_day,
+      repeat_end_type: txData.repeat_end_type,
+      repeat_end_occurrences: txData.repeat_end_occurrences,
+      repeat_end_date: txData.repeat_end_date,
+      reminder_enabled: txData.reminder_enabled,
     });
     setAddModalVisible(false);
   };

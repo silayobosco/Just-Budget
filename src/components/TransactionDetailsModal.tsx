@@ -44,6 +44,13 @@ interface TransactionDetailsModalProps {
   initialIsPaid?: boolean;
   initialCurrency?: string;
   isEditing?: boolean;
+  initialRepeatEnabled?: boolean;
+  initialRepeatFrequency?: BillFrequency;
+  initialRepeatDueDay?: number;
+  initialRepeatEndType?: RecurrenceEndType;
+  initialRepeatEndOccurrences?: number;
+  initialRepeatEndDate?: string;
+  initialReminderEnabled?: boolean;
   wallets: Wallet[];
   categories: Category[];
   theme: any;
@@ -90,6 +97,13 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   initialIsPaid,
   initialCurrency,
   isEditing,
+  initialRepeatEnabled,
+  initialRepeatFrequency,
+  initialRepeatDueDay,
+  initialRepeatEndType,
+  initialRepeatEndOccurrences,
+  initialRepeatEndDate,
+  initialReminderEnabled,
   wallets,
   categories,
   theme,
@@ -298,14 +312,23 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       );
       setIsPaid(initialIsPaid !== undefined ? initialIsPaid : true);
       setMediaUri(initialMediaUri || null);
-      setRepeatEnabled(false);
-      setRepeatFrequency('monthly');
-      setRepeatEndType('never');
-      setRepeatEndOccurrences('12');
-      const nextY = new Date();
-      nextY.setFullYear(nextY.getFullYear() + 1);
-      setRepeatEndDate(nextY.toISOString().slice(0, 10));
-      setReminderEnabled(true);
+      setRepeatEnabled(initialRepeatEnabled !== undefined ? initialRepeatEnabled : false);
+      setRepeatFrequency(initialRepeatFrequency || 'monthly');
+      if (initialRepeatDueDay !== undefined) {
+        setRepeatDueDay(initialRepeatDueDay);
+      }
+      setRepeatEndType(initialRepeatEndType || 'never');
+      setRepeatEndOccurrences(
+        initialRepeatEndOccurrences !== undefined ? String(initialRepeatEndOccurrences) : '12'
+      );
+      if (initialRepeatEndDate) {
+        setRepeatEndDate(initialRepeatEndDate);
+      } else {
+        const nextY = new Date();
+        nextY.setFullYear(nextY.getFullYear() + 1);
+        setRepeatEndDate(nextY.toISOString().slice(0, 10));
+      }
+      setReminderEnabled(initialReminderEnabled !== undefined ? initialReminderEnabled : true);
     }
   }, [
     visible,
@@ -321,6 +344,13 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
     initialMediaUri,
     initialIsPaid,
     initialCurrency,
+    initialRepeatEnabled,
+    initialRepeatFrequency,
+    initialRepeatDueDay,
+    initialRepeatEndType,
+    initialRepeatEndOccurrences,
+    initialRepeatEndDate,
+    initialReminderEnabled,
     baseCurrency,
     wallets,
   ]);
