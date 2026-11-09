@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Transaction, Category, Wallet } from '../types';
+import { Transaction, Category, Wallet, RecurringBill } from '../types';
 import { formatCurrency } from '../utils/format';
 import { M3Elevation, M3Shape } from '../theme';
 
@@ -22,6 +22,7 @@ interface TransactionDetailModalProps {
   transaction: Transaction | null;
   categories: Category[];
   wallets: Wallet[];
+  recurringBills?: RecurringBill[];
   theme: any;
   baseCurrency: string;
   onClose: () => void;
@@ -34,6 +35,7 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
   transaction,
   categories,
   wallets,
+  recurringBills,
   theme,
   baseCurrency,
   onClose,
@@ -44,6 +46,21 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
   const topInset = Math.max(insets.top, Platform.OS === 'android' ? Math.max(StatusBar.currentHeight || 0, 28) : 0);
   const bottomInset = Math.max(insets.bottom, Platform.OS === 'android' ? 48 : 20);
   const [photoPreviewVisible, setPhotoPreviewVisible] = useState(false);
+
+  const linkedBill = useMemo(() => {
+    if (!transaction || !recurringBills) return undefined;
+    if (transaction.recurring_bill_id) {
+      const found = recurringBills.find((b) => b.id === transaction.recurring_bill_id);
+      if (found) return found;
+    }
+    // Fallback: match by note/name, amount, wallet
+    return recurringBills.find(
+      (b) =>
+        b.wallet_id === transaction.wallet_id &&
+        Math.abs(b.amount - transaction.amount) < 0.01 &&
+        (b.name === transaction.note || (transaction.note && b.name.includes(transaction.note)))
+    );
+  }, [transaction, recurringBills]);
 
   if (!visible || !transaction) return null;
 
@@ -165,21 +182,32 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
         >
           {/* Hero Amount & Category Card */}
           <View style={[styles.heroCard, { backgroundColor: theme.surface, borderColor: theme.divider }, M3Elevation.level1]}>
-            <View style={[styles.typeBadge, { backgroundColor: typeContainerColor }]}>
-              <MaterialCommunityIcons
-                name={
-                  isExpense
-                    ? 'arrow-down-circle'
-                    : isIncome
-                    ? 'arrow-up-circle'
-                    : 'swap-horizontal-circle'
-                }
-                size={16}
-                color={typeColor}
-              />
-              <Text style={[styles.typeBadgeText, { color: onTypeContainerColor }]}>
-                {isExpense ? 'EXPENSE' : isIncome ? 'INCOME' : 'TRANSFER'}
-              </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <View style={[styles.typeBadge, { backgroundColor: typeContainerColor }]}>
+                <MaterialCommunityIcons
+                  name={
+                    isExpense
+                      ? 'arrow-down-circle'
+                      : isIncome
+                      ? 'arrow-up-circle'
+                      : 'swap-horizontal-circle'
+                  }
+                  size={16}
+                  color={typeColor}
+                />
+                <Text style={[styles.typeBadgeText, { color: onTypeContainerColor }]}>
+                  {isExpense ? 'EXPENSE' : isIncome ? 'INCOME' : 'TRANSFER'}
+                </Text>
+              </View>
+
+              {Boolean(linkedBill) && (
+                <View style={[styles.recurringHeaderBadge, { backgroundColor: theme.primaryContainer }]}>
+                  <MaterialCommunityIcons name="calendar-sync" size={13} color={theme.primary} />
+                  <Text style={[styles.recurringHeaderBadgeText, { color: theme.onPrimaryContainer }]}>
+                    RECURRING
+                  </Text>
+                </View>
+              )}
             </View>
 
             <Text style={[styles.heroAmount, { color: typeColor }]}>
@@ -271,7 +299,7 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
             </View>
 
             {/* Payment Status Row */}
-            <View style={[styles.detailRow, { borderBottomColor: transaction.note || transaction.media_uri ? theme.divider : 'transparent' }]}>
+            <View style={[styles.detailRow, { borderBottomColor: theme.divider }]}>
               <View style={[styles.detailIconCircle, { backgroundColor: theme.pillBg }]}>
                 <MaterialCommunityIcons
                   name={transaction.is_paid !== false ? 'check-decagram-outline' : 'clock-alert-outline'}
@@ -286,6 +314,40 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                 </Text>
               </View>
             </View>
+
+            {/* Recurring Status Row */}
+            {Boolean(linkedBill) && (
+              <View style={[styles.detailRow, { borderBottomColor: transaction.note || transaction.media_uri ? theme.divider : 'transparent' }]}>
+                <View style={[styles.detailIconCircle, { backgroundColor: theme.primaryContainer }]}>
+                  <MaterialCommunityIcons name="calendar-sync" size={18} color={theme.primary} />
+                </View>
+                <View style={styles.detailCol}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={[styles.detailLabel, { color: theme.onSurfaceVariant }]}>Recurring Commitment</Text>
+                    <View style={[styles.recurringBadge, { backgroundColor: theme.primaryContainer }]}>
+                      <Text style={[styles.recurringBadgeText, { color: theme.onPrimaryContainer }]}>
+                        {linkedBill!.frequency.toUpperCase()}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={[styles.detailValue, { color: theme.onSurface }]}>
+                    {linkedBill!.frequency === 'weekly'
+                      ? `Every week (${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][linkedBill!.due_day % 7]})`
+                      : linkedBill!.frequency === 'yearly'
+                      ? `Every year (Day ${linkedBill!.due_day})`
+                      : `Every month (Day ${linkedBill!.due_day})`}
+                    {linkedBill!.end_type === 'after_occurrences'
+                      ? ` • ${linkedBill!.occurrences_count || 0}/${linkedBill!.end_occurrences} paid`
+                      : linkedBill!.end_type === 'on_date'
+                      ? ` • Ends ${linkedBill!.end_date}`
+                      : ' • Repeats indefinitely'}
+                  </Text>
+                  <Text style={[styles.recurringSubText, { color: theme.primary }]}>
+                    Next Due: {linkedBill!.next_due_date} • {linkedBill!.reminder_enabled ? 'Reminder on' : 'No alert'}
+                  </Text>
+                </View>
+              </View>
+            )}
 
             {/* Note / Memo Row */}
             {Boolean(transaction.note) && (
@@ -445,6 +507,20 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 12,
   },
+  recurringHeaderBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  recurringHeaderBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
   typeBadgeText: {
     fontSize: 12,
     fontWeight: '800',
@@ -514,9 +590,23 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 2,
   },
+  recurringBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 1.5,
+    borderRadius: 6,
+  },
+  recurringBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+  },
   detailValue: {
     fontSize: 15,
     fontWeight: '700',
+  },
+  recurringSubText: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    marginTop: 2,
   },
   detailNoteValue: {
     fontSize: 14,

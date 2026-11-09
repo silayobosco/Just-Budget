@@ -42,6 +42,7 @@ export interface Transaction {
   is_paid?: boolean;
   media_uri?: string;
   to_wallet_id?: string | null;
+  recurring_bill_id?: string | null;
   created_at?: string;
 }
 
@@ -91,6 +92,7 @@ export interface RecurringBill {
   amount: number;
   currency: string;
   frequency: BillFrequency;
+  type?: 'expense' | 'income';
   due_day: number; // 1-31 (or 1-7 for weekly)
   next_due_date: string; // YYYY-MM-DD
   category_id?: string | null;

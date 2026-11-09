@@ -577,29 +577,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
       is_paid: txData.is_paid,
       note: txData.note,
       media_uri: txData.media_uri,
+      repeat_frequency: txData.repeat_frequency,
+      repeat_due_day: txData.repeat_due_day,
+      repeat_end_type: txData.repeat_end_type,
+      repeat_end_occurrences: txData.repeat_end_occurrences,
+      repeat_end_date: txData.repeat_end_date,
+      reminder_enabled: txData.reminder_enabled,
     });
-
-    if (txData.repeat_frequency) {
-      const selectedCat = categories.find((c) => c.id === txData.category_id);
-      const billName =
-        txData.note || selectedCat?.name || (txData.type === 'income' ? 'Recurring Income' : 'Recurring Bill');
-      const dueDay = txData.repeat_due_day !== undefined ? txData.repeat_due_day : (parseInt(txData.date.slice(8, 10)) || 1);
-
-      await addRecurringBill({
-        name: billName,
-        amount: txData.amount,
-        currency: txData.currency,
-        frequency: txData.repeat_frequency,
-        due_day: dueDay,
-        next_due_date: txData.date,
-        category_id: txData.category_id,
-        wallet_id: txData.wallet_id,
-        reminder_enabled: txData.reminder_enabled !== false,
-        end_type: txData.repeat_end_type,
-        end_occurrences: txData.repeat_end_occurrences,
-        end_date: txData.repeat_end_date,
-      });
-    }
 
     setAmountStr('0');
     setDetailsModalVisible(false);

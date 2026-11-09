@@ -171,17 +171,18 @@ export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({ visibl
 
   // Pay bill confirmation
   const handlePay = (bill: RecurringBill) => {
+    const isIncome = bill.type === 'income';
     Alert.alert(
-      `Pay ${bill.name}?`,
-      `This will record an expense of ${formatCurrency(bill.amount, bill.currency)} and advance the next due date.`,
+      isIncome ? `Receive ${bill.name}?` : `Pay ${bill.name}?`,
+      `This will record an ${isIncome ? 'income' : 'expense'} of ${formatCurrency(bill.amount, bill.currency)} and advance the next due date.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Pay & Record',
+          text: isIncome ? 'Receive & Record' : 'Pay & Record',
           style: 'default',
           onPress: async () => {
             await payRecurringBill(bill);
-            Alert.alert('Paid', `${bill.name} recorded and next due date updated!`);
+            Alert.alert(isIncome ? 'Received' : 'Paid', `${bill.name} recorded and next due date updated!`);
           },
         },
       ]
@@ -191,6 +192,7 @@ export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({ visibl
   // Total monthly recurring cost
   const totalMonthlyCost = useMemo(() => {
     return recurringBills.reduce((sum, b) => {
+      if (b.type === 'income') return sum;
       let monthlyAmt = b.amount;
       if (b.frequency === 'weekly') monthlyAmt = b.amount * 4.33;
       if (b.frequency === 'yearly') monthlyAmt = b.amount / 12;
@@ -612,14 +614,14 @@ export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({ visibl
                       style={[styles.billCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}
                     >
                       <View style={styles.billTopRow}>
-                        <View style={[styles.billIconCircle, { backgroundColor: cat?.color || theme.primary }]}>
-                          <MaterialCommunityIcons name={(cat?.icon as any) || 'receipt'} size={20} color="#FFFFFF" />
+                        <View style={[styles.billIconCircle, { backgroundColor: cat?.color || (bill.type === 'income' ? theme.success : theme.primary) }]}>
+                          <MaterialCommunityIcons name={(cat?.icon as any) || (bill.type === 'income' ? 'arrow-up-circle' : 'receipt')} size={20} color="#FFFFFF" />
                         </View>
 
                         <View style={styles.billInfo}>
                           <Text style={[styles.billName, { color: theme.onSurface }]}>{bill.name}</Text>
                           <Text style={[styles.billMeta, { color: theme.onSurfaceVariant }]}>
-                            {wallet?.name || 'Wallet'} • {bill.frequency === 'weekly' ? `${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][bill.due_day % 7]}s` : `Day ${bill.due_day}`} ({bill.frequency})
+                            {wallet?.name || 'Wallet'} • {bill.type === 'income' ? 'Income' : 'Expense'} • {bill.frequency === 'weekly' ? `${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][bill.due_day % 7]}s` : `Day ${bill.due_day}`} ({bill.frequency})
                             {bill.end_type === 'after_occurrences'
                               ? ` • ${bill.occurrences_count || 0}/${bill.end_occurrences} paid`
                               : bill.end_type === 'on_date'
@@ -629,8 +631,8 @@ export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({ visibl
                         </View>
 
                         <View style={{ alignItems: 'flex-end' }}>
-                          <Text style={[styles.billAmount, { color: theme.error }]}>
-                            {formatCurrency(bill.amount, bill.currency)}
+                          <Text style={[styles.billAmount, { color: bill.type === 'income' ? theme.success : theme.error }]}>
+                            {bill.type === 'income' ? '+' : '-'}{formatCurrency(bill.amount, bill.currency)}
                           </Text>
                           <View
                             style={[

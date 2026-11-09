@@ -22,7 +22,7 @@ import { CycleModeSwitcherModal } from '../components/CycleModeSwitcherModal';
 import { TransactionDetailModal } from '../components/TransactionDetailModal';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
 import { CategoryPickerSheet } from '../components/CategoryPickerSheet';
-import { Transaction, BudgetCycle, TransactionType } from '../types';
+import { Transaction, BudgetCycle, TransactionType, BillFrequency, RecurrenceEndType } from '../types';
 
 interface CalendarScreenProps {
   onNavigateTab?: (tab: any) => void;
@@ -38,6 +38,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     updateSettings,
     openCycleModal,
     transactions,
+    recurringBills,
     categories,
     wallets,
     remainingCycleBalance,
@@ -143,6 +144,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
   const handleSaveNewTransaction = async (txData: {
     amount: number;
     wallet_id: string;
+    to_wallet_id?: string;
     category_id?: string;
     subcategory_id?: string;
     type: TransactionType;
@@ -152,9 +154,16 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     is_paid: boolean;
     note?: string;
     media_uri?: string;
+    repeat_frequency?: BillFrequency;
+    repeat_due_day?: number;
+    repeat_end_type?: RecurrenceEndType;
+    repeat_end_occurrences?: number;
+    repeat_end_date?: string;
+    reminder_enabled?: boolean;
   }) => {
     await addTransaction({
       wallet_id: txData.wallet_id || wallets[0]?.id || '',
+      to_wallet_id: txData.to_wallet_id,
       category_id: txData.category_id,
       subcategory_id: txData.subcategory_id,
       type: txData.type,
@@ -165,6 +174,12 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
       is_paid: txData.is_paid,
       note: txData.note,
       media_uri: txData.media_uri,
+      repeat_frequency: txData.repeat_frequency,
+      repeat_due_day: txData.repeat_due_day,
+      repeat_end_type: txData.repeat_end_type,
+      repeat_end_occurrences: txData.repeat_end_occurrences,
+      repeat_end_date: txData.repeat_end_date,
+      reminder_enabled: txData.reminder_enabled,
     });
     setAddModalVisible(false);
   };
@@ -190,9 +205,24 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     setEditModalVisible(true);
   };
 
+  const editingLinkedBill = useMemo(() => {
+    if (!editingTransaction) return undefined;
+    if (editingTransaction.recurring_bill_id) {
+      const found = recurringBills.find((b) => b.id === editingTransaction.recurring_bill_id);
+      if (found) return found;
+    }
+    return recurringBills.find(
+      (b) =>
+        b.wallet_id === editingTransaction.wallet_id &&
+        Math.abs(b.amount - editingTransaction.amount) < 0.01 &&
+        (b.name === editingTransaction.note || (editingTransaction.note && b.name.includes(editingTransaction.note)))
+    );
+  }, [editingTransaction, recurringBills]);
+
   const handleSaveEditedTransaction = async (txData: {
     amount: number;
     wallet_id: string;
+    to_wallet_id?: string;
     category_id?: string;
     subcategory_id?: string;
     type: any;
@@ -202,6 +232,12 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     is_paid: boolean;
     note?: string;
     media_uri?: string;
+    repeat_frequency?: BillFrequency;
+    repeat_due_day?: number;
+    repeat_end_type?: RecurrenceEndType;
+    repeat_end_occurrences?: number;
+    repeat_end_date?: string;
+    reminder_enabled?: boolean;
   }) => {
     if (!editingTransaction) return;
 
@@ -209,6 +245,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
       id: editingTransaction.id,
       amount: txData.amount,
       wallet_id: txData.wallet_id,
+      to_wallet_id: txData.to_wallet_id,
       category_id: txData.category_id,
       subcategory_id: txData.subcategory_id,
       type: txData.type,
@@ -218,6 +255,13 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
       is_paid: txData.is_paid,
       note: txData.note,
       media_uri: txData.media_uri,
+      recurring_bill_id: editingTransaction.recurring_bill_id,
+      repeat_frequency: txData.repeat_frequency,
+      repeat_due_day: txData.repeat_due_day,
+      repeat_end_type: txData.repeat_end_type,
+      repeat_end_occurrences: txData.repeat_end_occurrences,
+      repeat_end_date: txData.repeat_end_date,
+      reminder_enabled: txData.reminder_enabled,
     });
 
     // Keep viewing modal in sync with edited fields
@@ -1605,6 +1649,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
         transaction={viewingTransaction}
         categories={categories}
         wallets={wallets}
+        recurringBills={recurringBills}
         theme={theme}
         baseCurrency={settings.base_currency}
         onClose={() => setViewingTransaction(null)}
@@ -1619,6 +1664,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
           txType={editingTransaction?.type || 'expense'}
           initialAmount={editingTransaction?.amount || 0}
           initialWalletId={editingTransaction?.wallet_id || ''}
+          initialToWalletId={editingTransaction?.to_wallet_id || undefined}
           initialCategoryId={editingTransaction?.category_id || undefined}
           initialSubcategoryId={editingTransaction?.subcategory_id || undefined}
           initialDate={editingTransaction?.date}
@@ -1628,6 +1674,16 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
           initialIsPaid={editingTransaction?.is_paid}
           initialCurrency={editingTransaction?.currency}
           isEditing={true}
+          initialRepeatEnabled={Boolean(editingLinkedBill)}
+          initialRepeatFrequency={editingLinkedBill?.frequency || 'monthly'}
+          initialRepeatDueDay={
+            editingLinkedBill?.due_day ||
+            (parseInt(editingTransaction?.date.slice(8, 10) || '1', 10) || 1)
+          }
+          initialRepeatEndType={editingLinkedBill?.end_type || 'never'}
+          initialRepeatEndOccurrences={editingLinkedBill?.end_occurrences || 12}
+          initialRepeatEndDate={editingLinkedBill?.end_date}
+          initialReminderEnabled={editingLinkedBill ? editingLinkedBill.reminder_enabled : true}
           wallets={wallets}
           categories={categories}
           theme={theme}

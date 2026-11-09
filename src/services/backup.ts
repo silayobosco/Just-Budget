@@ -223,8 +223,8 @@ export const restoreFromBackupContentAsync = async (
       // Restore transactions
       for (const t of parsed.transactions) {
         db.runSync(
-          `INSERT OR REPLACE INTO transactions (id, wallet_id, category_id, subcategory_id, type, amount, currency, base_amount, date, time, is_paid, media_uri, note, to_wallet_id, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT OR REPLACE INTO transactions (id, wallet_id, category_id, subcategory_id, type, amount, currency, base_amount, date, time, is_paid, media_uri, note, to_wallet_id, recurring_bill_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             t.id,
             t.wallet_id,
@@ -240,6 +240,7 @@ export const restoreFromBackupContentAsync = async (
             t.media_uri || null,
             t.note || null,
             t.to_wallet_id || null,
+            t.recurring_bill_id || null,
             t.created_at || new Date().toISOString(),
           ]
         );
@@ -249,14 +250,15 @@ export const restoreFromBackupContentAsync = async (
       if (parsed.recurring_bills) {
         for (const b of parsed.recurring_bills) {
           db.runSync(
-            `INSERT OR REPLACE INTO recurring_bills (id, name, amount, currency, frequency, due_day, next_due_date, category_id, wallet_id, reminder_enabled, is_active, end_type, end_occurrences, end_date, occurrences_count, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT OR REPLACE INTO recurring_bills (id, name, amount, currency, frequency, type, due_day, next_due_date, category_id, wallet_id, reminder_enabled, is_active, end_type, end_occurrences, end_date, occurrences_count, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               b.id,
               b.name,
               b.amount,
               b.currency,
               b.frequency,
+              b.type || 'expense',
               b.due_day,
               b.next_due_date,
               b.category_id || null,

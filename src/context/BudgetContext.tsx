@@ -100,6 +100,13 @@ interface BudgetContextType {
     media_uri?: string;
     note?: string;
     to_wallet_id?: string;
+    recurring_bill_id?: string;
+    repeat_frequency?: BillFrequency;
+    repeat_due_day?: number;
+    repeat_end_type?: RecurrenceEndType;
+    repeat_end_occurrences?: number;
+    repeat_end_date?: string;
+    reminder_enabled?: boolean;
   }) => Promise<void>;
   updateTransaction: (params: {
     id: string;
@@ -115,6 +122,13 @@ interface BudgetContextType {
     media_uri?: string;
     note?: string;
     to_wallet_id?: string;
+    recurring_bill_id?: string | null;
+    repeat_frequency?: BillFrequency;
+    repeat_due_day?: number;
+    repeat_end_type?: RecurrenceEndType;
+    repeat_end_occurrences?: number;
+    repeat_end_date?: string;
+    reminder_enabled?: boolean;
   }) => Promise<void>;
   deleteTransaction: (id: string) => Promise<void>;
 
@@ -852,6 +866,13 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     media_uri?: string;
     note?: string;
     to_wallet_id?: string;
+    recurring_bill_id?: string;
+    repeat_frequency?: BillFrequency;
+    repeat_due_day?: number;
+    repeat_end_type?: RecurrenceEndType;
+    repeat_end_occurrences?: number;
+    repeat_end_date?: string;
+    reminder_enabled?: boolean;
   }) => {
     const db = getDB();
     const id = `tx-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -859,9 +880,45 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const isPaid = params.is_paid !== false;
 
     db.withTransactionSync(() => {
+      let finalBillId = params.recurring_bill_id || null;
+
+      // If user enabled recurring commitment and no existing bill linked, create recurring_bill
+      if (params.repeat_frequency && !finalBillId) {
+        finalBillId = `bill-${Date.now()}`;
+        const selectedCat = categories.find((c) => c.id === params.category_id);
+        const billName =
+          params.note || selectedCat?.name || (params.type === 'income' ? 'Recurring Income' : 'Recurring Bill');
+        const dueDay =
+          params.repeat_due_day !== undefined
+            ? params.repeat_due_day
+            : (parseInt(params.date.slice(8, 10), 10) || 1);
+
+        db.runSync(
+          `INSERT INTO recurring_bills (id, name, amount, currency, frequency, type, due_day, next_due_date, category_id, wallet_id, reminder_enabled, is_active, end_type, end_occurrences, end_date, occurrences_count, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 0, ?)`,
+          [
+            finalBillId,
+            billName,
+            params.amount,
+            txCurrency,
+            params.repeat_frequency,
+            params.type === 'income' ? 'income' : 'expense',
+            dueDay,
+            params.date,
+            params.category_id || null,
+            params.wallet_id,
+            params.reminder_enabled !== false ? 1 : 0,
+            params.repeat_end_type || 'never',
+            params.repeat_end_occurrences || null,
+            params.repeat_end_date || null,
+            new Date().toISOString(),
+          ]
+        );
+      }
+
       db.runSync(
-        `INSERT INTO transactions (id, wallet_id, category_id, subcategory_id, type, amount, currency, base_amount, date, time, is_paid, media_uri, note, to_wallet_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO transactions (id, wallet_id, category_id, subcategory_id, type, amount, currency, base_amount, date, time, is_paid, media_uri, note, to_wallet_id, recurring_bill_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           params.wallet_id,
@@ -877,6 +934,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           params.media_uri || null,
           params.note || null,
           params.to_wallet_id || null,
+          finalBillId,
           new Date().toISOString(),
         ]
       );
@@ -925,6 +983,13 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     media_uri?: string;
     note?: string;
     to_wallet_id?: string;
+    recurring_bill_id?: string | null;
+    repeat_frequency?: BillFrequency;
+    repeat_due_day?: number;
+    repeat_end_type?: RecurrenceEndType;
+    repeat_end_occurrences?: number;
+    repeat_end_date?: string;
+    reminder_enabled?: boolean;
   }) => {
     const db = getDB();
     const tx = transactions.find((t) => t.id === params.id);
@@ -935,6 +1000,73 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const newCurrency = params.currency || tx.currency || settings.base_currency;
 
     db.withTransactionSync(() => {
+      // Manage recurring bill association
+      let updatedBillId =
+        params.recurring_bill_id !== undefined ? params.recurring_bill_id : (tx.recurring_bill_id || null);
+
+      if (params.repeat_frequency) {
+        const selectedCat = categories.find((c) => c.id === params.category_id);
+        const billName =
+          params.note || selectedCat?.name || (params.type === 'income' ? 'Recurring Income' : 'Recurring Bill');
+        const dueDay =
+          params.repeat_due_day !== undefined
+            ? params.repeat_due_day
+            : (parseInt(params.date.slice(8, 10), 10) || 1);
+
+        if (updatedBillId) {
+          // Update existing recurring bill
+          db.runSync(
+            `UPDATE recurring_bills SET name = ?, amount = ?, currency = ?, frequency = ?, type = ?, due_day = ?, next_due_date = ?, category_id = ?, wallet_id = ?, reminder_enabled = ?, end_type = ?, end_occurrences = ?, end_date = ? WHERE id = ?`,
+            [
+              billName,
+              params.amount,
+              newCurrency,
+              params.repeat_frequency,
+              params.type === 'income' ? 'income' : 'expense',
+              dueDay,
+              params.date,
+              params.category_id || null,
+              params.wallet_id,
+              params.reminder_enabled !== false ? 1 : 0,
+              params.repeat_end_type || 'never',
+              params.repeat_end_occurrences || null,
+              params.repeat_end_date || null,
+              updatedBillId,
+            ]
+          );
+        } else {
+          // Create new recurring bill
+          updatedBillId = `bill-${Date.now()}`;
+          db.runSync(
+            `INSERT INTO recurring_bills (id, name, amount, currency, frequency, type, due_day, next_due_date, category_id, wallet_id, reminder_enabled, is_active, end_type, end_occurrences, end_date, occurrences_count, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 0, ?)`,
+            [
+              updatedBillId,
+              billName,
+              params.amount,
+              newCurrency,
+              params.repeat_frequency,
+              params.type === 'income' ? 'income' : 'expense',
+              dueDay,
+              params.date,
+              params.category_id || null,
+              params.wallet_id,
+              params.reminder_enabled !== false ? 1 : 0,
+              params.repeat_end_type || 'never',
+              params.repeat_end_occurrences || null,
+              params.repeat_end_date || null,
+              new Date().toISOString(),
+            ]
+          );
+        }
+      } else if (params.repeat_frequency === undefined && (params.recurring_bill_id === null || params.recurring_bill_id === '')) {
+        // Explicitly disabled recurrence
+        if (updatedBillId) {
+          db.runSync(`DELETE FROM recurring_bills WHERE id = ?`, [updatedBillId]);
+          updatedBillId = null;
+        }
+      }
+
       // 1. Revert old balance effect (if old was paid)
       if (isOldPaid) {
         if (tx.type === 'expense') {
@@ -974,7 +1106,8 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
            is_paid = ?,
            media_uri = ?,
            note = ?,
-           to_wallet_id = ?
+           to_wallet_id = ?,
+           recurring_bill_id = ?
          WHERE id = ?`,
         [
           params.wallet_id,
@@ -990,6 +1123,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           params.media_uri || null,
           params.note || null,
           params.to_wallet_id || null,
+          updatedBillId,
           params.id,
         ]
       );
@@ -1264,15 +1398,16 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const payRecurringBill = async (bill: RecurringBill) => {
-    // 1. Record expense transaction
+    // 1. Record transaction (expense or income)
     await addTransaction({
       wallet_id: bill.wallet_id,
       category_id: bill.category_id || undefined,
-      type: 'expense',
+      type: bill.type === 'income' ? 'income' : 'expense',
       amount: bill.amount,
       currency: bill.currency,
       date: new Date().toISOString().slice(0, 10),
-      note: `Bill Paid: ${bill.name}`,
+      note: `${bill.type === 'income' ? 'Income Received' : 'Bill Paid'}: ${bill.name}`,
+      recurring_bill_id: bill.id,
     });
 
     // 2. Advance next due date and evaluate end condition
