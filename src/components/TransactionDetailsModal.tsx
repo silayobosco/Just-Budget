@@ -532,94 +532,95 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* 1. CATEGORY / DESTINATION WALLET & TYPE SWITCHER */}
-          <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
-            <View style={styles.typeSwitcherRow}>
-              <TouchableOpacity
+          {/* TYPE SWITCHER */}
+          <View style={styles.typeSwitcherRow}>
+            <TouchableOpacity
+              style={[
+                styles.typeTab,
+                currentType === 'income' && { backgroundColor: theme.successContainer, borderColor: theme.success },
+              ]}
+              onPress={() => {
+                setCurrentType('income');
+                setSelectedCategoryId(lastIncomeCatId);
+                setSelectedSubcategoryId(lastIncomeSubId);
+              }}
+            >
+              <MaterialCommunityIcons
+                name="arrow-up-circle"
+                size={16}
+                color={currentType === 'income' ? theme.success : theme.onSurfaceVariant}
+              />
+              <Text
                 style={[
-                  styles.typeTab,
-                  currentType === 'income' && { backgroundColor: theme.successContainer, borderColor: theme.success },
+                  styles.typeTabText,
+                  { color: currentType === 'income' ? theme.onSuccessContainer : theme.onSurfaceVariant },
                 ]}
-                onPress={() => {
-                  setCurrentType('income');
-                  setSelectedCategoryId(lastIncomeCatId);
-                  setSelectedSubcategoryId(lastIncomeSubId);
-                }}
               >
-                <MaterialCommunityIcons
-                  name="arrow-up-circle"
-                  size={16}
-                  color={currentType === 'income' ? theme.success : theme.onSurfaceVariant}
-                />
-                <Text
-                  style={[
-                    styles.typeTabText,
-                    { color: currentType === 'income' ? theme.onSuccessContainer : theme.onSurfaceVariant },
-                  ]}
-                >
-                  Income
-                </Text>
-              </TouchableOpacity>
+                Income
+              </Text>
+            </TouchableOpacity>
 
-              <TouchableOpacity
+            <TouchableOpacity
+              style={[
+                styles.typeTab,
+                currentType === 'expense' && { backgroundColor: theme.errorContainer, borderColor: theme.error },
+              ]}
+              onPress={() => {
+                setCurrentType('expense');
+                setSelectedCategoryId(lastExpenseCatId);
+                setSelectedSubcategoryId(lastExpenseSubId);
+              }}
+            >
+              <MaterialCommunityIcons
+                name="arrow-down-circle"
+                size={16}
+                color={currentType === 'expense' ? theme.error : theme.onSurfaceVariant}
+              />
+              <Text
                 style={[
-                  styles.typeTab,
-                  currentType === 'expense' && { backgroundColor: theme.errorContainer, borderColor: theme.error },
+                  styles.typeTabText,
+                  { color: currentType === 'expense' ? theme.onErrorContainer : theme.onSurfaceVariant },
                 ]}
-                onPress={() => {
-                  setCurrentType('expense');
-                  setSelectedCategoryId(lastExpenseCatId);
-                  setSelectedSubcategoryId(lastExpenseSubId);
-                }}
               >
-                <MaterialCommunityIcons
-                  name="arrow-down-circle"
-                  size={16}
-                  color={currentType === 'expense' ? theme.error : theme.onSurfaceVariant}
-                />
-                <Text
-                  style={[
-                    styles.typeTabText,
-                    { color: currentType === 'expense' ? theme.onErrorContainer : theme.onSurfaceVariant },
-                  ]}
-                >
-                  Expense
-                </Text>
-              </TouchableOpacity>
+                Expense
+              </Text>
+            </TouchableOpacity>
 
-              <TouchableOpacity
-                style={[
-                  styles.typeTab,
-                  currentType === 'transfer' && { backgroundColor: theme.primaryContainer, borderColor: theme.primary },
-                ]}
-                onPress={() => {
-                  setCurrentType('transfer');
-                  if (!selectedToWalletId || selectedToWalletId === selectedWalletId) {
-                    const other = wallets.find((w) => w.id !== selectedWalletId);
-                    if (other) {
-                      setSelectedToWalletId(other.id);
-                    }
+            <TouchableOpacity
+              style={[
+                styles.typeTab,
+                currentType === 'transfer' && { backgroundColor: theme.primaryContainer, borderColor: theme.primary },
+              ]}
+              onPress={() => {
+                setCurrentType('transfer');
+                if (!selectedToWalletId || selectedToWalletId === selectedWalletId) {
+                  const other = wallets.find((w) => w.id !== selectedWalletId);
+                  if (other) {
+                    setSelectedToWalletId(other.id);
                   }
-                }}
+                }
+              }}
+            >
+              <MaterialCommunityIcons
+                name="swap-horizontal-bold"
+                size={16}
+                color={currentType === 'transfer' ? theme.primary : theme.onSurfaceVariant}
+              />
+              <Text
+                style={[
+                  styles.typeTabText,
+                  { color: currentType === 'transfer' ? theme.onPrimaryContainer : theme.onSurfaceVariant },
+                ]}
               >
-                <MaterialCommunityIcons
-                  name="swap-horizontal-bold"
-                  size={16}
-                  color={currentType === 'transfer' ? theme.primary : theme.onSurfaceVariant}
-                />
-                <Text
-                  style={[
-                    styles.typeTabText,
-                    { color: currentType === 'transfer' ? theme.onPrimaryContainer : theme.onSurfaceVariant },
-                  ]}
-                >
-                  Transfer
-                </Text>
-              </TouchableOpacity>
-            </View>
+                Transfer
+              </Text>
+            </TouchableOpacity>
+          </View>
 
+          {/* 1. CATEGORY / DESTINATION WALLET */}
+          <View style={styles.section}>
             {isTransfer ? (
-              <View style={{ gap: 6, marginTop: 4 }}>
+              <>
                 <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant }]}>
                   DESTINATION WALLET (TRANSFER TO)
                 </Text>
@@ -660,10 +661,10 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
                       );
                     })}
                 </ScrollView>
-              </View>
+              </>
             ) : (
               <>
-                <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant, marginTop: 4 }]}>CATEGORY</Text>
+                <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant }]}>CATEGORY</Text>
 
                 {/* Breadcrumb Category Selector: clicking it opens CategoryPickerSheet */}
                 <TouchableOpacity
@@ -722,7 +723,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
           </View>
 
           {/* 2. WALLET SELECTION */}
-          <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
+          <View style={styles.section}>
             <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant }]}>
               {isTransfer ? 'SOURCE WALLET (TRANSFER FROM)' : 'SELECT WALLET'}
             </Text>
@@ -772,7 +773,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
           </View>
 
           {/* 3. AMOUNT ROW (NEXT ITEM AFTER WALLET) */}
-          <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
+          <View style={styles.section}>
             <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant }]}>AMOUNT</Text>
             <View style={styles.amountInputRow}>
               <TouchableOpacity
@@ -783,16 +784,18 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
                 <MaterialCommunityIcons name="menu-down" size={16} color={theme.onSurfaceVariant} />
               </TouchableOpacity>
 
-              <TextInput
-                ref={amountInputRef}
-                style={[styles.amountInput, { color: theme.onSurface }]}
-                placeholder="0.00"
-                placeholderTextColor={theme.onSurfaceVariant}
-                keyboardType={Platform.OS === 'android' ? 'numeric' : 'decimal-pad'}
-                value={amountStr}
-                onChangeText={(text) => setAmountStr(formatTypingNumber(text))}
-                selectTextOnFocus={false}
-              />
+              <View style={[styles.amountInputWrap, { backgroundColor: theme.pillBg, borderColor: theme.divider }]}>
+                <TextInput
+                  ref={amountInputRef}
+                  style={[styles.amountInput, { color: theme.onSurface }]}
+                  placeholder="0.00"
+                  placeholderTextColor={theme.onSurfaceVariant}
+                  keyboardType={Platform.OS === 'android' ? 'numeric' : 'decimal-pad'}
+                  value={amountStr}
+                  onChangeText={(text) => setAmountStr(formatTypingNumber(text))}
+                  selectTextOnFocus={false}
+                />
+              </View>
 
               <TouchableOpacity
                 style={[
@@ -827,7 +830,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
           </View>
 
           {/* 4. DATE & TIME */}
-          <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
+          <View style={styles.section}>
             <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant }]}>DATE & TIME</Text>
             <ScrollView
               horizontal
@@ -936,7 +939,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
           </View>
 
           {/* 5. NOTE INPUT */}
-          <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
+          <View style={styles.section}>
             <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant }]}>NOTE & TAGS</Text>
             <TextInput
               style={[styles.noteInput, { backgroundColor: theme.pillBg, color: theme.onSurface, borderColor: theme.divider }]}
@@ -950,7 +953,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
           </View>
 
           {/* 6. MEDIA ATTACHMENTS (RECEIPT / PHOTO) */}
-          <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
+          <View style={styles.section}>
             <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant }]}>MEDIA & RECEIPT</Text>
 
             {mediaUri ? (
@@ -986,7 +989,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
           </View>
 
           {/* 7. REPEAT & REMINDERS (RECURRING TRANSACTION) */}
-          <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
+          <View style={[styles.recurringCard, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
             <View style={styles.toggleRow}>
               <View style={styles.toggleTextCol}>
                 <View style={styles.labelWithIcon}>
@@ -1530,11 +1533,21 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    padding: 16,
-    gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: 12,
     paddingBottom: 24,
+    gap: 14,
+  },
+  section: {
+    gap: 6,
   },
   card: {
+    borderRadius: M3Shape.large,
+    padding: 14,
+    borderWidth: 1,
+    gap: 10,
+  },
+  recurringCard: {
     borderRadius: M3Shape.large,
     padding: 14,
     borderWidth: 1,
@@ -1584,13 +1597,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginTop: 4,
   },
   currencyChip: {
+    height: 44,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 10,
-    paddingVertical: 10,
     borderRadius: M3Shape.medium,
     borderWidth: 1,
     gap: 2,
@@ -1599,18 +1611,24 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
   },
-  amountInput: {
+  amountInputWrap: {
     flex: 1,
-    fontSize: 26,
+    height: 44,
+    borderRadius: M3Shape.medium,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+  },
+  amountInput: {
+    fontSize: 20,
     fontWeight: '800',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
+    paddingVertical: 0,
   },
   paidChip: {
+    height: 44,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 10,
-    paddingVertical: 9,
     borderRadius: M3Shape.medium,
     borderWidth: 1,
     gap: 4,
