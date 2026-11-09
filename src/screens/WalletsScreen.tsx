@@ -15,9 +15,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
-import { Wallet, Transaction } from '../types';
+import { Wallet, Transaction, BillFrequency, RecurrenceEndType } from '../types';
 import { formatCurrency, formatTypingNumber, parseCleanNumber } from '../utils/format';
 import { TransactionDetailModal } from '../components/TransactionDetailModal';
+import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
 
 export const WalletsScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
@@ -35,6 +36,8 @@ export const WalletsScreen: React.FC = () => {
     recurringBills,
     categories,
     deleteTransaction,
+    updateTransaction,
+    addSubcategory,
   } = useBudget();
 
   const theme = settings.theme_mode === 'dark' ? darkTheme : lightTheme;
@@ -47,6 +50,96 @@ export const WalletsScreen: React.FC = () => {
   // Selected Wallet Detail & Transaction Viewer States
   const [selectedWallet, setSelectedWallet] = useState<Wallet | null>(null);
   const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+
+  const handleStartEdit = (tx: Transaction) => {
+    setEditingTransaction(tx);
+    setEditModalVisible(true);
+  };
+
+  const editingLinkedBill = useMemo(() => {
+    if (!editingTransaction) return undefined;
+    if (editingTransaction.recurring_bill_id) {
+      const found = recurringBills.find((b) => b.id === editingTransaction.recurring_bill_id);
+      if (found) return found;
+    }
+    return recurringBills.find(
+      (b) =>
+        b.wallet_id === editingTransaction.wallet_id &&
+        Math.abs(b.amount - editingTransaction.amount) < 0.01 &&
+        (b.name === editingTransaction.note || (editingTransaction.note && b.name.includes(editingTransaction.note)))
+    );
+  }, [editingTransaction, recurringBills]);
+
+  const handleSaveEditedTransaction = async (txData: {
+    amount: number;
+    wallet_id: string;
+    to_wallet_id?: string;
+    category_id?: string;
+    subcategory_id?: string;
+    type: any;
+    currency: string;
+    date: string;
+    time?: string;
+    is_paid: boolean;
+    note?: string;
+    media_uri?: string;
+    repeat_frequency?: BillFrequency;
+    repeat_due_day?: number;
+    repeat_end_type?: RecurrenceEndType;
+    repeat_end_occurrences?: number;
+    repeat_end_date?: string;
+    reminder_enabled?: boolean;
+  }) => {
+    if (!editingTransaction) return;
+
+    await updateTransaction({
+      id: editingTransaction.id,
+      amount: txData.amount,
+      wallet_id: txData.wallet_id,
+      to_wallet_id: txData.to_wallet_id,
+      category_id: txData.category_id,
+      subcategory_id: txData.subcategory_id,
+      type: txData.type,
+      currency: txData.currency,
+      date: txData.date,
+      time: txData.time,
+      is_paid: txData.is_paid,
+      note: txData.note,
+      media_uri: txData.media_uri,
+      recurring_bill_id: editingTransaction.recurring_bill_id,
+      repeat_frequency: txData.repeat_frequency,
+      repeat_due_day: txData.repeat_due_day,
+      repeat_end_type: txData.repeat_end_type,
+      repeat_end_occurrences: txData.repeat_end_occurrences,
+      repeat_end_date: txData.repeat_end_date,
+      reminder_enabled: txData.reminder_enabled,
+    });
+
+    setViewingTransaction((prev) =>
+      prev && prev.id === editingTransaction.id
+        ? {
+            ...prev,
+            amount: txData.amount,
+            wallet_id: txData.wallet_id,
+            to_wallet_id: txData.to_wallet_id,
+            category_id: txData.category_id,
+            subcategory_id: txData.subcategory_id,
+            type: txData.type,
+            currency: txData.currency,
+            date: txData.date,
+            time: txData.time,
+            is_paid: txData.is_paid,
+            note: txData.note,
+            media_uri: txData.media_uri,
+          }
+        : prev
+    );
+
+    setEditModalVisible(false);
+    setEditingTransaction(null);
+  };
 
   const currentSelectedWallet = wallets.find((w) => w.id === selectedWallet?.id) || selectedWallet;
 
@@ -951,14 +1044,52 @@ export const WalletsScreen: React.FC = () => {
         theme={theme}
         baseCurrency={settings.base_currency}
         onClose={() => setViewingTransaction(null)}
-        onEdit={() => {
-          setViewingTransaction(null);
-        }}
+        onEdit={handleStartEdit}
         onDelete={async (id) => {
           await deleteTransaction(id);
           setViewingTransaction(null);
         }}
       />
+
+      {/* EDIT TRANSACTION MODAL */}
+      {Boolean(editingTransaction) && (
+        <TransactionDetailsModal
+          visible={editModalVisible}
+          txType={editingTransaction?.type || 'expense'}
+          initialAmount={editingTransaction?.amount || 0}
+          initialWalletId={editingTransaction?.wallet_id || ''}
+          initialToWalletId={editingTransaction?.to_wallet_id || undefined}
+          initialCategoryId={editingTransaction?.category_id || undefined}
+          initialSubcategoryId={editingTransaction?.subcategory_id || undefined}
+          initialDate={editingTransaction?.date}
+          initialTime={editingTransaction?.time}
+          initialNote={editingTransaction?.note}
+          initialMediaUri={editingTransaction?.media_uri}
+          initialIsPaid={editingTransaction?.is_paid}
+          initialCurrency={editingTransaction?.currency}
+          isEditing={true}
+          initialRepeatEnabled={Boolean(editingLinkedBill)}
+          initialRepeatFrequency={editingLinkedBill?.frequency || 'monthly'}
+          initialRepeatDueDay={
+            editingLinkedBill?.due_day ||
+            (parseInt(editingTransaction?.date.slice(8, 10) || '1', 10) || 1)
+          }
+          initialRepeatEndType={editingLinkedBill?.end_type || 'never'}
+          initialRepeatEndOccurrences={editingLinkedBill?.end_occurrences || 12}
+          initialRepeatEndDate={editingLinkedBill?.end_date}
+          initialReminderEnabled={editingLinkedBill ? editingLinkedBill.reminder_enabled : true}
+          wallets={wallets}
+          categories={categories}
+          theme={theme}
+          baseCurrency={settings.base_currency}
+          onClose={() => {
+            setEditModalVisible(false);
+            setEditingTransaction(null);
+          }}
+          onSave={handleSaveEditedTransaction}
+          onAddSubcategory={addSubcategory}
+        />
+      )}
     </View>
   );
 };
