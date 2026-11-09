@@ -277,17 +277,6 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
     (s: Subcategory) => s.id === selectedSubcategoryId
   );
 
-  // Auto-clear category if not belonging to active type
-  useEffect(() => {
-    if (selectedCategoryId) {
-      const match = activeCategories.find((c) => c.id === selectedCategoryId);
-      if (!match) {
-        setSelectedCategoryId('');
-        setSelectedSubcategoryId('');
-      }
-    }
-  }, [currentType, activeCategories, selectedCategoryId]);
-
   const handleSelectCategory = (cat: Category) => {
     if (selectedCategoryId === cat.id) {
       setSelectedCategoryId('');

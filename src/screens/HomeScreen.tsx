@@ -250,8 +250,24 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
 
       if (categoryNameOrId) {
         searchCat(categoryNameOrId);
-      } else if (note) {
+      }
+      // If no category matched or subcategory not yet found, try matching with note
+      if (!matchedCatId && note) {
         searchCat(note);
+      } else if (matchedCatId && !matchedSubId && note) {
+        const parentCat = categories.find((c) => c.id === matchedCatId);
+        if (parentCat?.subcategories) {
+          const nLower = note.trim().toLowerCase();
+          const sub = parentCat.subcategories.find(
+            (s) =>
+              s.name.toLowerCase() === nLower ||
+              nLower.includes(s.name.toLowerCase()) ||
+              s.name.toLowerCase().includes(nLower)
+          );
+          if (sub) {
+            matchedSubId = sub.id;
+          }
+        }
       }
 
       setPrefilledCategoryId(matchedCatId || undefined);
