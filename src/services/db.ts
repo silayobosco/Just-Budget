@@ -62,6 +62,7 @@ export const initDatabase = async () => {
       to_wallet_id TEXT,
       recurring_bill_id TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT,
       FOREIGN KEY (wallet_id) REFERENCES wallets (id) ON DELETE CASCADE
     );
 
@@ -131,6 +132,9 @@ export const initDatabase = async () => {
   } catch {}
   try {
     db.runSync(`ALTER TABLE transactions ADD COLUMN recurring_bill_id TEXT`);
+  } catch {}
+  try {
+    db.runSync(`ALTER TABLE transactions ADD COLUMN updated_at TEXT`);
   } catch {}
   try {
     db.runSync(`ALTER TABLE recurring_bills ADD COLUMN type TEXT DEFAULT 'expense'`);

@@ -44,6 +44,7 @@ export interface Transaction {
   to_wallet_id?: string | null;
   recurring_bill_id?: string | null;
   created_at?: string;
+  updated_at?: string;
 }
 
 export interface BudgetCycle {

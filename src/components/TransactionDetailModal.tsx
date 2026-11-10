@@ -92,6 +92,23 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
     }
   })();
 
+  const formatDateTime = (isoString?: string) => {
+    if (!isoString) return null;
+    try {
+      const d = new Date(isoString);
+      if (isNaN(d.getTime())) return isoString;
+      return d.toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return isoString;
+    }
+  };
+
   const typeColor = isExpense
     ? theme.error
     : isIncome
@@ -205,6 +222,15 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                   <MaterialCommunityIcons name="calendar-sync" size={13} color={theme.primary} />
                   <Text style={[styles.recurringHeaderBadgeText, { color: theme.onPrimaryContainer }]}>
                     RECURRING
+                  </Text>
+                </View>
+              )}
+
+              {Boolean(transaction.updated_at) && (
+                <View style={[styles.recurringHeaderBadge, { backgroundColor: theme.tertiaryContainer || '#E0E7FF' }]}>
+                  <MaterialCommunityIcons name="pencil-outline" size={13} color={theme.tertiary || '#4F46E5'} />
+                  <Text style={[styles.recurringHeaderBadgeText, { color: theme.onTertiaryContainer || '#312E81' }]}>
+                    EDITED
                   </Text>
                 </View>
               )}
@@ -351,7 +377,7 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
 
             {/* Note / Memo Row */}
             {Boolean(transaction.note) && (
-              <View style={[styles.detailRow, { borderBottomColor: transaction.media_uri ? theme.divider : 'transparent' }]}>
+              <View style={[styles.detailRow, { borderBottomColor: theme.divider }]}>
                 <View style={[styles.detailIconCircle, { backgroundColor: theme.pillBg }]}>
                   <MaterialCommunityIcons name="note-text-outline" size={18} color={theme.onSurfaceVariant} />
                 </View>
@@ -364,7 +390,7 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
 
             {/* Receipt / Attachment Preview */}
             {Boolean(transaction.media_uri) && (
-              <View style={[styles.detailRow, { borderBottomColor: 'transparent', flexDirection: 'column', alignItems: 'flex-start' }]}>
+              <View style={[styles.detailRow, { borderBottomColor: (transaction.created_at || transaction.updated_at) ? theme.divider : 'transparent', flexDirection: 'column', alignItems: 'flex-start' }]}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 }}>
                   <View style={[styles.detailIconCircle, { backgroundColor: theme.pillBg }]}>
                     <MaterialCommunityIcons name="receipt" size={18} color={theme.primary} />
@@ -383,6 +409,36 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                     <Text style={styles.expandPillText}>Tap to enlarge</Text>
                   </View>
                 </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Created Timestamp Row */}
+            {Boolean(transaction.created_at) && (
+              <View style={[styles.detailRow, { borderBottomColor: transaction.updated_at ? theme.divider : 'transparent' }]}>
+                <View style={[styles.detailIconCircle, { backgroundColor: theme.pillBg }]}>
+                  <MaterialCommunityIcons name="clock-plus-outline" size={18} color={theme.onSurfaceVariant} />
+                </View>
+                <View style={styles.detailCol}>
+                  <Text style={[styles.detailLabel, { color: theme.onSurfaceVariant }]}>Created</Text>
+                  <Text style={[styles.detailValue, { color: theme.onSurface }]}>
+                    {formatDateTime(transaction.created_at)}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {/* Modified Timestamp Row */}
+            {Boolean(transaction.updated_at) && (
+              <View style={[styles.detailRow, { borderBottomColor: 'transparent' }]}>
+                <View style={[styles.detailIconCircle, { backgroundColor: theme.pillBg }]}>
+                  <MaterialCommunityIcons name="clock-edit-outline" size={18} color={theme.tertiary || theme.primary} />
+                </View>
+                <View style={styles.detailCol}>
+                  <Text style={[styles.detailLabel, { color: theme.onSurfaceVariant }]}>Last Modified</Text>
+                  <Text style={[styles.detailValue, { color: theme.onSurface, fontWeight: '600' }]}>
+                    {formatDateTime(transaction.updated_at)}
+                  </Text>
+                </View>
               </View>
             )}
           </View>

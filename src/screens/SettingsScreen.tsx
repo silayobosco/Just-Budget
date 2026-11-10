@@ -18,9 +18,13 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
 import { formatCurrency } from '../utils/format';
+import { Transaction, BillFrequency, RecurrenceEndType } from '../types';
 import { CategoryManagerModal } from '../components/CategoryManagerModal';
 import { RecurringBillsModal } from '../components/RecurringBillsModal';
 import { SecuritySetupModal } from '../components/SecuritySetupModal';
+import { ModifiedTransactionsModal } from '../components/ModifiedTransactionsModal';
+import { TransactionDetailModal } from '../components/TransactionDetailModal';
+import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
 import { sendTestNotificationAsync, requestNotificationPermissionsAsync, checkNotificationPermissionsAsync } from '../services/notifications';
 
 const CURRENCY_LIST = [
@@ -90,12 +94,18 @@ export const SettingsScreen: React.FC = () => {
     currentCycle,
     allCycles,
     openCycleModal,
+    updateTransaction,
+    deleteTransaction,
   } = useBudget();
   const theme = settings.theme_mode === 'dark' ? darkTheme : lightTheme;
   const isDark = settings.theme_mode === 'dark';
 
   const [categoriesModalVisible, setCategoriesModalVisible] = useState(false);
   const [recurringBillsModalVisible, setRecurringBillsModalVisible] = useState(false);
+  const [modifiedModalVisible, setModifiedModalVisible] = useState(false);
+  const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [editModalVisible, setEditModalVisible] = useState(false);
   const [currencyPickerVisible, setCurrencyPickerVisible] = useState(false);
   const [currencySearch, setCurrencySearch] = useState('');
   const [faqsModalVisible, setFaqsModalVisible] = useState(false);
@@ -338,6 +348,81 @@ export const SettingsScreen: React.FC = () => {
     setBackupPassError('');
   };
 
+  const modifiedCount = useMemo(
+    () => transactions.filter((t) => Boolean(t.updated_at)).length,
+    [transactions]
+  );
+
+  const handleSelectModifiedTx = (tx: Transaction) => {
+    setViewingTransaction(tx);
+  };
+
+  const handleStartEditTx = (tx: Transaction) => {
+    setViewingTransaction(null);
+    setEditingTransaction(tx);
+    setEditModalVisible(true);
+  };
+
+  const editingLinkedBill = useMemo(() => {
+    if (!editingTransaction) return undefined;
+    if (editingTransaction.recurring_bill_id) {
+      const found = recurringBills.find((b) => b.id === editingTransaction.recurring_bill_id);
+      if (found) return found;
+    }
+    return recurringBills.find(
+      (b) =>
+        b.wallet_id === editingTransaction.wallet_id &&
+        Math.abs(b.amount - editingTransaction.amount) < 0.01 &&
+        (b.name === editingTransaction.note || (editingTransaction.note && b.name.includes(editingTransaction.note)))
+    );
+  }, [editingTransaction, recurringBills]);
+
+  const handleSaveEditedTransaction = async (txData: {
+    amount: number;
+    wallet_id: string;
+    to_wallet_id?: string;
+    category_id?: string;
+    subcategory_id?: string;
+    type: any;
+    currency: string;
+    date: string;
+    time?: string;
+    is_paid: boolean;
+    note?: string;
+    media_uri?: string;
+    repeat_frequency?: BillFrequency;
+    repeat_due_day?: number;
+    repeat_end_type?: RecurrenceEndType;
+    repeat_end_occurrences?: number;
+    repeat_end_date?: string;
+    reminder_enabled?: boolean;
+  }) => {
+    if (!editingTransaction) return;
+    await updateTransaction({
+      id: editingTransaction.id,
+      amount: txData.amount,
+      wallet_id: txData.wallet_id,
+      to_wallet_id: txData.to_wallet_id,
+      category_id: txData.category_id,
+      subcategory_id: txData.subcategory_id,
+      type: txData.type,
+      currency: txData.currency,
+      date: txData.date,
+      time: txData.time,
+      is_paid: txData.is_paid,
+      note: txData.note,
+      media_uri: txData.media_uri,
+      repeat_frequency: txData.repeat_frequency,
+      repeat_due_day: txData.repeat_due_day,
+      repeat_end_type: txData.repeat_end_type,
+      repeat_end_occurrences: txData.repeat_end_occurrences,
+      repeat_end_date: txData.repeat_end_date,
+      reminder_enabled: txData.reminder_enabled,
+    });
+    setEditModalVisible(false);
+    setEditingTransaction(null);
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
@@ -446,6 +531,28 @@ export const SettingsScreen: React.FC = () => {
               <Text style={[styles.itemTitle, { color: theme.onSurface }]}>Recurring Bills & Reminders</Text>
               <Text style={[styles.itemSubtitle, { color: theme.onSurfaceVariant }]}>
                 Subscriptions, fixed costs & upcoming bills ({recurringBills.length} active)
+              </Text>
+            </View>
+            <MaterialCommunityIcons name="chevron-right" size={20} color={theme.onSurfaceVariant} />
+          </TouchableOpacity>
+
+          <View style={[styles.itemDivider, { backgroundColor: theme.divider }]} />
+
+          {/* Modified Transactions History */}
+          <TouchableOpacity
+            style={styles.listItemRow}
+            onPress={() => setModifiedModalVisible(true)}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.itemIconCircle, { backgroundColor: '#FEF3C7' }]}>
+              <MaterialCommunityIcons name="clock-edit-outline" size={20} color="#D97706" />
+            </View>
+            <View style={styles.itemTextWrap}>
+              <Text style={[styles.itemTitle, { color: theme.onSurface }]}>Modified Transactions</Text>
+              <Text style={[styles.itemSubtitle, { color: theme.onSurfaceVariant }]}>
+                {modifiedCount > 0
+                  ? `${modifiedCount} edited • View audit history`
+                  : 'Audit trail & history of edited transactions'}
               </Text>
             </View>
             <MaterialCommunityIcons name="chevron-right" size={20} color={theme.onSurfaceVariant} />
@@ -783,41 +890,6 @@ export const SettingsScreen: React.FC = () => {
               </Text>
             </View>
           </View>
-
-          <View style={[styles.itemDivider, { backgroundColor: theme.divider }]} />
-
-          {/* WhatsApp Direct */}
-          <TouchableOpacity
-            style={styles.developerRow}
-            onPress={handleOpenWhatsApp}
-            activeOpacity={0.7}
-          >
-            <View style={[styles.itemIconCircle, { backgroundColor: '#DCFCE7' }]}>
-              <MaterialCommunityIcons name="whatsapp" size={18} color="#16A34A" />
-            </View>
-            <View style={styles.itemTextWrap}>
-              <Text style={[styles.itemTitle, { color: theme.onSurface, fontSize: 13 }]}>WhatsApp Contact</Text>
-              <Text style={[styles.developerEmail, { color: '#16A34A' }]}>{WHATSAPP_DISPLAY}</Text>
-            </View>
-            <MaterialCommunityIcons name="chat-outline" size={16} color={theme.onSurfaceVariant} />
-          </TouchableOpacity>
-
-          <View style={[styles.itemDivider, { backgroundColor: theme.divider }]} />
-
-          <TouchableOpacity
-            style={styles.developerRow}
-            onPress={handleContactSupport}
-            activeOpacity={0.7}
-          >
-            <View style={[styles.itemIconCircle, { backgroundColor: theme.primaryContainer }]}>
-              <MaterialCommunityIcons name="email-check-outline" size={18} color={theme.primary} />
-            </View>
-            <View style={styles.itemTextWrap}>
-              <Text style={[styles.itemTitle, { color: theme.onSurface, fontSize: 13 }]}>Developer Email</Text>
-              <Text style={[styles.developerEmail, { color: theme.primary }]}>juniorboss031@gmail.com</Text>
-            </View>
-            <MaterialCommunityIcons name="content-copy" size={16} color={theme.onSurfaceVariant} />
-          </TouchableOpacity>
         </View>
       </ScrollView>
 
@@ -1113,6 +1185,75 @@ export const SettingsScreen: React.FC = () => {
           </View>
         </View>
       </Modal>
+
+      {/* Modified Transactions History Modal */}
+      <ModifiedTransactionsModal
+        visible={modifiedModalVisible}
+        onClose={() => setModifiedModalVisible(false)}
+        transactions={transactions}
+        categories={categories}
+        wallets={wallets}
+        recurringBills={recurringBills}
+        theme={theme}
+        baseCurrency={settings.base_currency}
+        onSelectTransaction={handleSelectModifiedTx}
+      />
+
+      {/* Transaction Full Details Modal */}
+      <TransactionDetailModal
+        visible={Boolean(viewingTransaction)}
+        transaction={viewingTransaction}
+        categories={categories}
+        wallets={wallets}
+        recurringBills={recurringBills}
+        theme={theme}
+        baseCurrency={settings.base_currency}
+        onClose={() => setViewingTransaction(null)}
+        onEdit={handleStartEditTx}
+        onDelete={async (id) => {
+          await deleteTransaction(id);
+          setViewingTransaction(null);
+        }}
+      />
+
+      {/* Edit Transaction Modal */}
+      {Boolean(editingTransaction) && (
+        <TransactionDetailsModal
+          visible={editModalVisible}
+          txType={editingTransaction?.type || 'expense'}
+          initialAmount={editingTransaction?.amount || 0}
+          initialWalletId={editingTransaction?.wallet_id || ''}
+          initialToWalletId={editingTransaction?.to_wallet_id || undefined}
+          initialCategoryId={editingTransaction?.category_id || undefined}
+          initialSubcategoryId={editingTransaction?.subcategory_id || undefined}
+          initialDate={editingTransaction?.date}
+          initialTime={editingTransaction?.time}
+          initialNote={editingTransaction?.note}
+          initialMediaUri={editingTransaction?.media_uri}
+          initialIsPaid={editingTransaction?.is_paid}
+          initialCurrency={editingTransaction?.currency}
+          isEditing={true}
+          initialRepeatEnabled={Boolean(editingLinkedBill)}
+          initialRepeatFrequency={editingLinkedBill?.frequency || 'monthly'}
+          initialRepeatDueDay={
+            editingLinkedBill?.due_day ||
+            (parseInt(editingTransaction?.date.slice(8, 10) || '1', 10) || 1)
+          }
+          initialRepeatEndType={editingLinkedBill?.end_type || 'never'}
+          initialRepeatEndOccurrences={editingLinkedBill?.end_occurrences || 12}
+          initialRepeatEndDate={editingLinkedBill?.end_date}
+          initialReminderEnabled={editingLinkedBill ? editingLinkedBill.reminder_enabled : true}
+          wallets={wallets}
+          categories={categories}
+          theme={theme}
+          baseCurrency={settings.base_currency}
+          onClose={() => {
+            setEditModalVisible(false);
+            setEditingTransaction(null);
+          }}
+          onSave={handleSaveEditedTransaction}
+        />
+      )}
     </View>
   );
 };

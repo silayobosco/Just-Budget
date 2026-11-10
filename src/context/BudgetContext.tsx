@@ -1092,6 +1092,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
 
       // 2. Update transaction row
+      const nowIso = new Date().toISOString();
       db.runSync(
         `UPDATE transactions SET
            wallet_id = ?,
@@ -1107,7 +1108,8 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
            media_uri = ?,
            note = ?,
            to_wallet_id = ?,
-           recurring_bill_id = ?
+           recurring_bill_id = ?,
+           updated_at = ?
          WHERE id = ?`,
         [
           params.wallet_id,
@@ -1124,6 +1126,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           params.note || null,
           params.to_wallet_id || null,
           updatedBillId,
+          nowIso,
           params.id,
         ]
       );

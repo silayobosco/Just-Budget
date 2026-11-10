@@ -223,8 +223,8 @@ export const restoreFromBackupContentAsync = async (
       // Restore transactions
       for (const t of parsed.transactions) {
         db.runSync(
-          `INSERT OR REPLACE INTO transactions (id, wallet_id, category_id, subcategory_id, type, amount, currency, base_amount, date, time, is_paid, media_uri, note, to_wallet_id, recurring_bill_id, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT OR REPLACE INTO transactions (id, wallet_id, category_id, subcategory_id, type, amount, currency, base_amount, date, time, is_paid, media_uri, note, to_wallet_id, recurring_bill_id, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             t.id,
             t.wallet_id,
@@ -242,6 +242,7 @@ export const restoreFromBackupContentAsync = async (
             t.to_wallet_id || null,
             t.recurring_bill_id || null,
             t.created_at || new Date().toISOString(),
+            t.updated_at || null,
           ]
         );
       }
