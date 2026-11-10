@@ -363,7 +363,6 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   const selectedWallet = wallets.find((w) => w.id === selectedWalletId);
   const selectedToWallet = wallets.find((w) => w.id === selectedToWalletId);
 
-
   const handleSelectCategory = (cat: Category) => {
     if (selectedCategoryId === cat.id) {
       setSelectedCategoryId('');
