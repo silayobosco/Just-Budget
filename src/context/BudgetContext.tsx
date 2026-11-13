@@ -173,7 +173,7 @@ interface BudgetContextType {
   }) => Promise<void>;
   updateRecurringBill: (bill: RecurringBill) => Promise<void>;
   deleteRecurringBill: (id: string) => Promise<void>;
-  payRecurringBill: (bill: RecurringBill) => Promise<void>;
+  payRecurringBill: (bill: RecurringBill, targetDate?: string) => Promise<void>;
 
   updateBudgetCycle: (params: { id?: string; name: string; start_date: string; end_date: string; target_budget?: number; target_income?: number }) => Promise<void>;
   updateCurrentCycleTarget: (type: 'budget' | 'income', amount: number) => Promise<void>;
@@ -1400,15 +1400,16 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     await loadData();
   };
 
-  const payRecurringBill = async (bill: RecurringBill) => {
+  const payRecurringBill = async (bill: RecurringBill, targetDate?: string) => {
     // 1. Record transaction (expense or income)
+    const txDate = targetDate || new Date().toISOString().slice(0, 10);
     await addTransaction({
       wallet_id: bill.wallet_id,
       category_id: bill.category_id || undefined,
       type: bill.type === 'income' ? 'income' : 'expense',
       amount: bill.amount,
       currency: bill.currency,
-      date: new Date().toISOString().slice(0, 10),
+      date: txDate,
       note: `${bill.type === 'income' ? 'Income Received' : 'Bill Paid'}: ${bill.name}`,
       recurring_bill_id: bill.id,
     });

@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   TextInput,
   Modal,
+  Alert,
   PanResponder,
   NativeSyntheticEvent,
   NativeScrollEvent,
@@ -17,12 +18,13 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
 import { formatCurrency, formatCycleDateRange, getRegularCycleDates, formatTypingNumber, parseCleanNumber } from '../utils/format';
+import { getProjectedBillOccurrences, BillOccurrence } from '../utils/recurring';
 import { DateRangePickerModal } from '../components/DateRangePickerModal';
 import { CycleModeSwitcherModal } from '../components/CycleModeSwitcherModal';
 import { TransactionDetailModal } from '../components/TransactionDetailModal';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
 import { CategoryPickerSheet } from '../components/CategoryPickerSheet';
-import { Transaction, BudgetCycle, TransactionType, BillFrequency, RecurrenceEndType } from '../types';
+import { Transaction, BudgetCycle, TransactionType, BillFrequency, RecurrenceEndType, RecurringBill } from '../types';
 
 interface CalendarScreenProps {
   onNavigateTab?: (tab: any) => void;
@@ -39,6 +41,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     openCycleModal,
     transactions,
     recurringBills,
+    payRecurringBill,
     categories,
     wallets,
     remainingCycleBalance,
@@ -756,9 +759,12 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
 
         const isCurrent = todayStr >= c.start_date && todayStr <= c.end_date;
         const hasTransactions = cycleTxs.length > 0;
+        const hasBillsInCycle = recurringBills.some(
+          (b) => b.is_active !== false && b.next_due_date && b.next_due_date >= c.start_date && b.next_due_date <= c.end_date
+        );
 
-        // ONLY show if there was transaction registered (or if there are no transactions at all in the app, show current cycle)
-        if (!hasTransactions && !(isCurrent && transactions.length === 0)) {
+        // ONLY show if there was transaction registered or bill scheduled (or if there are no transactions at all in the app, show current cycle)
+        if (!hasTransactions && !hasBillsInCycle && !(isCurrent && transactions.length === 0)) {
           return null;
         }
 
@@ -814,7 +820,31 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
         hasTransactions: boolean;
         days: string[];
       }[];
-  }, [cycleList, transactions, todayStr, focusedCycle?.start_date]);
+  }, [cycleList, transactions, recurringBills, todayStr, focusedCycle?.start_date]);
+
+  // Projected recurring bill occurrences across all visible calendar cycles
+  const billOccurrencesMap = useMemo(() => {
+    if (cycleList.length === 0) return new Map<string, BillOccurrence[]>();
+    const minStart = cycleList[0]?.start_date || todayStr;
+    const maxEnd = cycleList[cycleList.length - 1]?.end_date || todayStr;
+    return getProjectedBillOccurrences(recurringBills, minStart, maxEnd, todayStr);
+  }, [recurringBills, cycleList, todayStr]);
+
+  const handlePayBillPrompt = (bill: RecurringBill, dateStr: string) => {
+    Alert.alert(
+      bill.type === 'income' ? 'Record Recurring Income' : 'Record Recurring Bill',
+      `Record "${bill.name}" (${formatCurrency(bill.amount, bill.currency || settings.base_currency)}) on ${dateStr}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Record Now',
+          onPress: async () => {
+            await payRecurringBill(bill, dateStr);
+          },
+        },
+      ]
+    );
+  };
 
   // Flattened feed days for continuous scrolling layout
   const feedDays = useMemo(() => {
@@ -1457,11 +1487,12 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
             {/* Days and Transactions in this Cycle */}
             {group.days.map((dateStr) => {
               const dayTxs = transactionsByDate[dateStr] || [];
+              const dayBills = billOccurrencesMap.get(dateStr) || [];
               const spend = dailySpendMap[dateStr] || 0;
               const isSelected = dateStr === selectedDate;
               const isToday = dateStr === new Date().toISOString().slice(0, 10);
 
-              if (dayTxs.length === 0 && !isToday && !isSelected) {
+              if (dayTxs.length === 0 && dayBills.length === 0 && !isToday && !isSelected) {
                 return null;
               }
 
@@ -1493,7 +1524,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                     }}
                     activeOpacity={0.7}
                   >
-                    <View style={{ flex: 1 }}>
+                    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       <Text
                         style={[
                           styles.daySectionTitle,
@@ -1509,6 +1540,47 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                       >
                         {formatSelectedDateHeader(dateStr)}
                       </Text>
+
+                      {dayBills.length > 0 && (
+                        <View
+                          style={[
+                            styles.dayBillBadgeRow,
+                            {
+                              backgroundColor: dayBills.some((b) => b.isOverdue)
+                                ? (isDarkMode ? 'rgba(239, 68, 68, 0.25)' : '#FEE2E2')
+                                : dayBills.some((b) => b.isDueToday)
+                                ? (isDarkMode ? 'rgba(245, 158, 11, 0.25)' : '#FEF3C7')
+                                : (isDarkMode ? 'rgba(99, 102, 241, 0.25)' : theme.primaryContainer),
+                            },
+                          ]}
+                        >
+                          <MaterialCommunityIcons
+                            name="calendar-clock"
+                            size={11}
+                            color={
+                              dayBills.some((b) => b.isOverdue)
+                                ? (isDarkMode ? '#FCA5A5' : '#DC2626')
+                                : dayBills.some((b) => b.isDueToday)
+                                ? (isDarkMode ? '#FCD34D' : '#D97706')
+                                : theme.primary
+                            }
+                          />
+                          <Text
+                            style={[
+                              styles.dayBillBadgeText,
+                              {
+                                color: dayBills.some((b) => b.isOverdue)
+                                  ? (isDarkMode ? '#FCA5A5' : '#DC2626')
+                                  : dayBills.some((b) => b.isDueToday)
+                                  ? (isDarkMode ? '#FCD34D' : '#D97706')
+                                  : theme.primary,
+                              },
+                            ]}
+                          >
+                            {dayBills.length} {dayBills.length === 1 ? 'Bill' : 'Bills'}
+                          </Text>
+                        </View>
+                      )}
                     </View>
 
                     {spend > 0 && (
@@ -1518,8 +1590,129 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                     )}
                   </TouchableOpacity>
 
+                  {/* Upcoming / Due Recurring Bills on this Day */}
+                  {dayBills.map((occ) => {
+                    const b = occ.bill;
+                    const cat = categories.find((c) => c.id === b.category_id);
+                    const wallet = wallets.find((w) => w.id === b.wallet_id);
+                    const isIncome = b.type === 'income';
+
+                    return (
+                      <View
+                        key={`bill-${b.id}-${occ.date}`}
+                        style={[
+                          styles.recurringOccurrenceCard,
+                          {
+                            backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.04)' : theme.surface,
+                            borderColor: occ.isOverdue
+                              ? (isDarkMode ? 'rgba(239, 68, 68, 0.6)' : '#FCA5A5')
+                              : occ.isDueToday
+                              ? (isDarkMode ? 'rgba(245, 158, 11, 0.6)' : '#FCD34D')
+                              : (isDarkMode ? 'rgba(99, 102, 241, 0.35)' : theme.divider),
+                          },
+                          M3Elevation.level1,
+                        ]}
+                      >
+                        <View
+                          style={[
+                            styles.billIconCircle,
+                            {
+                              backgroundColor: occ.isOverdue
+                                ? '#FEE2E2'
+                                : occ.isDueToday
+                                ? '#FEF3C7'
+                                : cat?.color || theme.primaryContainer,
+                            },
+                          ]}
+                        >
+                          <MaterialCommunityIcons
+                            name="calendar-clock"
+                            size={17}
+                            color={
+                              occ.isOverdue
+                                ? '#DC2626'
+                                : occ.isDueToday
+                                ? '#D97706'
+                                : cat?.color
+                                ? '#FFFFFF'
+                                : theme.primary
+                            }
+                          />
+                        </View>
+
+                        <View style={styles.billContentCol}>
+                          <View style={styles.billTitleRow}>
+                            <Text style={[styles.billNameText, { color: theme.onSurface }]} numberOfLines={1}>
+                              {b.name}
+                            </Text>
+                            <View
+                              style={[
+                                styles.billStatusChip,
+                                {
+                                  backgroundColor: occ.isOverdue
+                                    ? (isDarkMode ? 'rgba(239, 68, 68, 0.3)' : '#FEE2E2')
+                                    : occ.isDueToday
+                                    ? (isDarkMode ? 'rgba(245, 158, 11, 0.3)' : '#FEF3C7')
+                                    : (isDarkMode ? 'rgba(99, 102, 241, 0.25)' : theme.pillBg),
+                                },
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.billStatusChipText,
+                                  {
+                                    color: occ.isOverdue
+                                      ? (isDarkMode ? '#FCA5A5' : '#DC2626')
+                                      : occ.isDueToday
+                                      ? (isDarkMode ? '#FCD34D' : '#D97706')
+                                      : theme.onSurfaceVariant,
+                                  },
+                                ]}
+                              >
+                                {occ.isOverdue ? 'OVERDUE' : occ.isDueToday ? 'DUE TODAY' : 'UPCOMING'}
+                              </Text>
+                            </View>
+                          </View>
+
+                          <Text style={[styles.billSubMetaText, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
+                            {b.frequency.toUpperCase()} • {wallet?.name || 'Wallet'}
+                            {cat ? ` • ${cat.name}` : ''}
+                          </Text>
+                        </View>
+
+                        <View style={styles.billRightCol}>
+                          <Text
+                            style={[
+                              styles.billAmountText,
+                              { color: isIncome ? theme.success : theme.error },
+                            ]}
+                          >
+                            {isIncome ? '+' : '-'}{formatCurrency(b.amount, b.currency || settings.base_currency)}
+                          </Text>
+
+                          {occ.isOriginalNextDue && (
+                            <TouchableOpacity
+                              style={[
+                                styles.payBillSmallBtn,
+                                { backgroundColor: occ.isOverdue ? theme.error : theme.primary },
+                              ]}
+                              onPress={() => handlePayBillPrompt(b, occ.date)}
+                              activeOpacity={0.75}
+                              accessibilityLabel={`Record bill ${b.name}`}
+                            >
+                              <MaterialCommunityIcons name="check" size={12} color="#FFFFFF" />
+                              <Text style={styles.payBillSmallBtnText}>
+                                {isIncome ? 'Receive' : 'Record'}
+                              </Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      </View>
+                    );
+                  })}
+
                   {/* Transactions for this Day */}
-                  {dayTxs.length === 0 ? (
+                  {dayTxs.length === 0 && dayBills.length === 0 ? (
                     <View style={styles.compactEmptyDayRow}>
                       <View
                         style={[
@@ -2860,5 +3053,81 @@ const styles = StyleSheet.create({
     borderRadius: M3Shape.full,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  dayBillBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  dayBillBadgeText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+  },
+  recurringOccurrenceCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 8,
+    gap: 10,
+  },
+  billIconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  billContentCol: {
+    flex: 1,
+  },
+  billTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  billNameText: {
+    fontSize: 13,
+    fontWeight: '700',
+    flexShrink: 1,
+  },
+  billStatusChip: {
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 6,
+  },
+  billStatusChipText: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  billSubMetaText: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  billRightCol: {
+    alignItems: 'flex-end',
+    gap: 4,
+  },
+  billAmountText: {
+    fontSize: 13.5,
+    fontWeight: '700',
+  },
+  payBillSmallBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 3.5,
+    borderRadius: 10,
+  },
+  payBillSmallBtnText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 });

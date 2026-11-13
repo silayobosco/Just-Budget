@@ -25,6 +25,7 @@ import { CategoryPickerSheet } from '../components/CategoryPickerSheet';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
 import { DateRangePickerModal } from '../components/DateRangePickerModal';
 import { CycleModeSwitcherModal } from '../components/CycleModeSwitcherModal';
+import { OverdueBillReminderBanner } from '../components/OverdueBillReminderBanner';
 
 import { TabType } from '../components/BottomTabs';
 
@@ -130,6 +131,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
     currentCycle,
     overallBudgetLimit,
     transactions,
+    recurringBills,
+    payRecurringBill,
     categories,
     wallets,
     addTransaction,
@@ -864,6 +867,19 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
           },
         ]}
       >
+        {/* OVERDUE & DUE TODAY RECURRING BILL REMINDER */}
+        <OverdueBillReminderBanner
+          recurringBills={recurringBills}
+          wallets={wallets}
+          baseCurrency={curr}
+          theme={theme}
+          onPayBill={payRecurringBill}
+          onNavigateToCalendar={(dateStr) => {
+            setSelectedCalendarDate(dateStr);
+            onNavigateTab?.('calendar');
+          }}
+        />
+
         {/* INPUT SPACE (AMOUNT DISPLAY) */}
         <View style={styles.inputSpace}>
           <Pressable
