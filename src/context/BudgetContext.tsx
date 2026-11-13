@@ -57,6 +57,7 @@ interface BudgetContextType {
   setAnalyticsFocus: (focus: 'overview' | 'expense' | 'income') => void;
   selectedCalendarDate: string;
   setSelectedCalendarDate: (date: string) => void;
+  getLastCalendarJumpAt: () => number;
   selectedTransactionIdForCalendar: string | null;
   setSelectedTransactionIdForCalendar: (id: string | null) => void;
   selectedCalendarCycle: BudgetCycle | null;
@@ -165,6 +166,7 @@ interface BudgetContextType {
     due_day: number;
     next_due_date: string;
     category_id?: string;
+    subcategory_id?: string;
     wallet_id: string;
     reminder_enabled?: boolean;
     end_type?: RecurrenceEndType;
@@ -220,7 +222,13 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [allCycles, setAllCycles] = useState<BudgetCycle[]>([]);
   const [isCycleModalOpen, setIsCycleModalOpen] = useState<boolean>(false);
   const [analyticsFocus, setAnalyticsFocus] = useState<'overview' | 'expense' | 'income'>('overview');
-  const [selectedCalendarDate, setSelectedCalendarDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [selectedCalendarDate, setSelectedCalendarDateState] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const lastCalendarDateChangeAtRef = useRef<number>(0);
+  const setSelectedCalendarDate = useCallback((date: string) => {
+    lastCalendarDateChangeAtRef.current = Date.now();
+    setSelectedCalendarDateState(date);
+  }, []);
+  const getLastCalendarJumpAt = useCallback(() => lastCalendarDateChangeAtRef.current, []);
   const [selectedTransactionIdForCalendar, setSelectedTransactionIdForCalendar] = useState<string | null>(null);
   const [selectedCalendarCycle, setSelectedCalendarCycle] = useState<BudgetCycle | null>(null);
   const [selectedAnalyticsCycle, setSelectedAnalyticsCycle] = useState<BudgetCycle | null>(null);
@@ -894,8 +902,8 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             : (parseInt(params.date.slice(8, 10), 10) || 1);
 
         db.runSync(
-          `INSERT INTO recurring_bills (id, name, amount, currency, frequency, type, due_day, next_due_date, category_id, wallet_id, reminder_enabled, is_active, end_type, end_occurrences, end_date, occurrences_count, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 0, ?)`,
+          `INSERT INTO recurring_bills (id, name, amount, currency, frequency, type, due_day, next_due_date, category_id, subcategory_id, wallet_id, reminder_enabled, is_active, end_type, end_occurrences, end_date, occurrences_count, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 0, ?)`,
           [
             finalBillId,
             billName,
@@ -906,6 +914,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             dueDay,
             params.date,
             params.category_id || null,
+            params.subcategory_id || null,
             params.wallet_id,
             params.reminder_enabled !== false ? 1 : 0,
             params.repeat_end_type || 'never',
@@ -1016,7 +1025,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (updatedBillId) {
           // Update existing recurring bill
           db.runSync(
-            `UPDATE recurring_bills SET name = ?, amount = ?, currency = ?, frequency = ?, type = ?, due_day = ?, next_due_date = ?, category_id = ?, wallet_id = ?, reminder_enabled = ?, end_type = ?, end_occurrences = ?, end_date = ? WHERE id = ?`,
+            `UPDATE recurring_bills SET name = ?, amount = ?, currency = ?, frequency = ?, type = ?, due_day = ?, next_due_date = ?, category_id = ?, subcategory_id = ?, wallet_id = ?, reminder_enabled = ?, end_type = ?, end_occurrences = ?, end_date = ? WHERE id = ?`,
             [
               billName,
               params.amount,
@@ -1026,6 +1035,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               dueDay,
               params.date,
               params.category_id || null,
+              params.subcategory_id || null,
               params.wallet_id,
               params.reminder_enabled !== false ? 1 : 0,
               params.repeat_end_type || 'never',
@@ -1038,8 +1048,8 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           // Create new recurring bill
           updatedBillId = `bill-${Date.now()}`;
           db.runSync(
-            `INSERT INTO recurring_bills (id, name, amount, currency, frequency, type, due_day, next_due_date, category_id, wallet_id, reminder_enabled, is_active, end_type, end_occurrences, end_date, occurrences_count, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 0, ?)`,
+            `INSERT INTO recurring_bills (id, name, amount, currency, frequency, type, due_day, next_due_date, category_id, subcategory_id, wallet_id, reminder_enabled, is_active, end_type, end_occurrences, end_date, occurrences_count, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 0, ?)`,
             [
               updatedBillId,
               billName,
@@ -1050,6 +1060,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               dueDay,
               params.date,
               params.category_id || null,
+              params.subcategory_id || null,
               params.wallet_id,
               params.reminder_enabled !== false ? 1 : 0,
               params.repeat_end_type || 'never',
@@ -1337,6 +1348,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     due_day: number;
     next_due_date: string;
     category_id?: string;
+    subcategory_id?: string;
     wallet_id: string;
     reminder_enabled?: boolean;
     end_type?: RecurrenceEndType;
@@ -1347,8 +1359,8 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const id = `bill-${Date.now()}`;
     const billCurrency = params.currency || settings.base_currency;
     db.runSync(
-      `INSERT INTO recurring_bills (id, name, amount, currency, frequency, due_day, next_due_date, category_id, wallet_id, reminder_enabled, is_active, end_type, end_occurrences, end_date, occurrences_count, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 0, ?)`,
+      `INSERT INTO recurring_bills (id, name, amount, currency, frequency, due_day, next_due_date, category_id, subcategory_id, wallet_id, reminder_enabled, is_active, end_type, end_occurrences, end_date, occurrences_count, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 0, ?)`,
       [
         id,
         params.name,
@@ -1358,6 +1370,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         params.due_day,
         params.next_due_date,
         params.category_id || null,
+        params.subcategory_id || null,
         params.wallet_id,
         params.reminder_enabled !== false ? 1 : 0,
         params.end_type || 'never',
@@ -1372,7 +1385,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const updateRecurringBill = async (bill: RecurringBill) => {
     const db = getDB();
     db.runSync(
-      `UPDATE recurring_bills SET name = ?, amount = ?, currency = ?, frequency = ?, due_day = ?, next_due_date = ?, category_id = ?, wallet_id = ?, reminder_enabled = ?, is_active = ?, end_type = ?, end_occurrences = ?, end_date = ?, occurrences_count = ? WHERE id = ?`,
+      `UPDATE recurring_bills SET name = ?, amount = ?, currency = ?, frequency = ?, due_day = ?, next_due_date = ?, category_id = ?, subcategory_id = ?, wallet_id = ?, reminder_enabled = ?, is_active = ?, end_type = ?, end_occurrences = ?, end_date = ?, occurrences_count = ? WHERE id = ?`,
       [
         bill.name,
         bill.amount,
@@ -1381,6 +1394,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         bill.due_day,
         bill.next_due_date,
         bill.category_id || null,
+        bill.subcategory_id || null,
         bill.wallet_id,
         bill.reminder_enabled ? 1 : 0,
         bill.is_active ? 1 : 0,
@@ -1406,6 +1420,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     await addTransaction({
       wallet_id: bill.wallet_id,
       category_id: bill.category_id || undefined,
+      subcategory_id: bill.subcategory_id || undefined,
       type: bill.type === 'income' ? 'income' : 'expense',
       amount: bill.amount,
       currency: bill.currency,
@@ -1851,6 +1866,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setAnalyticsFocus,
         selectedCalendarDate,
         setSelectedCalendarDate,
+        getLastCalendarJumpAt,
         selectedTransactionIdForCalendar,
         setSelectedTransactionIdForCalendar,
         selectedCalendarCycle,

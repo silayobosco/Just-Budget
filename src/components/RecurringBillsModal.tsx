@@ -61,6 +61,7 @@ export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({ visibl
   const [billEndDate, setBillEndDate] = useState(new Date().toISOString().slice(0, 10));
   const [endCalendarVisible, setEndCalendarVisible] = useState(false);
   const [billCategoryId, setBillCategoryId] = useState('');
+  const [billSubcategoryId, setBillSubcategoryId] = useState('');
   const [billWalletId, setBillWalletId] = useState('');
   const [reminderEnabled, setReminderEnabled] = useState(true);
 
@@ -82,6 +83,7 @@ export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({ visibl
     if (expenseCat) {
       setBillCategoryId(expenseCat.id);
     }
+    setBillSubcategoryId('');
     setIsAdding(true);
   };
 
@@ -95,6 +97,7 @@ export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({ visibl
     setBillEndOccurrences(bill.end_occurrences ? bill.end_occurrences.toString() : '12');
     setBillEndDate(bill.end_date || new Date().toISOString().slice(0, 10));
     setBillCategoryId(bill.category_id || '');
+    setBillSubcategoryId(bill.subcategory_id || '');
     setBillWalletId(bill.wallet_id);
     setReminderEnabled(bill.reminder_enabled);
     setIsAdding(true);
@@ -142,6 +145,7 @@ export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({ visibl
         due_day: clampedDay,
         next_due_date: nextDue,
         category_id: billCategoryId || null,
+        subcategory_id: billSubcategoryId || null,
         wallet_id: chosenWallet?.id || 'w-cash',
         reminder_enabled: reminderEnabled,
         end_type: billEndType,
@@ -157,6 +161,7 @@ export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({ visibl
         due_day: clampedDay,
         next_due_date: nextDue,
         category_id: billCategoryId || undefined,
+        subcategory_id: billSubcategoryId || undefined,
         wallet_id: chosenWallet?.id || 'w-cash',
         reminder_enabled: reminderEnabled,
         end_type: billEndType,
@@ -536,7 +541,10 @@ export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({ visibl
                         backgroundColor: billCategoryId === c.id ? c.color : theme.pillBg,
                       },
                     ]}
-                    onPress={() => setBillCategoryId(c.id)}
+                    onPress={() => {
+                      setBillCategoryId(c.id);
+                      setBillSubcategoryId('');
+                    }}
                   >
                     <MaterialCommunityIcons
                       name={c.icon as any}
@@ -555,6 +563,56 @@ export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({ visibl
                   </TouchableOpacity>
                 ))}
               </ScrollView>
+
+              {/* Subcategory (if selected category has subcategories) */}
+              {(() => {
+                const selectedCat = categories.find((c) => c.id === billCategoryId);
+                if (!selectedCat?.subcategories || selectedCat.subcategories.length === 0) return null;
+                return (
+                  <>
+                    <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>Subcategory (Optional)</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalChips}>
+                      <TouchableOpacity
+                        style={[
+                          styles.choiceChip,
+                          {
+                            backgroundColor: !billSubcategoryId ? theme.primaryContainer : theme.pillBg,
+                            borderColor: !billSubcategoryId ? theme.primary : 'transparent',
+                            borderWidth: 1,
+                          },
+                        ]}
+                        onPress={() => setBillSubcategoryId('')}
+                      >
+                        <Text style={{ color: theme.onSurface, fontSize: 12, fontWeight: !billSubcategoryId ? '700' : '500' }}>
+                          None
+                        </Text>
+                      </TouchableOpacity>
+                      {selectedCat.subcategories.map((sub) => (
+                        <TouchableOpacity
+                          key={sub.id}
+                          style={[
+                            styles.choiceChip,
+                            {
+                              backgroundColor: billSubcategoryId === sub.id ? selectedCat.color : theme.pillBg,
+                            },
+                          ]}
+                          onPress={() => setBillSubcategoryId(sub.id)}
+                        >
+                          <Text
+                            style={{
+                              color: billSubcategoryId === sub.id ? '#FFFFFF' : theme.onSurface,
+                              fontSize: 12,
+                              fontWeight: billSubcategoryId === sub.id ? '700' : '500',
+                            }}
+                          >
+                            {sub.name}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </>
+                );
+              })()}
 
               {/* Reminder Switch */}
               <View style={[styles.reminderRow, { backgroundColor: theme.pillBg }]}>
@@ -605,6 +663,7 @@ export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({ visibl
               ) : (
                 recurringBills.map((bill) => {
                   const cat = categories.find((c) => c.id === bill.category_id);
+                  const sub = cat?.subcategories?.find((s) => s.id === bill.subcategory_id);
                   const wallet = wallets.find((w) => w.id === bill.wallet_id);
                   const daysLeft = getDaysUntilDue(bill.next_due_date);
 
@@ -621,7 +680,7 @@ export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({ visibl
                         <View style={styles.billInfo}>
                           <Text style={[styles.billName, { color: theme.onSurface }]}>{bill.name}</Text>
                           <Text style={[styles.billMeta, { color: theme.onSurfaceVariant }]}>
-                            {wallet?.name || 'Wallet'} • {bill.type === 'income' ? 'Income' : 'Expense'} • {bill.frequency === 'weekly' ? `${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][bill.due_day % 7]}s` : `Day ${bill.due_day}`} ({bill.frequency})
+                            {wallet?.name || 'Wallet'} • {cat ? `${cat.name}${sub ? ` › ${sub.name}` : ''} • ` : ''}{bill.type === 'income' ? 'Income' : 'Expense'} • {bill.frequency === 'weekly' ? `${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][bill.due_day % 7]}s` : `Day ${bill.due_day}`} ({bill.frequency})
                             {bill.end_type === 'after_occurrences'
                               ? ` • ${bill.occurrences_count || 0}/${bill.end_occurrences} paid`
                               : bill.end_type === 'on_date'

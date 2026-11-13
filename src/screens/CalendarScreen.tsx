@@ -1594,6 +1594,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                   {dayBills.map((occ) => {
                     const b = occ.bill;
                     const cat = categories.find((c) => c.id === b.category_id);
+                    const sub = cat?.subcategories?.find((s) => s.id === b.subcategory_id);
                     const wallet = wallets.find((w) => w.id === b.wallet_id);
                     const isIncome = b.type === 'income';
 
@@ -1676,7 +1677,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
 
                           <Text style={[styles.billSubMetaText, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
                             {b.frequency.toUpperCase()} • {wallet?.name || 'Wallet'}
-                            {cat ? ` • ${cat.name}` : ''}
+                            {cat ? ` • ${cat.name}${sub ? ` › ${sub.name}` : ''}` : ''}
                           </Text>
                         </View>
 

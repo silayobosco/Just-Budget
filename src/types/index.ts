@@ -97,6 +97,7 @@ export interface RecurringBill {
   due_day: number; // 1-31 (or 1-7 for weekly)
   next_due_date: string; // YYYY-MM-DD
   category_id?: string | null;
+  subcategory_id?: string | null;
   wallet_id: string;
   reminder_enabled: boolean;
   is_active: boolean;

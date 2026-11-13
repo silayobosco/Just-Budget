@@ -91,6 +91,7 @@ export const initDatabase = async () => {
       due_day INTEGER NOT NULL,
       next_due_date TEXT NOT NULL,
       category_id TEXT,
+      subcategory_id TEXT,
       wallet_id TEXT NOT NULL,
       reminder_enabled INTEGER NOT NULL DEFAULT 1,
       is_active INTEGER NOT NULL DEFAULT 1,
@@ -150,6 +151,9 @@ export const initDatabase = async () => {
   } catch {}
   try {
     db.runSync(`ALTER TABLE recurring_bills ADD COLUMN occurrences_count INTEGER DEFAULT 0`);
+  } catch {}
+  try {
+    db.runSync(`ALTER TABLE recurring_bills ADD COLUMN subcategory_id TEXT`);
   } catch {}
 
   // Run migrations & ensure defaults

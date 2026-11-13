@@ -251,8 +251,8 @@ export const restoreFromBackupContentAsync = async (
       if (parsed.recurring_bills) {
         for (const b of parsed.recurring_bills) {
           db.runSync(
-            `INSERT OR REPLACE INTO recurring_bills (id, name, amount, currency, frequency, type, due_day, next_due_date, category_id, wallet_id, reminder_enabled, is_active, end_type, end_occurrences, end_date, occurrences_count, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT OR REPLACE INTO recurring_bills (id, name, amount, currency, frequency, type, due_day, next_due_date, category_id, subcategory_id, wallet_id, reminder_enabled, is_active, end_type, end_occurrences, end_date, occurrences_count, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               b.id,
               b.name,
@@ -263,6 +263,7 @@ export const restoreFromBackupContentAsync = async (
               b.due_day,
               b.next_due_date,
               b.category_id || null,
+              b.subcategory_id || null,
               b.wallet_id,
               b.reminder_enabled ? 1 : 0,
               b.is_active ? 1 : 0,

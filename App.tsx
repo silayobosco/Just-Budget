@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, View, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -16,10 +16,38 @@ import { SettingsScreen } from './src/screens/SettingsScreen';
 import { lightTheme, darkTheme } from './src/theme';
 
 const MainApp: React.FC = () => {
-  const { settings, isLoading, isCycleModalOpen, closeCycleModal } = useBudget();
+  const {
+    settings,
+    isLoading,
+    isCycleModalOpen,
+    closeCycleModal,
+    setSelectedCalendarDate,
+    setSelectedCalendarCycle,
+    getLastCalendarJumpAt,
+  } = useBudget();
   const theme = settings.theme_mode === 'dark' ? darkTheme : lightTheme;
 
   const [currentTab, setCurrentTab] = useState<TabType>('home');
+  const prevTabRef = useRef<TabType>('home');
+  const leftHistoryAtRef = useRef<number | null>(null);
+
+  // Reset History tab focus to today when returning after 30+ seconds on other pages (excluding explicit date jumps)
+  useEffect(() => {
+    const prev = prevTabRef.current;
+    if (prev === 'calendar' && currentTab !== 'calendar') {
+      leftHistoryAtRef.current = Date.now();
+    } else if (currentTab === 'calendar' && prev !== 'calendar') {
+      const leftAt = leftHistoryAtRef.current;
+      const lastJumpAt = getLastCalendarJumpAt();
+      if (leftAt !== null && Date.now() - leftAt >= 30_000 && lastJumpAt < leftAt) {
+        const now = new Date();
+        const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        setSelectedCalendarDate(todayStr);
+        setSelectedCalendarCycle(null);
+      }
+    }
+    prevTabRef.current = currentTab;
+  }, [currentTab, getLastCalendarJumpAt, setSelectedCalendarDate, setSelectedCalendarCycle]);
 
   if (isLoading) {
     return (
