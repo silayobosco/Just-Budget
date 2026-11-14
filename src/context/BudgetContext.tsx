@@ -193,7 +193,11 @@ interface BudgetContextType {
     wallet_id?: string;
   }) => Promise<void>;
   updateDebt: (debt: DebtItem) => Promise<void>;
-  recordDebtPayment: (id: string, paymentAmount: number) => Promise<void>;
+  recordDebtPayment: (
+    id: string,
+    paymentAmount: number,
+    options?: { recordExcessAsCredit?: boolean }
+  ) => Promise<void>;
   deleteDebt: (id: string) => Promise<void>;
 
   updateBudgetCycle: (params: { id?: string; name: string; start_date: string; end_date: string; target_budget?: number; target_income?: number }) => Promise<void>;
@@ -1582,19 +1586,77 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     await loadData();
   };
 
-  const recordDebtPayment = async (id: string, paymentAmount: number) => {
+  const recordDebtPayment = async (
+    id: string,
+    paymentAmount: number,
+    options?: { recordExcessAsCredit?: boolean }
+  ) => {
     const db = getDB();
     const target = debts.find((d) => d.id === id);
     if (!target || paymentAmount <= 0) return;
 
-    const newPaid = Math.min(target.amount, (target.paid_amount || 0) + paymentAmount);
-    const newStatus = newPaid >= target.amount ? 'settled' : 'open';
     const nowIso = new Date().toISOString();
+    const targetRemaining = Math.max(0, target.amount - (target.paid_amount || 0));
+    const appliedToTarget = Math.min(targetRemaining, paymentAmount);
+    const newPaid = Math.round(((target.paid_amount || 0) + appliedToTarget) * 100) / 100;
+    const newStatus = newPaid >= target.amount - 0.009 ? 'settled' : 'open';
+    let excess = Math.round((paymentAmount - appliedToTarget) * 100) / 100;
 
-    db.runSync(
-      `UPDATE debts SET paid_amount = ?, status = ?, updated_at = ? WHERE id = ?`,
-      [newPaid, newStatus, nowIso, id]
-    );
+    db.withTransactionSync(() => {
+      db.runSync(
+        `UPDATE debts SET paid_amount = ?, status = ?, updated_at = ? WHERE id = ?`,
+        [Math.min(target.amount, newPaid), newStatus, nowIso, id]
+      );
+
+      if (excess > 0.009) {
+        const normalizedPerson = target.person_name.trim().toLowerCase();
+        const otherOpen = debts
+          .filter(
+            (d) =>
+              d.id !== id &&
+              d.status === 'open' &&
+              d.type === target.type &&
+              d.person_name.trim().toLowerCase() === normalizedPerson
+          )
+          .sort((a, b) => a.date.localeCompare(b.date));
+
+        for (const other of otherOpen) {
+          if (excess <= 0.009) break;
+          const rem = Math.max(0, other.amount - (other.paid_amount || 0));
+          if (rem <= 0.009) continue;
+          const apply = Math.min(rem, excess);
+          const otherNewPaid = Math.round(((other.paid_amount || 0) + apply) * 100) / 100;
+          const otherStatus = otherNewPaid >= other.amount - 0.009 ? 'settled' : 'open';
+          db.runSync(
+            `UPDATE debts SET paid_amount = ?, status = ?, updated_at = ? WHERE id = ?`,
+            [Math.min(other.amount, otherNewPaid), otherStatus, nowIso, other.id]
+          );
+          excess = Math.round((excess - apply) * 100) / 100;
+        }
+
+        if (excess > 0.009 && options?.recordExcessAsCredit) {
+          const reverseType: DebtType = target.type === 'lent' ? 'borrowed' : 'lent';
+          const creditId = `debt-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+          const todayStr = new Date().toISOString().slice(0, 10);
+          db.runSync(
+            `INSERT INTO debts (id, type, person_name, amount, paid_amount, currency, date, due_date, note, wallet_id, status, created_at)
+             VALUES (?, ?, ?, ?, 0, ?, ?, NULL, ?, ?, 'open', ?)`,
+            [
+              creditId,
+              reverseType,
+              target.person_name.trim(),
+              excess,
+              target.currency || settings.base_currency,
+              todayStr,
+              `Overpayment credit${target.note ? ` (${target.note})` : ''}`,
+              target.wallet_id || null,
+              nowIso,
+            ]
+          );
+        }
+      }
+    });
+
     await loadData();
   };
 

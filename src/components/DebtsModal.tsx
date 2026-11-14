@@ -255,7 +255,52 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
       Alert.alert('Invalid Amount', 'Please enter a valid payment amount.');
       return;
     }
-    await recordDebtPayment(payingDebt.id, parsed);
+
+    const remaining = Math.max(0, payingDebt.amount - (payingDebt.paid_amount || 0));
+    const normalizedPerson = payingDebt.person_name.trim().toLowerCase();
+    const otherOpenTotal = debts
+      .filter(
+        (d) =>
+          d.id !== payingDebt.id &&
+          d.status === 'open' &&
+          d.type === payingDebt.type &&
+          d.person_name.trim().toLowerCase() === normalizedPerson
+      )
+      .reduce((sum, d) => sum + Math.max(0, d.amount - (d.paid_amount || 0)), 0);
+
+    const unabsorbedExcess = Math.round((parsed - remaining - otherOpenTotal) * 100) / 100;
+    const curr = payingDebt.currency || baseCurr;
+    const targetId = payingDebt.id;
+
+    if (unabsorbedExcess > 0.009) {
+      const creditMsg =
+        payingDebt.type === 'lent'
+          ? `${payingDebt.person_name} overpaid by ${formatCurrency(unabsorbedExcess, curr)}. Record this change as an amount you owe them?`
+          : `You overpaid ${payingDebt.person_name} by ${formatCurrency(unabsorbedExcess, curr)}. Record this change as an amount they owe you?`;
+
+      Alert.alert('Overpayment Detected', creditMsg, [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Settle Only',
+          onPress: async () => {
+            await recordDebtPayment(targetId, parsed, { recordExcessAsCredit: false });
+            setPayingDebt(null);
+            setPaymentStr('');
+          },
+        },
+        {
+          text: 'Record as Credit',
+          onPress: async () => {
+            await recordDebtPayment(targetId, parsed, { recordExcessAsCredit: true });
+            setPayingDebt(null);
+            setPaymentStr('');
+          },
+        },
+      ]);
+      return;
+    }
+
+    await recordDebtPayment(targetId, parsed);
     setPayingDebt(null);
     setPaymentStr('');
   };
