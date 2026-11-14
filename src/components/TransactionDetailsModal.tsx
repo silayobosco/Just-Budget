@@ -516,6 +516,21 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
     [debts]
   );
 
+  const existingLinkedDebts = useMemo(() => {
+    if (!isEditing) return [];
+    return debts.filter((d) => {
+      if (d.date !== dateStr) return false;
+      if (d.wallet_id && d.wallet_id !== selectedWalletId) return false;
+      const dNote = d.note || '';
+      const isSplit = dNote.includes('(Split)') || dNote === 'Split expense';
+      if (!isSplit) return false;
+      if (initialNote && dNote !== 'Split expense') {
+        return dNote.startsWith(initialNote);
+      }
+      return true;
+    });
+  }, [isEditing, debts, dateStr, selectedWalletId, initialNote]);
+
   const handleAddSplitPerson = (rawName?: string) => {
     const clean = (rawName ?? splitPersonInput).trim();
     if (!clean) return;
@@ -560,7 +575,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       }
     }
 
-    if (currentType === 'expense' && !isEditing && splitEnabled) {
+    if (currentType === 'expense' && splitEnabled) {
       if (splitPeople.length === 0) {
         Alert.alert('Add Participants', 'Add at least one person to split this expense with, or turn off Split Expense.');
         return;
@@ -571,7 +586,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       }
     }
 
-    if (currentType === 'income' && !isEditing && settleIouEnabled && !selectedDebtId) {
+    if (currentType === 'income' && settleIouEnabled && !selectedDebtId) {
       Alert.alert('Select an IOU', 'Choose which open IOU this income is repaying, or turn off Settle Open IOU.');
       return;
     }
@@ -601,7 +616,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       reminder_enabled: repeatEnabled ? reminderEnabled : undefined,
     });
 
-    if (currentType === 'expense' && !isEditing && splitEnabled && splitSummary.resolved.length > 0) {
+    if (currentType === 'expense' && splitEnabled && splitSummary.resolved.length > 0) {
       const splitNote = note.trim() ? `${note.trim()} (Split)` : 'Split expense';
       for (const participant of splitSummary.resolved) {
         if (participant.share > 0) {
@@ -618,7 +633,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       }
     }
 
-    if (currentType === 'income' && !isEditing && settleIouEnabled && selectedDebtId) {
+    if (currentType === 'income' && settleIouEnabled && selectedDebtId) {
       await recordDebtPayment(selectedDebtId, parsed, { recordExcessAsCredit: true });
     }
     onClose();
@@ -1239,7 +1254,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
           </View>
 
           {/* SPLIT EXPENSE (CREATE IOUs) */}
-          {currentType === 'expense' && !isEditing && (
+          {currentType === 'expense' && (
             <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
               <View style={styles.toggleRow}>
                 <View style={styles.toggleTextCol}>
@@ -1258,6 +1273,27 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
                   thumbColor={splitEnabled ? theme.primary : '#f4f3f4'}
                 />
               </View>
+
+              {isEditing && existingLinkedDebts.length > 0 && (
+                <View
+                  style={{
+                    marginTop: 10,
+                    padding: 10,
+                    borderRadius: M3Shape.small,
+                    backgroundColor: theme.pillBg,
+                    gap: 4,
+                  }}
+                >
+                  <Text style={{ fontSize: 11.5, fontWeight: '800', color: theme.onSurfaceVariant }}>
+                    EXISTING IOUs FROM THIS EXPENSE
+                  </Text>
+                  {existingLinkedDebts.map((d) => (
+                    <Text key={d.id} style={{ fontSize: 12.5, fontWeight: '700', color: theme.onSurface }}>
+                      • {d.person_name}: {formatCurrency(d.amount, d.currency || currency)} ({d.status})
+                    </Text>
+                  ))}
+                </View>
+              )}
 
               {splitEnabled && (
                 <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: theme.divider }}>
@@ -1437,7 +1473,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
           )}
 
           {/* SETTLE OPEN IOU (ON INCOME) */}
-          {currentType === 'income' && !isEditing && openLentDebts.length > 0 && (
+          {currentType === 'income' && (
             <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
               <View style={styles.toggleRow}>
                 <View style={styles.toggleTextCol}>
@@ -1469,11 +1505,16 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
               </View>
 
               {settleIouEnabled && (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ gap: 8, marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.divider }}
-                >
+                openLentDebts.length === 0 ? (
+                  <Text style={{ fontSize: 12.5, color: theme.onSurfaceVariant, marginTop: 10 }}>
+                    No open IOUs owed to you yet.
+                  </Text>
+                ) : (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ gap: 8, marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.divider }}
+                  >
                   {openLentDebts.map((d) => {
                     const rem = Math.max(0, d.amount - (d.paid_amount || 0));
                     const selected = selectedDebtId === d.id;
@@ -1518,6 +1559,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
                     );
                   })}
                 </ScrollView>
+                )
               )}
             </View>
           )}

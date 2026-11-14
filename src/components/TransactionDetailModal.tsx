@@ -16,6 +16,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Transaction, Category, Wallet, RecurringBill } from '../types';
 import { formatCurrency } from '../utils/format';
 import { M3Elevation, M3Shape } from '../theme';
+import { useBudget } from '../context/BudgetContext';
 
 interface TransactionDetailModalProps {
   visible: boolean;
@@ -61,6 +62,28 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
         (b.name === transaction.note || (transaction.note && b.name.includes(transaction.note)))
     );
   }, [transaction, recurringBills]);
+
+  const { debts } = useBudget();
+  const linkedDebts = useMemo(() => {
+    if (!transaction) return [];
+    return debts.filter((d) => {
+      if (d.date !== transaction.date) return false;
+      if (d.wallet_id && d.wallet_id !== transaction.wallet_id) return false;
+      if (transaction.type === 'expense') {
+        const dNote = d.note || '';
+        const isSplit = dNote.includes('(Split)') || dNote === 'Split expense';
+        if (!isSplit) return false;
+        if (transaction.note && dNote !== 'Split expense') {
+          return dNote.startsWith(transaction.note);
+        }
+        return true;
+      }
+      if (transaction.type === 'income') {
+        return (transaction.note || '').startsWith(`IOU Repaid: ${d.person_name}`);
+      }
+      return false;
+    });
+  }, [transaction, debts]);
 
   if (!visible || !transaction) return null;
 
@@ -354,6 +377,29 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                     {'  •  '}
                     Base: {transaction.currency} {Math.max(0, transaction.amount - (transaction.tax_amount || 0)).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                   </Text>
+                </View>
+              </View>
+            )}
+
+            {/* Linked IOUs / Splits Row */}
+            {linkedDebts.length > 0 && (
+              <View style={[styles.detailRow, { borderBottomColor: theme.divider }]}>
+                <View style={[styles.detailIconCircle, { backgroundColor: theme.primaryContainer }]}>
+                  <MaterialCommunityIcons name="handshake-outline" size={18} color={theme.primary} />
+                </View>
+                <View style={styles.detailCol}>
+                  <Text style={[styles.detailLabel, { color: theme.onSurfaceVariant }]}>
+                    {transaction.type === 'expense' ? 'Split / IOUs Created' : 'Linked IOU Repayment'}
+                  </Text>
+                  {linkedDebts.map((d) => {
+                    const rem = Math.max(0, d.amount - (d.paid_amount || 0));
+                    return (
+                      <Text key={d.id} style={[styles.detailValue, { color: theme.onSurface, marginTop: 2 }]}>
+                        {d.person_name}: {formatCurrency(d.amount, d.currency || baseCurrency)}
+                        {d.status === 'settled' ? ' (Settled)' : ` (${formatCurrency(rem, d.currency || baseCurrency)} open)`}
+                      </Text>
+                    );
+                  })}
                 </View>
               </View>
             )}
