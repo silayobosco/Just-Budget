@@ -34,6 +34,7 @@ import { TransactionType, BillFrequency, RecurrenceEndType } from '../types';
 import { CategoryPickerSheet } from '../components/CategoryPickerSheet';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
 import { CalendarPickerModal } from '../components/CalendarPickerModal';
+import { DebtsModal } from '../components/DebtsModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   exportAnalyticsSummaryReport,
@@ -800,6 +801,7 @@ export const AnalyticsScreen: React.FC = () => {
     transactions,
     categories,
     wallets,
+    debts,
     allCycles,
     addTransaction,
     addSubcategory,
@@ -847,6 +849,7 @@ export const AnalyticsScreen: React.FC = () => {
 
   // Floating Action Button (FAB) Speed-Dial & Add Transaction Modal states
   const [isFabOpen, setIsFabOpen] = useState(false);
+  const [debtsModalVisible, setDebtsModalVisible] = useState(false);
   const [exportModalVisible, setExportModalVisible] = useState(false);
   const [addCategorySheetVisible, setAddCategorySheetVisible] = useState(false);
   const [addPrefilledCategoryId, setAddPrefilledCategoryId] = useState<string | undefined>(undefined);
@@ -889,6 +892,10 @@ export const AnalyticsScreen: React.FC = () => {
     setAddModalType(type);
     setAddPrefilledCategoryId(undefined);
     setAddPrefilledSubcategoryId(undefined);
+    if (type === 'transfer') {
+      setAddModalVisible(true);
+      return;
+    }
     setAddCategorySheetVisible(true);
   };
 
@@ -2772,7 +2779,112 @@ export const AnalyticsScreen: React.FC = () => {
           },
         ]}
       >
-        {/* Record Expense Button (Top) */}
+        {/* IOU / Split Button (Top) */}
+        <TouchableOpacity
+          style={[
+            styles.fabRecordBtn,
+            {
+              backgroundColor: isDarkMode ? '#312E81' : '#E0E7FF',
+              borderColor: isDarkMode ? '#818CF8' : '#4338CA',
+            },
+            M3Elevation.level3,
+          ]}
+          onPress={() => {
+            setIsFabOpen(false);
+            setDebtsModalVisible(true);
+          }}
+          activeOpacity={0.85}
+          accessibilityLabel="IOU and Splits"
+        >
+          <View style={styles.fabRecordBtnContent}>
+            <View style={styles.fabRecordHeaderRow}>
+              <MaterialCommunityIcons
+                name="handshake-outline"
+                size={16}
+                color={isDarkMode ? '#A5B4FC' : '#4338CA'}
+              />
+              <Text
+                style={[
+                  styles.fabRecordBtnTitle,
+                  { color: isDarkMode ? '#E0E7FF' : '#312E81' },
+                ]}
+                numberOfLines={1}
+              >
+                IOU / Split
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.fabRecordBadge,
+                {
+                  backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.85)',
+                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.fabRecordBadgeText,
+                  { color: isDarkMode ? '#C7D2FE' : '#4338CA' },
+                ]}
+                numberOfLines={1}
+              >
+                {(() => {
+                  const openCount = debts.filter((d) => d.status === 'open').length;
+                  return openCount > 0 ? `${openCount} open` : 'Loans & Splits';
+                })()}
+              </Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+
+        {/* Transfer Button */}
+        <TouchableOpacity
+          style={[
+            styles.fabRecordBtn,
+            {
+              backgroundColor: theme.primaryContainer,
+              borderColor: theme.primary,
+            },
+            M3Elevation.level3,
+          ]}
+          onPress={() => handleOpenAddFlow('transfer')}
+          activeOpacity={0.85}
+          accessibilityLabel="Record Transfer"
+        >
+          <View style={styles.fabRecordBtnContent}>
+            <View style={styles.fabRecordHeaderRow}>
+              <MaterialCommunityIcons name="swap-horizontal" size={16} color={theme.primary} />
+              <Text
+                style={[styles.fabRecordBtnTitle, { color: theme.onPrimaryContainer }]}
+                numberOfLines={1}
+              >
+                Transfer
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.fabRecordBadge,
+                {
+                  backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.85)',
+                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.fabRecordBadgeText,
+                  { color: theme.primary },
+                ]}
+                numberOfLines={1}
+              >
+                {wallets.length} wallets
+              </Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+
+        {/* Record Expense Button */}
         <TouchableOpacity
           style={[
             styles.fabRecordBtn,
@@ -2926,6 +3038,11 @@ export const AnalyticsScreen: React.FC = () => {
         onClose={() => setAddModalVisible(false)}
         onSave={handleSaveNewTransaction}
         onAddSubcategory={addSubcategory}
+      />
+
+      <DebtsModal
+        visible={debtsModalVisible}
+        onClose={() => setDebtsModalVisible(false)}
       />
 
       {/* EXPORT ANALYTICS MODAL */}

@@ -24,6 +24,7 @@ import { CycleModeSwitcherModal } from '../components/CycleModeSwitcherModal';
 import { TransactionDetailModal } from '../components/TransactionDetailModal';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
 import { CategoryPickerSheet } from '../components/CategoryPickerSheet';
+import { DebtsModal } from '../components/DebtsModal';
 import { Transaction, BudgetCycle, TransactionType, BillFrequency, RecurrenceEndType, RecurringBill } from '../types';
 
 interface CalendarScreenProps {
@@ -44,6 +45,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     payRecurringBill,
     categories,
     wallets,
+    debts,
     remainingCycleBalance,
     spentInCycle,
     totalConvertedBalance,
@@ -77,6 +79,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
 
   // Floating Action Button (FAB) Speed-Dial & Add Transaction Modal states
   const [isFabOpen, setIsFabOpen] = useState(false);
+  const [debtsModalVisible, setDebtsModalVisible] = useState(false);
   const [addCategorySheetVisible, setAddCategorySheetVisible] = useState(false);
   const [addPrefilledCategoryId, setAddPrefilledCategoryId] = useState<string | undefined>(undefined);
   const [addPrefilledSubcategoryId, setAddPrefilledSubcategoryId] = useState<string | undefined>(undefined);
@@ -126,6 +129,10 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     setAddModalType(type);
     setAddPrefilledCategoryId(undefined);
     setAddPrefilledSubcategoryId(undefined);
+    if (type === 'transfer') {
+      setAddModalVisible(true);
+      return;
+    }
     setAddCategorySheetVisible(true);
   };
 
@@ -1918,7 +1925,112 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
           },
         ]}
       >
-        {/* Record Expense Button (Top) */}
+        {/* IOU / Split Button (Top) */}
+        <TouchableOpacity
+          style={[
+            styles.fabRecordBtn,
+            {
+              backgroundColor: isDarkMode ? '#312E81' : '#E0E7FF',
+              borderColor: isDarkMode ? '#818CF8' : '#4338CA',
+            },
+            M3Elevation.level3,
+          ]}
+          onPress={() => {
+            setIsFabOpen(false);
+            setDebtsModalVisible(true);
+          }}
+          activeOpacity={0.85}
+          accessibilityLabel="IOU and Splits"
+        >
+          <View style={styles.fabRecordBtnContent}>
+            <View style={styles.fabRecordHeaderRow}>
+              <MaterialCommunityIcons
+                name="handshake-outline"
+                size={16}
+                color={isDarkMode ? '#A5B4FC' : '#4338CA'}
+              />
+              <Text
+                style={[
+                  styles.fabRecordBtnTitle,
+                  { color: isDarkMode ? '#E0E7FF' : '#312E81' },
+                ]}
+                numberOfLines={1}
+              >
+                IOU / Split
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.fabRecordBadge,
+                {
+                  backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.85)',
+                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.fabRecordBadgeText,
+                  { color: isDarkMode ? '#C7D2FE' : '#4338CA' },
+                ]}
+                numberOfLines={1}
+              >
+                {(() => {
+                  const openCount = debts.filter((d) => d.status === 'open').length;
+                  return openCount > 0 ? `${openCount} open` : 'Loans & Splits';
+                })()}
+              </Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+
+        {/* Transfer Button */}
+        <TouchableOpacity
+          style={[
+            styles.fabRecordBtn,
+            {
+              backgroundColor: theme.primaryContainer,
+              borderColor: theme.primary,
+            },
+            M3Elevation.level3,
+          ]}
+          onPress={() => handleOpenAddFlow('transfer')}
+          activeOpacity={0.85}
+          accessibilityLabel="Record Transfer"
+        >
+          <View style={styles.fabRecordBtnContent}>
+            <View style={styles.fabRecordHeaderRow}>
+              <MaterialCommunityIcons name="swap-horizontal" size={16} color={theme.primary} />
+              <Text
+                style={[styles.fabRecordBtnTitle, { color: theme.onPrimaryContainer }]}
+                numberOfLines={1}
+              >
+                Transfer
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.fabRecordBadge,
+                {
+                  backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.85)',
+                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.fabRecordBadgeText,
+                  { color: theme.primary },
+                ]}
+                numberOfLines={1}
+              >
+                {wallets.length} wallets
+              </Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+
+        {/* Record Expense Button */}
         <TouchableOpacity
           style={[
             styles.fabRecordBtn,
@@ -2072,6 +2184,11 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
         onClose={() => setAddModalVisible(false)}
         onSave={handleSaveNewTransaction}
         onAddSubcategory={addSubcategory}
+      />
+
+      <DebtsModal
+        visible={debtsModalVisible}
+        onClose={() => setDebtsModalVisible(false)}
       />
 
       {/* QUICK TARGET EDIT DIALOGUE (TRIGGERED ON TAP WHEN UNSET OR LONG PRESS OF INCOME GOAL / BUDGET CAP) */}
