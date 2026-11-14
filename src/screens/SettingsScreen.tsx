@@ -554,7 +554,7 @@ export const SettingsScreen: React.FC = () => {
               <MaterialCommunityIcons name="handshake-outline" size={20} color="#4338CA" />
             </View>
             <View style={styles.itemTextWrap}>
-              <Text style={[styles.itemTitle, { color: theme.onSurface }]}>Debts, IOUs & Splits</Text>
+              <Text style={[styles.itemTitle, { color: theme.onSurface }]}>Debts, Loans & Splits</Text>
               <Text style={[styles.itemSubtitle, { color: theme.onSurfaceVariant }]}>
                 Money lent, borrowed & bill splits ({debts.filter((d) => d.status === 'open').length} open)
               </Text>

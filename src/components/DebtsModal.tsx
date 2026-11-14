@@ -164,7 +164,7 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
     if (openItems.length === 0) return;
     Alert.alert(
       `Settle All with ${displayName}?`,
-      `Mark all ${openItems.length} open IOU(s) with ${displayName} as settled?`,
+      `Mark all ${openItems.length} open Loan(s) with ${displayName} as settled?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -208,7 +208,7 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
   const handleSaveDebt = async () => {
     const trimmedName = personName.trim();
     if (!trimmedName) {
-      Alert.alert('Missing Person', 'Please enter who this IOU or split is with.');
+      Alert.alert('Missing Person', 'Please enter who this loan or split is with.');
       return;
     }
     const parsed = parseCleanNumber(amountStr);
@@ -272,8 +272,8 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
       is_paid: true,
       note:
         debt.type === 'lent'
-          ? `IOU Repaid: ${debt.person_name}${debt.note ? ` (${debt.note})` : ''}${tipSuffix}`
-          : `IOU Paid: ${debt.person_name}${debt.note ? ` (${debt.note})` : ''}${tipSuffix}`,
+          ? `Loan Repaid: ${debt.person_name}${debt.note ? ` (${debt.note})` : ''}${tipSuffix}`
+          : `Loan Paid: ${debt.person_name}${debt.note ? ` (${debt.note})` : ''}${tipSuffix}`,
     });
   };
 
@@ -418,7 +418,7 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
             <MaterialCommunityIcons name="arrow-left" size={24} color={theme.onSurface} />
           </TouchableOpacity>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.headerTitle, { color: theme.onSurface }]}>Debts, IOUs & Splits</Text>
+            <Text style={[styles.headerTitle, { color: theme.onSurface }]}>Debts, Loans & Splits</Text>
             <Text style={[styles.headerSubtitle, { color: theme.onSurfaceVariant }]}>
               Track money lent, borrowed, or split bills
             </Text>
@@ -556,7 +556,7 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
                 color={theme.onSurfaceVariant}
               />
               <Text style={[styles.emptyTitle, { color: theme.onSurface }]}>
-                {filter === 'settled' ? 'No settled IOUs yet' : 'No open IOUs or splits'}
+                {filter === 'settled' ? 'No settled loans yet' : 'No open loans or splits'}
               </Text>
               <Text style={[styles.emptySub, { color: theme.onSurfaceVariant }]}>
                 Keep track of shared dinners, loans to friends, or money you owe without cluttering your expense totals.
@@ -566,7 +566,7 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
                 onPress={() => openAddForm(filter === 'borrowed' ? 'borrowed' : 'lent')}
               >
                 <Text style={[styles.emptyActionText, { color: theme.onPrimary }]}>
-                  Add IOU or Split
+                  Add Loan or Split
                 </Text>
               </TouchableOpacity>
             </View>
@@ -757,7 +757,7 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
                         >
                           <MaterialCommunityIcons name="plus" size={15} color={theme.onPrimaryContainer} />
                           <Text style={[styles.cardActionText, { color: theme.onPrimaryContainer }]}>
-                            Add IOU
+                            Add Loan
                           </Text>
                         </TouchableOpacity>
                         {group.openCount > 1 && (
@@ -975,7 +975,7 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
             >
               <View style={styles.sheetHeader}>
                 <Text style={[styles.sheetTitle, { color: theme.onSurface }]}>
-                  {editingDebt ? 'Edit IOU / Split' : 'New IOU or Split'}
+                  {editingDebt ? 'Edit Loan / Split' : 'New Loan or Split'}
                 </Text>
                 <TouchableOpacity onPress={() => setFormVisible(false)} hitSlop={8}>
                   <MaterialCommunityIcons name="close" size={22} color={theme.onSurfaceVariant} />
@@ -1178,7 +1178,7 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
                   onPress={handleSaveDebt}
                 >
                   <Text style={[styles.saveBtnText, { color: theme.onPrimary }]}>
-                    {editingDebt ? 'Save Changes' : 'Save IOU'}
+                    {editingDebt ? 'Save Changes' : 'Save Loan'}
                   </Text>
                 </TouchableOpacity>
               </ScrollView>

@@ -85,6 +85,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
   const [addPrefilledSubcategoryId, setAddPrefilledSubcategoryId] = useState<string | undefined>(undefined);
   const [addModalVisible, setAddModalVisible] = useState(false);
   const [addModalType, setAddModalType] = useState<TransactionType>('expense');
+  const [addIouMode, setAddIouMode] = useState(false);
   const fabAnim = useRef(new Animated.Value(0)).current;
 
   // Quick Target Dialogue State (Long-press / click when unset on Income Goal / Budget Cap)
@@ -126,6 +127,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
 
   const handleOpenAddFlow = (type: TransactionType) => {
     setIsFabOpen(false);
+    setAddIouMode(false);
     setAddModalType(type);
     setAddPrefilledCategoryId(undefined);
     setAddPrefilledSubcategoryId(undefined);
@@ -2083,10 +2085,14 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
           ]}
           onPress={() => {
             setIsFabOpen(false);
-            setDebtsModalVisible(true);
+            setAddIouMode(true);
+            setAddModalType('expense');
+            setAddPrefilledCategoryId(undefined);
+            setAddPrefilledSubcategoryId(undefined);
+            setAddModalVisible(true);
           }}
           activeOpacity={0.85}
-          accessibilityLabel="IOU and Splits"
+          accessibilityLabel="Loans and Splits"
         >
           <View style={styles.fabRecordBtnContent}>
             <View style={styles.fabRecordHeaderRow}>
@@ -2102,7 +2108,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                 ]}
                 numberOfLines={1}
               >
-                IOU / Split
+                Loan / Split
               </Text>
             </View>
             <View
@@ -2171,6 +2177,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
       <TransactionDetailsModal
         visible={addModalVisible}
         txType={addModalType}
+        initialIouMode={addIouMode}
         initialAmount={0}
         initialWalletId={wallets[0]?.id || ''}
         initialCategoryId={addPrefilledCategoryId}

@@ -21,6 +21,7 @@
       "permissions": [
         "CAMERA",
         "POST_NOTIFICATIONS",
+        "READ_CONTACTS",
         "READ_MEDIA_IMAGES",
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE",
@@ -35,6 +36,12 @@
       "expo-sqlite",
       "expo-sharing",
       "expo-notifications",
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Allow Just Budget to access your contacts to pick people for IOUs and split bills."
+        }
+      ],
       [
         "expo-image-picker",
         {

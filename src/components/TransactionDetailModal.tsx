@@ -83,7 +83,8 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
         return true;
       }
       if (transaction.type === 'income') {
-        return (transaction.note || '').startsWith(`IOU Repaid: ${d.person_name}`);
+        const note = transaction.note || '';
+        return note.startsWith(`Loan Repaid: ${d.person_name}`) || note.startsWith(`IOU Repaid: ${d.person_name}`);
       }
       return false;
     });
@@ -393,7 +394,7 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                 </View>
                 <View style={styles.detailCol}>
                   <Text style={[styles.detailLabel, { color: theme.onSurfaceVariant }]}>
-                    Settled IOU{linkedSettlements.length > 1 ? 's' : ''}
+                    Settled Loan{linkedSettlements.length > 1 ? 's' : ''}
                   </Text>
                   {linkedSettlements.map((s) => (
                     <View key={s.id} style={{ marginTop: 2 }}>
@@ -420,7 +421,7 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                 </View>
                 <View style={styles.detailCol}>
                   <Text style={[styles.detailLabel, { color: theme.onSurfaceVariant }]}>
-                    {transaction.type === 'expense' ? 'Split / IOUs Created' : 'Linked IOU Repayment'}
+                    {transaction.type === 'expense' ? 'Split / Loans Created' : 'Linked Loan Repayment'}
                   </Text>
                   {linkedDebts.map((d) => {
                     const rem = Math.max(0, d.amount - (d.paid_amount || 0));

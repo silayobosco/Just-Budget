@@ -17,9 +17,11 @@ import {
   Keyboard,
   LayoutAnimation,
   UIManager,
+  Linking,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { CameraView } from 'expo-camera';
+import * as Contacts from 'expo-contacts';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Category, Subcategory, Wallet, TransactionType, BillFrequency, RecurrenceEndType } from '../types';
@@ -33,6 +35,7 @@ import { useBudget } from '../context/BudgetContext';
 interface TransactionDetailsModalProps {
   visible: boolean;
   txType: TransactionType;
+  initialIouMode?: boolean;
   initialAmount: number;
   initialWalletId: string;
   initialToWalletId?: string;
@@ -89,6 +92,7 @@ const COMMON_CURRENCIES = ['TZS', 'USD', 'EUR', 'GBP', 'KES', 'INR', 'JPY', 'CAD
 export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = ({
   visible,
   txType: defaultTxType,
+  initialIouMode = false,
   initialAmount,
   initialWalletId,
   initialToWalletId,
@@ -135,11 +139,32 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   const { height: windowHeight } = useWindowDimensions();
   const bottomScrollPadding = Math.max(360, Math.round(windowHeight * 0.52)) + bottomInset;
   const [currentType, setCurrentType] = useState<TransactionType>(defaultTxType);
+  const [isIouMode, setIsIouMode] = useState<boolean>(initialIouMode);
+  const [iouAction, setIouAction] = useState<'lent' | 'borrowed' | 'settle'>('lent');
+  const [iouPersonName, setIouPersonName] = useState<string>('');
+  const [iouUseWallet, setIouUseWallet] = useState<boolean>(true);
+  const [iouIncludeMyShare, setIouIncludeMyShare] = useState<boolean>(true);
+  const [iouMyShareStr, setIouMyShareStr] = useState<string>('');
+  const [iouDueDate, setIouDueDate] = useState<string>('');
+  const [iouDueCalendarVisible, setIouDueCalendarVisible] = useState<boolean>(false);
   const [amountStr, setAmountStr] = useState<string>('');
   const [taxAmountStr, setTaxAmountStr] = useState<string>('');
   const amountInputRef = useRef<any>(null);
+  const taxInputRef = useRef<any>(null);
+  const noteInputRef = useRef<any>(null);
   const [categorySheetVisible, setCategorySheetVisible] = useState<boolean>(false);
+  const [typeDropdownVisible, setTypeDropdownVisible] = useState<boolean>(false);
+  const [activeSheet, setActiveSheet] = useState<'category' | 'wallet' | 'iou' | null>(null);
+  const [expandedCategoryId, setExpandedCategoryId] = useState<string | null>(null);
   const [keyboardHeight, setKeyboardHeight] = useState<number>(0);
+
+  const animateLayout = () => {
+    try {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    } catch (err) {
+      // ignore
+    }
+  };
 
   useEffect(() => {
     if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -218,13 +243,13 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
     }
   };
 
-  // Automatically focus amount input once modal is visible
+  // Automatically focus amount input once modal is visible only when editing (new flow focuses after Wallet selection)
   useEffect(() => {
-    if (visible) {
+    if (visible && isEditing) {
       const timer = setTimeout(focusAmountInput, 150);
       return () => clearTimeout(timer);
     }
-  }, [visible]);
+  }, [visible, isEditing]);
   const [selectedWalletId, setSelectedWalletId] = useState<string>(initialWalletId);
   const [selectedToWalletId, setSelectedToWalletId] = useState<string>(initialToWalletId || '');
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>(initialCategoryId || '');
@@ -306,7 +331,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
           ? formatTypingNumber(initialTaxAmount.toString())
           : ''
       );
-      const initFrom = initialWalletId || (wallets.length > 0 ? wallets[0].id : '');
+      const initFrom = !isEditing && initialIouMode ? '' : initialWalletId || '';
       setSelectedWalletId(initFrom);
       const initTo =
         initialToWalletId ||
@@ -361,10 +386,32 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       setSplitPersonInput('');
       setSettleIouEnabled(false);
       setSelectedDebtId('');
+      setIsIouMode(Boolean(initialIouMode));
+      setIouAction('lent');
+      setIouPersonName('');
+      setIouUseWallet(true);
+      setIouIncludeMyShare(true);
+      setIouMyShareStr('');
+      setIouDueDate('');
+      setIouDueCalendarVisible(false);
+      setTypeDropdownVisible(false);
+      setExpandedCategoryId(initialCategoryId || null);
+      if (isEditing) {
+        setActiveSheet(null);
+      } else if (initialIouMode) {
+        setActiveSheet('wallet');
+      } else if (defaultTxType === 'transfer') {
+        setActiveSheet('wallet');
+      } else if (!initialCategoryId) {
+        setActiveSheet('category');
+      } else {
+        setActiveSheet('wallet');
+      }
     }
   }, [
     visible,
     defaultTxType,
+    initialIouMode,
     initialAmount,
     initialWalletId,
     initialToWalletId,
@@ -525,6 +572,23 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
     [debts]
   );
 
+  const allOpenDebts = useMemo(
+    () => debts.filter((d) => d.status === 'open'),
+    [debts]
+  );
+
+  const allKnownPeople = useMemo(() => {
+    const map = new Map<string, string>();
+    debts.forEach((d) => {
+      const clean = d.person_name.trim();
+      if (clean) {
+        const key = clean.toLowerCase();
+        if (!map.has(key)) map.set(key, clean);
+      }
+    });
+    return Array.from(map.values());
+  }, [debts]);
+
   const existingTxSettlements = useMemo(() => {
     if (!isEditing || !initialTransactionId) return [];
     return debtSettlements.filter((s) => s.transaction_id === initialTransactionId);
@@ -556,6 +620,47 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
     if (!rawName) setSplitPersonInput('');
   };
 
+  const handlePickFromContacts = async () => {
+    try {
+      const { status, canAskAgain } = await Contacts.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'Contacts Permission',
+          'Contacts permission is optional — you can still type names or tap known people.',
+          !canAskAgain
+            ? [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Open Settings', onPress: () => Linking.openSettings() },
+            ]
+            : [{ text: 'OK' }]
+        );
+        return;
+      }
+      const contact = await Contacts.Contact.presentPicker();
+      if (contact) {
+        let displayName = (await contact.getFullName())?.trim() || '';
+        if (!displayName) {
+          const details = await contact.getDetails([
+            Contacts.ContactField.GIVEN_NAME,
+            Contacts.ContactField.FAMILY_NAME,
+            Contacts.ContactField.COMPANY,
+          ]);
+          displayName =
+            [details.givenName, details.familyName].filter(Boolean).join(' ').trim() ||
+            details.company?.trim() ||
+            '';
+        }
+        if (displayName) {
+          animateLayout();
+          handleAddSplitPerson(displayName);
+          setIouPersonName(displayName);
+        }
+      }
+    } catch (err: any) {
+      Alert.alert('Contacts Unavailable', err?.message || 'Could not open contacts picker.');
+    }
+  };
+
   const handleSave = async () => {
     const parsed = parseCleanNumber(amountStr);
     if (isNaN(parsed) || parsed <= 0) {
@@ -574,11 +679,49 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       );
       return;
     }
-    if (!selectedWalletId && wallets.length === 0) {
+    if (!isIouMode && !selectedWalletId && wallets.length === 0) {
       Alert.alert('No Wallet', 'Please create a wallet first');
       return;
     }
-    if (currentType === 'transfer') {
+    if (isIouMode) {
+      if (iouAction === 'settle') {
+        if (!selectedDebtId) {
+          Alert.alert('Select a Loan', 'Please choose an open loan to settle.');
+          return;
+        }
+      } else {
+        const pendingName = (splitPersonInput.trim() || iouPersonName.trim());
+        if (splitPeople.length === 0 && !pendingName) {
+          Alert.alert('Person Name Required', 'Please enter or select at least one person.');
+          return;
+        }
+        if (splitPeople.length > 0 && splitSummary.totalOwedByOthers > parsed + 0.01) {
+          Alert.alert('Split Exceeds Total', 'The sum of split shares cannot exceed the total amount.');
+          return;
+        }
+        if (iouIncludeMyShare && splitPeople.length <= 1) {
+          const defaultShare =
+            iouAction === 'borrowed' ? parsed : Math.round((parsed / 2) * 100) / 100;
+          const parsedMyShare = iouMyShareStr.trim()
+            ? parseCleanNumber(iouMyShareStr)
+            : defaultShare;
+          const isValidShare =
+            iouAction === 'borrowed'
+              ? !isNaN(parsedMyShare) && parsedMyShare > 0 && parsedMyShare <= parsed
+              : !isNaN(parsedMyShare) && parsedMyShare >= 0 && parsedMyShare < parsed;
+          if (!isValidShare) {
+            Alert.alert(
+              'Invalid Share',
+              iouAction === 'borrowed'
+                ? 'Your share must be greater than 0 and not exceed the total amount.'
+                : 'Your share must be between 0 and less than the total amount.'
+            );
+            return;
+          }
+        }
+      }
+    }
+    if (!isIouMode && currentType === 'transfer') {
       if (wallets.length < 2) {
         Alert.alert('Transfer Requires 2 Wallets', 'Please create at least two wallets to record a transfer.');
         return;
@@ -589,7 +732,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       }
     }
 
-    if (currentType === 'expense' && splitEnabled) {
+    if (!isIouMode && currentType === 'expense' && splitEnabled) {
       if (splitPeople.length === 0) {
         Alert.alert('Add Participants', 'Add at least one person to split this expense with, or turn off Split Expense.');
         return;
@@ -600,12 +743,203 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       }
     }
 
-    if (currentType === 'income' && settleIouEnabled && !selectedDebtId) {
-      Alert.alert('Select an IOU', 'Choose which open IOU this income is repaying, or turn off Settle Open IOU.');
+    if (!isIouMode && currentType === 'income' && settleIouEnabled && !selectedDebtId) {
+      Alert.alert('Select a Loan', 'Choose which open loan this income is repaying, or turn off Settle Open Loan.');
       return;
     }
 
     const performSave = async (recordExcessAsCredit: boolean) => {
+      if (isIouMode) {
+        const walletIdForIou =
+          iouUseWallet && selectedWalletId ? selectedWalletId : undefined;
+
+        if (iouAction === 'settle' && selectedDebtId) {
+          const targetDebt = debts.find((d) => d.id === selectedDebtId);
+          let createdTxId: string | undefined;
+          if (walletIdForIou && targetDebt) {
+            const settleTxType: TransactionType =
+              targetDebt.type === 'lent' ? 'income' : 'expense';
+            await onSave({
+              amount: parsed,
+              wallet_id: walletIdForIou,
+              type: settleTxType,
+              currency,
+              date: dateStr,
+              time: timeStr,
+              is_paid: isPaid,
+              tax_amount: parsedTax > 0 ? parsedTax : 0,
+              note:
+                note.trim() ||
+                `Loan Settlement (${targetDebt.person_name})`,
+              media_uri: mediaUri || undefined,
+              repeat_frequency: repeatEnabled ? repeatFrequency : undefined,
+              repeat_due_day: repeatEnabled ? repeatDueDay : undefined,
+              repeat_end_type: repeatEnabled ? repeatEndType : undefined,
+              repeat_end_occurrences:
+                repeatEnabled && repeatEndType === 'after_occurrences'
+                  ? parseInt(repeatEndOccurrences, 10) || 12
+                  : undefined,
+              repeat_end_date:
+                repeatEnabled && repeatEndType === 'on_date' ? repeatEndDate : undefined,
+              reminder_enabled: repeatEnabled ? reminderEnabled : undefined,
+            });
+            createdTxId = getLastCreatedTransactionId() || undefined;
+          }
+          await recordDebtPayment(selectedDebtId, parsed, {
+            recordExcessAsCredit,
+            transactionId: createdTxId,
+          });
+          onClose();
+          return;
+        }
+
+        const fallbackName = splitPersonInput.trim() || iouPersonName.trim();
+        const resolvedParticipants: { name: string; share: number }[] =
+          splitPeople.length > 0
+            ? splitSummary.resolved
+            : [
+              {
+                name: fallbackName,
+                share:
+                  iouAction === 'lent' && iouIncludeMyShare
+                    ? Math.max(
+                      0,
+                      Math.round(
+                        (parsed -
+                          (iouMyShareStr.trim()
+                            ? parseCleanNumber(iouMyShareStr)
+                            : Math.round((parsed / 2) * 100) / 100)) *
+                        100
+                      ) / 100
+                    )
+                    : parsed,
+              },
+            ];
+
+        const namesLabel = resolvedParticipants.map((p) => p.name).join(', ');
+
+        if (iouAction === 'lent' && iouIncludeMyShare) {
+          let originTxId: string | undefined;
+          if (walletIdForIou) {
+            await onSave({
+              amount: parsed,
+              wallet_id: walletIdForIou,
+              category_id: selectedCategoryId || undefined,
+              subcategory_id: selectedSubcategoryId || undefined,
+              type: 'expense',
+              currency,
+              date: dateStr,
+              time: timeStr,
+              is_paid: isPaid,
+              tax_amount: parsedTax > 0 ? parsedTax : 0,
+              note: note.trim()
+                ? `${note.trim()} (Split with ${namesLabel})`
+                : `Split with ${namesLabel}`,
+              media_uri: mediaUri || undefined,
+              repeat_frequency: repeatEnabled ? repeatFrequency : undefined,
+              repeat_due_day: repeatEnabled ? repeatDueDay : undefined,
+              repeat_end_type: repeatEnabled ? repeatEndType : undefined,
+              repeat_end_occurrences:
+                repeatEnabled && repeatEndType === 'after_occurrences'
+                  ? parseInt(repeatEndOccurrences, 10) || 12
+                  : undefined,
+              repeat_end_date:
+                repeatEnabled && repeatEndType === 'on_date' ? repeatEndDate : undefined,
+              reminder_enabled: repeatEnabled ? reminderEnabled : undefined,
+            });
+            originTxId = getLastCreatedTransactionId() || undefined;
+          }
+          for (const participant of resolvedParticipants) {
+            if (participant.share > 0) {
+              await addDebt({
+                type: 'lent',
+                person_name: participant.name,
+                amount: participant.share,
+                currency,
+                date: dateStr,
+                due_date: iouDueDate || undefined,
+                wallet_id: walletIdForIou,
+                origin_transaction_id: originTxId,
+                note: note.trim() ? `${note.trim()} (Split)` : 'Split bill',
+              });
+            }
+          }
+          onClose();
+          return;
+        }
+
+        if (iouAction === 'borrowed' && iouIncludeMyShare) {
+          const parsedMyShare =
+            splitPeople.length > 1
+              ? splitSummary.yourShare
+              : iouMyShareStr.trim()
+                ? parseCleanNumber(iouMyShareStr)
+                : parsed;
+          const expenseWalletId = walletIdForIou || wallets[0]?.id;
+          if (expenseWalletId && parsedMyShare > 0) {
+            await onSave({
+              amount: parsedMyShare,
+              wallet_id: expenseWalletId,
+              category_id: selectedCategoryId || undefined,
+              subcategory_id: selectedSubcategoryId || undefined,
+              type: 'expense',
+              currency,
+              date: dateStr,
+              time: timeStr,
+              is_paid: walletIdForIou ? isPaid : false,
+              tax_amount: parsedTax > 0 ? parsedTax : 0,
+              note: note.trim()
+                ? `${note.trim()} (Paid by ${namesLabel})`
+                : `Paid by ${namesLabel}`,
+              media_uri: mediaUri || undefined,
+              repeat_frequency: repeatEnabled ? repeatFrequency : undefined,
+              repeat_due_day: repeatEnabled ? repeatDueDay : undefined,
+              repeat_end_type: repeatEnabled ? repeatEndType : undefined,
+              repeat_end_occurrences:
+                repeatEnabled && repeatEndType === 'after_occurrences'
+                  ? parseInt(repeatEndOccurrences, 10) || 12
+                  : undefined,
+              repeat_end_date:
+                repeatEnabled && repeatEndType === 'on_date' ? repeatEndDate : undefined,
+              reminder_enabled: repeatEnabled ? reminderEnabled : undefined,
+            });
+          }
+          for (const participant of resolvedParticipants) {
+            if (participant.share > 0) {
+              await addDebt({
+                type: 'borrowed',
+                person_name: participant.name,
+                amount: participant.share,
+                currency,
+                date: dateStr,
+                due_date: iouDueDate || undefined,
+                wallet_id: walletIdForIou,
+                note: note.trim() || undefined,
+              });
+            }
+          }
+          onClose();
+          return;
+        }
+
+        for (const participant of resolvedParticipants) {
+          if (participant.share > 0) {
+            await addDebt({
+              type: iouAction === 'borrowed' ? 'borrowed' : 'lent',
+              person_name: participant.name,
+              amount: participant.share,
+              currency,
+              date: dateStr,
+              due_date: iouDueDate || undefined,
+              wallet_id: walletIdForIou,
+              note: note.trim() || undefined,
+            });
+          }
+        }
+        onClose();
+        return;
+      }
+
       await onSave({
         amount: parsed,
         wallet_id: selectedWalletId || wallets[0].id,
@@ -633,10 +967,6 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
 
       if (currentType === 'expense' && splitEnabled && splitSummary.resolved.length > 0) {
         const splitNote = note.trim() ? `${note.trim()} (Split)` : 'Split expense';
-        const originTxId =
-          isEditing && initialTransactionId
-            ? initialTransactionId
-            : getLastCreatedTransactionId() || undefined;
         for (const participant of splitSummary.resolved) {
           if (participant.share > 0) {
             await addDebt({
@@ -646,7 +976,6 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
               currency,
               date: dateStr,
               wallet_id: selectedWalletId || wallets[0]?.id,
-              origin_transaction_id: originTxId,
               note: splitNote,
             });
           }
@@ -666,8 +995,15 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       onClose();
     };
 
-    if (currentType === 'income' && settleIouEnabled && selectedDebtId) {
-      const targetDebt = debts.find((d) => d.id === selectedDebtId);
+    const activeSettleDebtId =
+      isIouMode && iouAction === 'settle'
+        ? selectedDebtId
+        : !isIouMode && currentType === 'income' && settleIouEnabled
+          ? selectedDebtId
+          : '';
+
+    if (activeSettleDebtId) {
+      const targetDebt = debts.find((d) => d.id === activeSettleDebtId);
       if (targetDebt) {
         const remaining = Math.max(0, targetDebt.amount - (targetDebt.paid_amount || 0));
         const normalizedPerson = targetDebt.person_name.trim().toLowerCase();
@@ -703,11 +1039,683 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
 
   if (!visible) return null;
 
-  const isExpense = currentType === 'expense';
-  const isTransfer = currentType === 'transfer';
-  const accentColor = isTransfer ? theme.primary : isExpense ? theme.error : theme.success;
-  const accentContainer = isTransfer ? theme.primaryContainer : isExpense ? theme.errorContainer : theme.successContainer;
-  const onAccentContainer = isTransfer ? theme.onPrimaryContainer : isExpense ? theme.onErrorContainer : theme.onSuccessContainer;
+  const isExpense = !isIouMode && currentType === 'expense';
+  const isTransfer = !isIouMode && currentType === 'transfer';
+  const iouAccent = '#4338CA';
+  const iouContainer = '#E0E7FF';
+  const onIouContainer = '#312E81';
+  const accentColor = isIouMode ? iouAccent : isTransfer ? theme.primary : isExpense ? theme.error : theme.success;
+  const accentContainer = isIouMode ? iouContainer : isTransfer ? theme.primaryContainer : isExpense ? theme.errorContainer : theme.successContainer;
+  const onAccentContainer = isIouMode ? onIouContainer : isTransfer ? theme.onPrimaryContainer : isExpense ? theme.onErrorContainer : theme.onSuccessContainer;
+
+  const renderIouParticipantCards = (forExpense = false) => {
+    const totalAmt = parseCleanNumber(amountStr) || 0;
+    const includeMe = forExpense ? splitIncludeMe : iouIncludeMyShare;
+    const accent = forExpense ? theme.primary : iouAccent;
+    const container = forExpense ? theme.primaryContainer : iouContainer;
+    const onContainer = forExpense ? theme.onPrimaryContainer : onIouContainer;
+    const autoSingleMyShare =
+      !forExpense && iouAction === 'borrowed'
+        ? totalAmt
+        : Math.round((totalAmt / 2) * 100) / 100;
+    const singleMyShareVal =
+      !forExpense && splitPeople.length <= 1 && includeMe
+        ? iouMyShareStr.trim()
+          ? parseCleanNumber(iouMyShareStr)
+          : autoSingleMyShare
+        : splitSummary.yourShare;
+
+    return (
+      <View style={{ gap: 6 }}>
+        {includeMe && (
+          <View
+            style={[
+              styles.walletSheetRow,
+              {
+                backgroundColor: theme.primaryContainer,
+                borderColor: theme.primary,
+                paddingVertical: 7,
+              },
+            ]}
+          >
+            <View style={styles.walletSheetLeft}>
+              <MaterialCommunityIcons
+                name="account-star-outline"
+                size={16}
+                color={theme.primary}
+              />
+              <Text
+                style={[
+                  styles.walletSheetName,
+                  { color: theme.onPrimaryContainer, fontWeight: '700' },
+                ]}
+                numberOfLines={1}
+              >
+                Me (Your Share)
+              </Text>
+            </View>
+            <View style={styles.walletSheetRight}>
+              {!forExpense && splitPeople.length <= 1 ? (
+                <TextInput
+                  style={[
+                    styles.taxInput,
+                    {
+                      color: theme.onSurface,
+                      backgroundColor: theme.surface,
+                      borderColor: theme.divider,
+                      minWidth: 82,
+                      paddingVertical: 4,
+                      fontSize: 12.5,
+                    },
+                  ]}
+                  placeholder={autoSingleMyShare > 0 ? autoSingleMyShare.toString() : 'Auto'}
+                  placeholderTextColor={theme.onSurfaceVariant}
+                  keyboardType={Platform.OS === 'android' ? 'numeric' : 'decimal-pad'}
+                  value={iouMyShareStr}
+                  onChangeText={(t) => setIouMyShareStr(formatTypingNumber(t))}
+                />
+              ) : (
+                <View
+                  style={[
+                    styles.taxInput,
+                    {
+                      backgroundColor: theme.surface,
+                      borderColor: theme.divider,
+                      minWidth: 82,
+                      paddingVertical: 5,
+                      alignItems: 'flex-end',
+                    },
+                  ]}
+                >
+                  <Text style={{ color: theme.onSurface, fontSize: 12.5, fontWeight: '700' }}>
+                    {formatCurrency(singleMyShareVal, currency)}
+                  </Text>
+                </View>
+              )}
+              <TouchableOpacity
+                onPress={() => {
+                  animateLayout();
+                  if (!forExpense) setIouIncludeMyShare(false);
+                  setSplitIncludeMe(false);
+                }}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                accessibilityLabel="Remove my share"
+              >
+                <MaterialCommunityIcons name="close-circle" size={18} color={theme.error} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {splitPeople.map((p, idx) => {
+          const resolvedShare =
+            !forExpense && splitPeople.length === 1 && iouAction === 'lent' && includeMe && !p.customAmount?.trim()
+              ? Math.max(0, Math.round((totalAmt - singleMyShareVal) * 100) / 100)
+              : splitSummary.resolved[idx]?.share || 0;
+          return (
+            <View
+              key={p.name}
+              style={[
+                styles.walletSheetRow,
+                {
+                  backgroundColor: container,
+                  borderColor: accent,
+                  paddingVertical: 7,
+                },
+              ]}
+            >
+              <View style={styles.walletSheetLeft}>
+                <MaterialCommunityIcons
+                  name="account-check-outline"
+                  size={16}
+                  color={accent}
+                />
+                <Text
+                  style={[
+                    styles.walletSheetName,
+                    { color: onContainer, fontWeight: '700' },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {p.name}
+                </Text>
+              </View>
+              <View style={styles.walletSheetRight}>
+                <TextInput
+                  style={[
+                    styles.taxInput,
+                    {
+                      color: theme.onSurface,
+                      backgroundColor: theme.surface,
+                      borderColor: theme.divider,
+                      minWidth: 82,
+                      paddingVertical: 4,
+                      fontSize: 12.5,
+                    },
+                  ]}
+                  placeholder={resolvedShare > 0 ? resolvedShare.toString() : 'Auto'}
+                  placeholderTextColor={theme.onSurfaceVariant}
+                  keyboardType={Platform.OS === 'android' ? 'numeric' : 'decimal-pad'}
+                  value={p.customAmount || ''}
+                  onChangeText={(txt) => {
+                    const formatted = formatTypingNumber(txt);
+                    setSplitPeople((prev) =>
+                      prev.map((item, i) =>
+                        i === idx ? { ...item, customAmount: formatted } : item
+                      )
+                    );
+                  }}
+                />
+                <TouchableOpacity
+                  onPress={() => {
+                    animateLayout();
+                    setSplitPeople((prev) => prev.filter((_, i) => i !== idx));
+                  }}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                  accessibilityLabel={`Remove ${p.name}`}
+                >
+                  <MaterialCommunityIcons name="close-circle" size={18} color={theme.error} />
+                </TouchableOpacity>
+              </View>
+            </View>
+          );
+        })}
+
+        {totalAmt > 0 && splitPeople.length > 0 && (
+          <Text style={{ fontSize: 11.5, color: theme.onSurfaceVariant, fontWeight: '600' }}>
+            Loan total: {formatCurrency(
+              !forExpense && splitPeople.length === 1 && iouAction === 'lent' && includeMe && !splitPeople[0].customAmount?.trim()
+                ? Math.max(0, Math.round((totalAmt - singleMyShareVal) * 100) / 100)
+                : splitSummary.totalOwedByOthers,
+              currency
+            )}
+            {includeMe ? `  •  My share: ${formatCurrency(singleMyShareVal, currency)}` : ''}
+          </Text>
+        )}
+      </View>
+    );
+  };
+
+  const renderPeopleSplitBody = (forExpense = false) => {
+    const includeMe = forExpense ? splitIncludeMe : iouIncludeMyShare;
+    const accent = forExpense ? theme.primary : iouAccent;
+    const container = forExpense ? theme.primaryContainer : iouContainer;
+
+    return (
+      <View style={{ gap: 8 }}>
+        {/* Categorized Expense / Split Option (at top) */}
+        <View
+          style={[
+            styles.iouSplitToggleBox,
+            {
+              borderTopWidth: 0,
+              paddingTop: 0,
+              paddingBottom: 8,
+              borderBottomWidth: StyleSheet.hairlineWidth,
+              borderBottomColor: theme.divider,
+            },
+          ]}
+        >
+          <View style={styles.toggleRow}>
+            <View style={styles.toggleTextCol}>
+              <Text style={[styles.toggleTitle, { color: theme.onSurface, fontSize: 13 }]}>
+                {forExpense ? 'Include me in split' : 'Include my share as Expense'}
+              </Text>
+              <Text style={[styles.toggleSubtitle, { color: theme.onSurfaceVariant }]}>
+                {forExpense
+                  ? includeMe
+                    ? 'Your share stays in expense analytics; others become open loans'
+                    : 'Paid 100% for others — full amount becomes open loans'
+                  : iouAction === 'borrowed'
+                    ? 'Categorize your expense (e.g. someone paid for your lunch)'
+                    : 'Categorize your part of a shared bill without inflating analytics'}
+              </Text>
+            </View>
+            <Switch
+              value={includeMe}
+              onValueChange={(val) => {
+                animateLayout();
+                if (forExpense) {
+                  setSplitIncludeMe(val);
+                } else {
+                  setIouIncludeMyShare(val);
+                  setSplitIncludeMe(val);
+                  if (val && !selectedCategoryId) {
+                    setActiveSheet('category');
+                  }
+                }
+              }}
+              trackColor={{ false: theme.outlineVariant, true: container }}
+              thumbColor={includeMe ? accent : '#f4f3f4'}
+            />
+          </View>
+        </View>
+
+        {/* Selected Split Participants & Me */}
+        {(splitPeople.length > 0 || includeMe) && renderIouParticipantCards(forExpense)}
+
+        {knownDebtPeople.length > 0 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.chipsScrollRow}
+          >
+            {knownDebtPeople.map((person) => (
+              <TouchableOpacity
+                key={person}
+                style={[
+                  styles.walletChip,
+                  {
+                    backgroundColor: theme.pillBg,
+                    borderColor: theme.divider,
+                  },
+                ]}
+                onPress={() => {
+                  animateLayout();
+                  handleAddSplitPerson(person);
+                }}
+              >
+                <MaterialCommunityIcons
+                  name="account-plus-outline"
+                  size={14}
+                  color={accent}
+                />
+                <Text
+                  style={[
+                    styles.walletChipText,
+                    { color: theme.onSurface, fontWeight: '600' },
+                  ]}
+                >
+                  {person}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        )}
+
+        {/* Add Person & Contacts Row (at bottom) */}
+        <View style={styles.iouPersonInputRow}>
+          <TouchableOpacity
+            style={[
+              styles.iouPersonNextBtn,
+              {
+                backgroundColor: theme.pillBg,
+                borderWidth: 1,
+                borderColor: theme.divider,
+                paddingHorizontal: 10,
+              },
+            ]}
+            onPress={handlePickFromContacts}
+            accessibilityRole="button"
+            accessibilityLabel="Pick from contacts"
+          >
+            <MaterialCommunityIcons
+              name="account-box-outline"
+              size={18}
+              color={accent}
+            />
+          </TouchableOpacity>
+          <TextInput
+            style={[
+              styles.iouPersonInput,
+              {
+                backgroundColor: theme.pillBg,
+                color: theme.onSurface,
+                borderColor: theme.divider,
+              },
+            ]}
+            placeholder="Add person (e.g. James)"
+            placeholderTextColor={theme.onSurfaceVariant}
+            value={splitPersonInput}
+            onChangeText={(txt) => {
+              setSplitPersonInput(txt);
+              if (!forExpense) setIouPersonName(txt);
+            }}
+            returnKeyType="done"
+            onSubmitEditing={() => handleAddSplitPerson()}
+          />
+          <TouchableOpacity
+            style={[
+              styles.iouPersonNextBtn,
+              {
+                backgroundColor: theme.pillBg,
+                borderWidth: 1,
+                borderColor: splitPersonInput.trim() ? accent : theme.divider,
+              },
+            ]}
+            disabled={!splitPersonInput.trim()}
+            onPress={() => handleAddSplitPerson()}
+          >
+            <Text
+              style={{
+                color: splitPersonInput.trim() ? accent : theme.onSurfaceVariant,
+                fontWeight: '700',
+                fontSize: 12.5,
+              }}
+            >
+              + Add
+            </Text>
+          </TouchableOpacity>
+          {!forExpense && (
+            <TouchableOpacity
+              style={[
+                styles.iouPersonNextBtn,
+                {
+                  backgroundColor:
+                    splitPeople.length > 0 || splitPersonInput.trim()
+                      ? accent
+                      : theme.pillBg,
+                },
+              ]}
+              disabled={splitPeople.length === 0 && !splitPersonInput.trim()}
+              onPress={() => {
+                if (splitPersonInput.trim()) {
+                  handleAddSplitPerson();
+                }
+                animateLayout();
+                const nextSheet =
+                  iouIncludeMyShare && !selectedCategoryId ? 'category' : null;
+                setActiveSheet(nextSheet);
+                if (!nextSheet) {
+                  setTimeout(focusAmountInput, 140);
+                }
+              }}
+            >
+              <Text
+                style={{
+                  color:
+                    splitPeople.length > 0 || splitPersonInput.trim()
+                      ? '#FFFFFF'
+                      : theme.onSurfaceVariant,
+                  fontWeight: '700',
+                  fontSize: 12.5,
+                }}
+              >
+                Next
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    );
+  };
+
+  const renderCategoryCard = () => {
+    if (isTransfer || (isIouMode && (iouAction === 'settle' || !iouIncludeMyShare))) return null;
+    return (
+      <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
+        <TouchableOpacity
+          style={styles.accordionHeader}
+          onPress={() => {
+            animateLayout();
+            const next = activeSheet === 'category' ? null : 'category';
+            if (next) Keyboard.dismiss();
+            setActiveSheet(next);
+          }}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Toggle category sheet"
+        >
+          <View style={styles.accordionHeaderLeft}>
+            <View
+              style={[
+                styles.catIconWrap,
+                {
+                  backgroundColor: selectedCategory
+                    ? selectedCategory.color || theme.primary
+                    : theme.pillBg,
+                },
+              ]}
+            >
+              <MaterialCommunityIcons
+                name={(selectedCategory?.icon as any) || 'shape-outline'}
+                size={18}
+                color={selectedCategory ? '#FFFFFF' : theme.onSurfaceVariant}
+              />
+            </View>
+            <View style={styles.accordionTitleCol}>
+              <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant }]}>CATEGORY</Text>
+              {selectedCategory ? (
+                <Text style={[styles.categoryBreadcrumbText, { color: theme.onSurface }]} numberOfLines={1}>
+                  <Text style={{ fontWeight: '700' }}>{selectedCategory.name}</Text>
+                  {selectedSubcategory && (
+                    <>
+                      <Text style={{ color: theme.onSurfaceVariant, fontWeight: '400' }}>{' > '}</Text>
+                      <Text style={{ fontWeight: '700', color: theme.primary }}>
+                        {selectedSubcategory.name}
+                      </Text>
+                    </>
+                  )}
+                </Text>
+              ) : (
+                <Text style={[styles.categoryPlaceholderText, { color: theme.onSurfaceVariant }]}>
+                  Tap to select category
+                </Text>
+              )}
+            </View>
+          </View>
+
+          <View style={styles.accordionHeaderRight}>
+            {activeSheet === 'category' && onManageCategories && (
+              <TouchableOpacity
+                onPress={(e) => {
+                  e.stopPropagation?.();
+                  onManageCategories();
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={[styles.manageLink, { color: theme.primary }]}>Manage</Text>
+              </TouchableOpacity>
+            )}
+            <MaterialCommunityIcons
+              name={activeSheet === 'category' ? 'chevron-up' : 'chevron-down'}
+              size={22}
+              color={theme.onSurfaceVariant}
+            />
+          </View>
+        </TouchableOpacity>
+
+        {activeSheet === 'category' && (
+          <View style={[styles.sheetListWrap, { borderTopColor: theme.divider }]}>
+            {activeCategories.length === 0 ? (
+              <Text style={[styles.emptySheetText, { color: theme.onSurfaceVariant }]}>
+                No {currentType} categories yet.
+              </Text>
+            ) : (
+              activeCategories.map((cat) => {
+                const isCatSelected = cat.id === selectedCategoryId;
+                const subs = cat.subcategories || [];
+                const isCatExpanded = expandedCategoryId === cat.id;
+                const hasExpandable = subs.length > 0 || Boolean(onAddSubcategory);
+
+                return (
+                  <View key={cat.id} style={styles.catGroupBlock}>
+                    <View
+                      style={[
+                        styles.catSheetRow,
+                        {
+                          backgroundColor: isCatSelected ? theme.primaryContainer : theme.pillBg,
+                          borderColor: isCatSelected ? (cat.color || theme.primary) : 'transparent',
+                        },
+                      ]}
+                    >
+                      <TouchableOpacity
+                        style={styles.catSheetRowMain}
+                        onPress={() => {
+                          animateLayout();
+                          setSelectedCategoryId(cat.id);
+                          setSelectedSubcategoryId('');
+                          if (currentType === 'expense') {
+                            setLastExpenseCatId(cat.id);
+                            setLastExpenseSubId('');
+                          } else {
+                            setLastIncomeCatId(cat.id);
+                            setLastIncomeSubId('');
+                          }
+                          if (isIouMode) {
+                            setActiveSheet(null);
+                            setTimeout(focusAmountInput, 140);
+                          } else {
+                            setActiveSheet('wallet');
+                          }
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <View
+                          style={[
+                            styles.catSheetIconBadge,
+                            { backgroundColor: cat.color || theme.primary },
+                          ]}
+                        >
+                          <MaterialCommunityIcons
+                            name={(cat.icon as any) || 'shape-outline'}
+                            size={16}
+                            color="#FFFFFF"
+                          />
+                        </View>
+                        <Text
+                          style={[
+                            styles.catSheetRowTitle,
+                            {
+                              color: isCatSelected ? theme.onPrimaryContainer : theme.onSurface,
+                              fontWeight: isCatSelected ? '800' : '600',
+                            },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {cat.name}
+                        </Text>
+                        {subs.length > 0 && (
+                          <Text style={[styles.catSubCountBadge, { color: theme.onSurfaceVariant }]}>
+                            {subs.length}
+                          </Text>
+                        )}
+                      </TouchableOpacity>
+
+                      {hasExpandable && (
+                        <TouchableOpacity
+                          style={[
+                            styles.catDropperBtn,
+                            {
+                              backgroundColor: isCatExpanded ? theme.primary : theme.surface,
+                              borderColor: isCatExpanded ? theme.primary : theme.divider,
+                            },
+                          ]}
+                          onPress={() => {
+                            animateLayout();
+                            setExpandedCategoryId(isCatExpanded ? null : cat.id);
+                          }}
+                          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                          accessibilityLabel={`Toggle ${cat.name} subcategories`}
+                        >
+                          <MaterialCommunityIcons
+                            name={isCatExpanded ? 'chevron-up' : 'chevron-down'}
+                            size={18}
+                            color={isCatExpanded ? '#FFFFFF' : theme.onSurfaceVariant}
+                          />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+
+                    {isCatExpanded && (
+                      <View style={[styles.subcatSheetList, { borderLeftColor: cat.color || theme.primary }]}>
+                        {subs.map((sub: Subcategory) => {
+                          const isSubSelected =
+                            isCatSelected && sub.id === selectedSubcategoryId;
+                          return (
+                            <TouchableOpacity
+                              key={sub.id}
+                              style={[
+                                styles.subcatSheetRow,
+                                {
+                                  backgroundColor: isSubSelected
+                                    ? theme.primaryContainer
+                                    : theme.surface,
+                                  borderColor: isSubSelected ? theme.primary : theme.divider,
+                                },
+                              ]}
+                              onPress={() => {
+                                animateLayout();
+                                setSelectedCategoryId(cat.id);
+                                setSelectedSubcategoryId(sub.id);
+                                if (currentType === 'expense') {
+                                  setLastExpenseCatId(cat.id);
+                                  setLastExpenseSubId(sub.id);
+                                } else {
+                                  setLastIncomeCatId(cat.id);
+                                  setLastIncomeSubId(sub.id);
+                                }
+                                if (isIouMode) {
+                                  setActiveSheet(null);
+                                  setTimeout(focusAmountInput, 140);
+                                } else {
+                                  setActiveSheet('wallet');
+                                }
+                              }}
+                              activeOpacity={0.7}
+                            >
+                              <MaterialCommunityIcons
+                                name={isSubSelected ? 'check-circle' : 'subdirectory-arrow-right'}
+                                size={15}
+                                color={isSubSelected ? theme.primary : theme.onSurfaceVariant}
+                              />
+                              <Text
+                                style={[
+                                  styles.subcatSheetRowText,
+                                  {
+                                    color: isSubSelected
+                                      ? theme.onPrimaryContainer
+                                      : theme.onSurface,
+                                    fontWeight: isSubSelected ? '700' : '500',
+                                  },
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {sub.name}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+
+                        {onAddSubcategory && (
+                          <TouchableOpacity
+                            style={[
+                              styles.subcatSheetRow,
+                              {
+                                backgroundColor: theme.pillBg,
+                                borderColor: theme.divider,
+                                borderStyle: 'dashed',
+                              },
+                            ]}
+                            onPress={() => {
+                              setSelectedCategoryId(cat.id);
+                              setNewSubName('');
+                              setQuickSubModalVisible(true);
+                            }}
+                            activeOpacity={0.7}
+                          >
+                            <MaterialCommunityIcons name="plus" size={15} color={theme.primary} />
+                            <Text
+                              style={[
+                                styles.subcatSheetRowText,
+                                { color: theme.primary, fontWeight: '700' },
+                              ]}
+                            >
+                              Add Subcategory
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    )}
+                  </View>
+                );
+              })
+            )}
+          </View>
+        )}
+      </View>
+    );
+  };
 
   return (
     <Modal
@@ -717,7 +1725,9 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       presentationStyle="fullScreen"
       statusBarTranslucent={true}
       onShow={() => {
-        setTimeout(focusAmountInput, 100);
+        if (isEditing) {
+          setTimeout(focusAmountInput, 100);
+        }
       }}
     >
       <View
@@ -729,7 +1739,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
           },
         ]}
       >
-        {/* Top App Bar */}
+        {/* Top App Bar with Type Dropdown */}
         <View
           style={[
             styles.topBar,
@@ -747,11 +1757,158 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
           >
             <MaterialCommunityIcons name="arrow-left" size={20} color={theme.onSurface} />
           </TouchableOpacity>
-          <Text style={[styles.topBarTitle, { color: theme.onSurface }]}>
-            {isEditing ? 'Edit Transaction' : isTransfer ? 'New Transfer' : 'Transaction Details'}
-          </Text>
+
+          <TouchableOpacity
+            style={[
+              styles.topBarDropdownBtn,
+              {
+                backgroundColor: accentContainer,
+                borderColor: accentColor,
+              },
+            ]}
+            onPress={() => {
+              Keyboard.dismiss();
+              animateLayout();
+              setTypeDropdownVisible((prev) => !prev);
+            }}
+            activeOpacity={0.75}
+            accessibilityRole="button"
+            accessibilityLabel="Change transaction type"
+          >
+            <MaterialCommunityIcons
+              name={
+                isIouMode
+                  ? 'handshake-outline'
+                  : isTransfer
+                    ? 'swap-horizontal-bold'
+                    : isExpense
+                      ? 'arrow-down-circle'
+                      : 'arrow-up-circle'
+              }
+              size={16}
+              color={accentColor}
+            />
+            <Text style={[styles.topBarDropdownText, { color: onAccentContainer }]}>
+              {isEditing ? 'Edit ' : ''}
+              {isIouMode ? 'Loan' : isTransfer ? 'Transfer' : isExpense ? 'Expense' : 'Income'} Details
+            </Text>
+            <MaterialCommunityIcons
+              name={typeDropdownVisible ? 'chevron-up' : 'chevron-down'}
+              size={18}
+              color={onAccentContainer}
+            />
+          </TouchableOpacity>
+
           <View style={styles.topBarPlaceholder} />
         </View>
+
+        {/* Anchored Type Dropdown Menu */}
+        {typeDropdownVisible && (
+          <View style={styles.dropdownBackdropWrap} pointerEvents="box-none">
+            <TouchableOpacity
+              style={StyleSheet.absoluteFill}
+              activeOpacity={1}
+              onPress={() => setTypeDropdownVisible(false)}
+            />
+            <View
+              style={[
+                styles.typeDropdownMenu,
+                {
+                  top: topInset + 54,
+                  backgroundColor: theme.surface,
+                  borderColor: theme.divider,
+                },
+              ]}
+            >
+              {(
+                [
+                  {
+                    key: 'expense',
+                    label: 'Expense Details',
+                    icon: 'arrow-down-circle',
+                    color: theme.error,
+                    container: theme.errorContainer,
+                  },
+                  {
+                    key: 'income',
+                    label: 'Income Details',
+                    icon: 'arrow-up-circle',
+                    color: theme.success,
+                    container: theme.successContainer,
+                  },
+                  {
+                    key: 'transfer',
+                    label: 'Transfer Details',
+                    icon: 'swap-horizontal-bold',
+                    color: theme.primary,
+                    container: theme.primaryContainer,
+                  },
+                  {
+                    key: 'iou',
+                    label: 'Loan Details',
+                    icon: 'handshake-outline',
+                    color: iouAccent,
+                    container: iouContainer,
+                  },
+                ] as const
+              ).map((opt) => {
+                const isSelected =
+                  opt.key === 'iou' ? isIouMode : !isIouMode && currentType === opt.key;
+                return (
+                  <TouchableOpacity
+                    key={opt.key}
+                    style={[
+                      styles.typeDropdownItem,
+                      isSelected && { backgroundColor: opt.container },
+                    ]}
+                    onPress={() => {
+                      animateLayout();
+                      setTypeDropdownVisible(false);
+                      if (opt.key === 'iou') {
+                        setIsIouMode(true);
+                        setActiveSheet('wallet');
+                        return;
+                      }
+                      setIsIouMode(false);
+                      setCurrentType(opt.key);
+                      if (opt.key === 'income') {
+                        setSelectedCategoryId(lastIncomeCatId);
+                        setSelectedSubcategoryId(lastIncomeSubId);
+                        if (!lastIncomeCatId) setActiveSheet('category');
+                        else if (activeSheet === 'iou') setActiveSheet('wallet');
+                      } else if (opt.key === 'expense') {
+                        setSelectedCategoryId(lastExpenseCatId);
+                        setSelectedSubcategoryId(lastExpenseSubId);
+                        if (!lastExpenseCatId) setActiveSheet('category');
+                        else if (activeSheet === 'iou') setActiveSheet('wallet');
+                      } else {
+                        if (!selectedToWalletId || selectedToWalletId === selectedWalletId) {
+                          const other = wallets.find((w) => w.id !== selectedWalletId);
+                          if (other) setSelectedToWalletId(other.id);
+                        }
+                        if (activeSheet === 'category' || activeSheet === 'iou') setActiveSheet('wallet');
+                      }
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <MaterialCommunityIcons name={opt.icon as any} size={18} color={opt.color} />
+                    <Text
+                      style={[
+                        styles.typeDropdownItemText,
+                        { color: theme.onSurface, fontWeight: isSelected ? '800' : '600' },
+                      ]}
+                    >
+                      {opt.label}
+                    </Text>
+                    {isSelected && (
+                      <MaterialCommunityIcons name="check" size={18} color={opt.color} />
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        )}
 
         <ScrollView
           style={styles.scrollArea}
@@ -759,274 +1916,508 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* 1. CATEGORY / DESTINATION WALLET & TYPE SWITCHER */}
-          <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
-            <View style={styles.typeSwitcherRow}>
-              <TouchableOpacity
-                style={[
-                  styles.typeTab,
-                  currentType === 'income' && { backgroundColor: theme.successContainer, borderColor: theme.success },
-                ]}
-                onPress={() => {
-                  setCurrentType('income');
-                  setSelectedCategoryId(lastIncomeCatId);
-                  setSelectedSubcategoryId(lastIncomeSubId);
-                }}
-              >
-                <MaterialCommunityIcons
-                  name="arrow-up-circle"
-                  size={16}
-                  color={currentType === 'income' ? theme.success : theme.onSurfaceVariant}
-                />
-                <Text
-                  style={[
-                    styles.typeTabText,
-                    { color: currentType === 'income' ? theme.onSuccessContainer : theme.onSurfaceVariant },
-                  ]}
-                >
-                  Income
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.typeTab,
-                  currentType === 'expense' && { backgroundColor: theme.errorContainer, borderColor: theme.error },
-                ]}
-                onPress={() => {
-                  setCurrentType('expense');
-                  setSelectedCategoryId(lastExpenseCatId);
-                  setSelectedSubcategoryId(lastExpenseSubId);
-                }}
-              >
-                <MaterialCommunityIcons
-                  name="arrow-down-circle"
-                  size={16}
-                  color={currentType === 'expense' ? theme.error : theme.onSurfaceVariant}
-                />
-                <Text
-                  style={[
-                    styles.typeTabText,
-                    { color: currentType === 'expense' ? theme.onErrorContainer : theme.onSurfaceVariant },
-                  ]}
-                >
-                  Expense
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.typeTab,
-                  currentType === 'transfer' && { backgroundColor: theme.primaryContainer, borderColor: theme.primary },
-                ]}
-                onPress={() => {
-                  setCurrentType('transfer');
-                  if (!selectedToWalletId || selectedToWalletId === selectedWalletId) {
-                    const other = wallets.find((w) => w.id !== selectedWalletId);
-                    if (other) {
-                      setSelectedToWalletId(other.id);
-                    }
-                  }
-                }}
-              >
-                <MaterialCommunityIcons
-                  name="swap-horizontal-bold"
-                  size={16}
-                  color={currentType === 'transfer' ? theme.primary : theme.onSurfaceVariant}
-                />
-                <Text
-                  style={[
-                    styles.typeTabText,
-                    { color: currentType === 'transfer' ? theme.onPrimaryContainer : theme.onSurfaceVariant },
-                  ]}
-                >
-                  Transfer
-                </Text>
-              </TouchableOpacity>
+          {/* 0A. SEPARATE IOU TYPE CARD (IOU Mode) */}
+          {isIouMode && (
+            <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
+              <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant }]}>LOAN TYPE</Text>
+              <View style={styles.iouActionRow}>
+                {(
+                  [
+                    { key: 'lent', label: 'Receive', icon: 'arrow-bottom-left' },
+                    { key: 'borrowed', label: 'Pay', icon: 'arrow-top-right' },
+                    { key: 'settle', label: 'Settle', icon: 'check-decagram-outline' },
+                  ] as const
+                ).map((act) => {
+                  const active = iouAction === act.key;
+                  return (
+                    <TouchableOpacity
+                      key={act.key}
+                      style={[
+                        styles.iouActionPill,
+                        {
+                          backgroundColor: active ? iouContainer : theme.pillBg,
+                          borderColor: active ? iouAccent : theme.divider,
+                        },
+                      ]}
+                      onPress={() => {
+                        animateLayout();
+                        setIouAction(act.key);
+                        const includeByDefault = act.key === 'lent';
+                        setIouIncludeMyShare(includeByDefault);
+                        setSplitIncludeMe(includeByDefault);
+                      }}
+                      activeOpacity={0.75}
+                    >
+                      <MaterialCommunityIcons
+                        name={act.icon as any}
+                        size={14}
+                        color={active ? iouAccent : theme.onSurfaceVariant}
+                      />
+                      <Text
+                        style={[
+                          styles.iouActionPillText,
+                          {
+                            color: active ? onIouContainer : theme.onSurfaceVariant,
+                            fontWeight: active ? '800' : '600',
+                          },
+                        ]}
+                      >
+                        {act.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
             </View>
+          )}
 
-            {isTransfer ? (
-              <View style={{ gap: 6, marginTop: 4 }}>
-                <View style={styles.sectionHeaderRow}>
+          {!isIouMode && renderCategoryCard()}
+
+          {/* 2. COLLAPSIBLE WALLET SHEET */}
+          <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
+            <TouchableOpacity
+              style={styles.accordionHeader}
+              onPress={() => {
+                animateLayout();
+                const next = activeSheet === 'wallet' ? null : 'wallet';
+                if (next) Keyboard.dismiss();
+                setActiveSheet(next);
+              }}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Toggle wallet sheet"
+            >
+              <View style={styles.accordionHeaderLeft}>
+                <View style={[styles.catIconWrap, { backgroundColor: theme.primaryContainer }]}>
+                  <MaterialCommunityIcons
+                    name={(selectedWallet?.icon as any) || 'wallet'}
+                    size={18}
+                    color={theme.primary}
+                  />
+                </View>
+                <View style={styles.accordionTitleCol}>
                   <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant }]}>
-                    DESTINATION WALLET (TRANSFER TO)
+                    {isTransfer ? 'WALLETS (FROM → TO)' : 'WALLET'}
                   </Text>
-                  {selectedToWallet && (
-                    <Text style={[styles.fieldHeaderBalance, { color: theme.primary }]}>
-                      Bal: {formatCurrency(selectedToWallet.current_balance, selectedToWallet.currency || baseCurrency)}
+                  {isTransfer ? (
+                    <Text style={[styles.categoryBreadcrumbText, { color: theme.onSurface }]} numberOfLines={1}>
+                      <Text style={{ fontWeight: '700' }}>{selectedWallet?.name || 'Source'}</Text>
+                      <Text style={{ color: theme.onSurfaceVariant }}>{'  →  '}</Text>
+                      <Text style={{ fontWeight: '700', color: theme.primary }}>
+                        {selectedToWallet?.name || 'Destination'}
+                      </Text>
+                    </Text>
+                  ) : !iouUseWallet && isIouMode ? (
+                    <Text style={[styles.categoryBreadcrumbText, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
+                      No Wallet (Cashless / Off-wallet)
+                    </Text>
+                  ) : selectedWallet ? (
+                    <Text style={[styles.categoryBreadcrumbText, { color: theme.onSurface }]} numberOfLines={1}>
+                      <Text style={{ fontWeight: '700' }}>{selectedWallet.name}</Text>
+                      <Text style={{ color: theme.onSurfaceVariant, fontWeight: '500' }}>
+                        {'  •  '}
+                        {formatCurrency(selectedWallet.current_balance, selectedWallet.currency || baseCurrency)}
+                      </Text>
+                    </Text>
+                  ) : (
+                    <Text style={[styles.categoryPlaceholderText, { color: theme.onSurfaceVariant }]}>
+                      Tap to select wallet
                     </Text>
                   )}
                 </View>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsScrollRow}>
-                  {wallets
-                    .filter((w) => w.id !== selectedWalletId)
-                    .map((w) => {
-                      const isSelected = w.id === selectedToWalletId;
+              </View>
+
+              <MaterialCommunityIcons
+                name={activeSheet === 'wallet' ? 'chevron-up' : 'chevron-down'}
+                size={22}
+                color={theme.onSurfaceVariant}
+              />
+            </TouchableOpacity>
+
+            {activeSheet === 'wallet' && (
+              <View style={[styles.sheetListWrap, { borderTopColor: theme.divider }]}>
+                {isTransfer ? (
+                  <>
+                    <Text style={[styles.fieldSubLabel, { color: theme.onSurfaceVariant }]}>
+                      SOURCE WALLET (TRANSFER FROM)
+                    </Text>
+                    {wallets
+                      .filter((w) => w.id !== selectedToWalletId)
+                      .map((w) => {
+                        const isSelected = w.id === selectedWalletId;
+                        return (
+                          <TouchableOpacity
+                            key={`from-${w.id}`}
+                            style={[
+                              styles.walletSheetRow,
+                              {
+                                backgroundColor: isSelected ? theme.primaryContainer : theme.pillBg,
+                                borderColor: isSelected ? theme.primary : 'transparent',
+                              },
+                            ]}
+                            onPress={() => {
+                              setSelectedWalletId(w.id);
+                              if (w.id === selectedToWalletId) {
+                                const nextTo = wallets.find((o) => o.id !== w.id);
+                                if (nextTo) setSelectedToWalletId(nextTo.id);
+                              }
+                            }}
+                            activeOpacity={0.7}
+                          >
+                            <View style={styles.walletSheetLeft}>
+                              <MaterialCommunityIcons
+                                name={(w.icon as any) || 'wallet'}
+                                size={18}
+                                color={isSelected ? theme.primary : theme.onSurfaceVariant}
+                              />
+                              <Text
+                                style={[
+                                  styles.walletSheetName,
+                                  {
+                                    color: isSelected ? theme.onPrimaryContainer : theme.onSurface,
+                                    fontWeight: isSelected ? '800' : '600',
+                                  },
+                                ]}
+                              >
+                                {w.name}
+                              </Text>
+                            </View>
+                            <Text
+                              style={[
+                                styles.walletSheetBal,
+                                { color: isSelected ? theme.primary : theme.onSurfaceVariant },
+                              ]}
+                            >
+                              {formatCurrency(w.current_balance, w.currency || baseCurrency)}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+
+                    <Text style={[styles.fieldSubLabel, { color: theme.onSurfaceVariant, marginTop: 8 }]}>
+                      DESTINATION WALLET (TRANSFER TO)
+                    </Text>
+                    {wallets
+                      .filter((w) => w.id !== selectedWalletId)
+                      .map((w) => {
+                        const isSelected = w.id === selectedToWalletId;
+                        return (
+                          <TouchableOpacity
+                            key={`to-${w.id}`}
+                            style={[
+                              styles.walletSheetRow,
+                              {
+                                backgroundColor: isSelected ? theme.primaryContainer : theme.pillBg,
+                                borderColor: isSelected ? theme.primary : 'transparent',
+                              },
+                            ]}
+                            onPress={() => {
+                              animateLayout();
+                              setSelectedToWalletId(w.id);
+                              setActiveSheet(null);
+                              setTimeout(focusAmountInput, 140);
+                            }}
+                            activeOpacity={0.7}
+                          >
+                            <View style={styles.walletSheetLeft}>
+                              <MaterialCommunityIcons
+                                name={(w.icon as any) || 'bank-transfer-in'}
+                                size={18}
+                                color={isSelected ? theme.primary : theme.onSurfaceVariant}
+                              />
+                              <Text
+                                style={[
+                                  styles.walletSheetName,
+                                  {
+                                    color: isSelected ? theme.onPrimaryContainer : theme.onSurface,
+                                    fontWeight: isSelected ? '800' : '600',
+                                  },
+                                ]}
+                              >
+                                {w.name}
+                              </Text>
+                            </View>
+                            <Text
+                              style={[
+                                styles.walletSheetBal,
+                                { color: isSelected ? theme.primary : theme.onSurfaceVariant },
+                              ]}
+                            >
+                              {formatCurrency(w.current_balance, w.currency || baseCurrency)}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                  </>
+                ) : (
+                  <>
+                    {isIouMode && (
+                      <TouchableOpacity
+                        style={[
+                          styles.walletSheetRow,
+                          {
+                            backgroundColor: !iouUseWallet ? iouContainer : theme.pillBg,
+                            borderColor: !iouUseWallet ? iouAccent : 'transparent',
+                          },
+                        ]}
+                        onPress={() => {
+                          animateLayout();
+                          setIouUseWallet(false);
+                          setActiveSheet('iou');
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <View style={styles.walletSheetLeft}>
+                          <MaterialCommunityIcons
+                            name="wallet-outline"
+                            size={18}
+                            color={!iouUseWallet ? iouAccent : theme.onSurfaceVariant}
+                          />
+                          <Text
+                            style={[
+                              styles.walletSheetName,
+                              {
+                                color: !iouUseWallet ? onIouContainer : theme.onSurface,
+                                fontWeight: !iouUseWallet ? '800' : '600',
+                              },
+                            ]}
+                          >
+                            No Wallet (Cashless / Off-wallet)
+                          </Text>
+                        </View>
+                        {!iouUseWallet && (
+                          <MaterialCommunityIcons name="check-circle" size={17} color={iouAccent} />
+                        )}
+                      </TouchableOpacity>
+                    )}
+                    {wallets.map((w) => {
+                      const isSelected = (!isIouMode || iouUseWallet) && w.id === selectedWalletId;
                       return (
                         <TouchableOpacity
                           key={w.id}
                           style={[
-                            styles.walletChip,
+                            styles.walletSheetRow,
                             {
                               backgroundColor: isSelected ? theme.primaryContainer : theme.pillBg,
                               borderColor: isSelected ? theme.primary : 'transparent',
                             },
                           ]}
-                          onPress={() => setSelectedToWalletId(w.id)}
+                          onPress={() => {
+                            animateLayout();
+                            setIouUseWallet(true);
+                            setSelectedWalletId(w.id);
+                            if (isIouMode) {
+                              setActiveSheet('iou');
+                            } else {
+                              setActiveSheet(null);
+                              setTimeout(focusAmountInput, 140);
+                            }
+                          }}
+                          activeOpacity={0.7}
                         >
-                          <MaterialCommunityIcons
-                            name={(w.icon as any) || 'bank-transfer-in'}
-                            size={15}
-                            color={isSelected ? theme.primary : theme.onSurfaceVariant}
-                          />
-                          <Text
-                            style={[
-                              styles.walletChipText,
-                              {
-                                color: isSelected ? theme.onPrimaryContainer : theme.onSurface,
-                                fontWeight: isSelected ? '700' : '500',
-                              },
-                            ]}
-                          >
-                            {w.name}
+                          <View style={styles.walletSheetLeft}>
+                            <MaterialCommunityIcons
+                              name={(w.icon as any) || 'wallet'}
+                              size={18}
+                              color={isSelected ? theme.primary : theme.onSurfaceVariant}
+                            />
                             <Text
                               style={[
-                                styles.walletChipBalText,
+                                styles.walletSheetName,
+                                {
+                                  color: isSelected ? theme.onPrimaryContainer : theme.onSurface,
+                                  fontWeight: isSelected ? '800' : '600',
+                                },
+                              ]}
+                            >
+                              {w.name}
+                            </Text>
+                          </View>
+                          <View style={styles.walletSheetRight}>
+                            <Text
+                              style={[
+                                styles.walletSheetBal,
                                 { color: isSelected ? theme.primary : theme.onSurfaceVariant },
                               ]}
                             >
-                              {' '}({formatCurrency(w.current_balance, w.currency || baseCurrency)})
+                              {formatCurrency(w.current_balance, w.currency || baseCurrency)}
                             </Text>
-                          </Text>
+                            {isSelected && (
+                              <MaterialCommunityIcons name="check-circle" size={17} color={theme.primary} />
+                            )}
+                          </View>
                         </TouchableOpacity>
                       );
                     })}
-                </ScrollView>
+                  </>
+                )}
               </View>
-            ) : (
-              <>
-                <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant, marginTop: 4 }]}>CATEGORY</Text>
-
-                {/* Breadcrumb Category Selector: clicking it opens CategoryPickerSheet */}
-                <TouchableOpacity
-                  style={[
-                    styles.categorySelectorRow,
-                    {
-                      backgroundColor: theme.pillBg,
-                      borderColor: selectedCategory ? (selectedCategory.color || theme.primary) : theme.divider,
-                    },
-                  ]}
-                  onPress={() => setCategorySheetVisible(true)}
-                  activeOpacity={0.7}
-                  accessibilityLabel="Select category"
-                >
-                  <View style={styles.categorySelectorLeft}>
-                    <View
-                      style={[
-                        styles.catIconWrap,
-                        {
-                          backgroundColor: selectedCategory
-                            ? (selectedCategory.color || theme.primary)
-                            : theme.pillBg,
-                        },
-                      ]}
-                    >
-                      <MaterialCommunityIcons
-                        name={(selectedCategory?.icon as any) || 'shape-outline'}
-                        size={18}
-                        color={selectedCategory ? '#FFFFFF' : theme.onSurfaceVariant}
-                      />
-                    </View>
-
-                    <View style={styles.categoryBreadcrumbCol}>
-                      {selectedCategory ? (
-                        <Text style={[styles.categoryBreadcrumbText, { color: theme.onSurface }]} numberOfLines={1}>
-                          <Text style={{ fontWeight: '700' }}>{selectedCategory.name}</Text>
-                          {selectedSubcategory && (
-                            <>
-                              <Text style={{ color: theme.onSurfaceVariant, fontWeight: '400' }}>{' > '}</Text>
-                              <Text style={{ fontWeight: '700', color: theme.primary }}>{selectedSubcategory.name}</Text>
-                            </>
-                          )}
-                        </Text>
-                      ) : (
-                        <Text style={[styles.categoryPlaceholderText, { color: theme.onSurfaceVariant }]}>
-                          Select Category
-                        </Text>
-                      )}
-                    </View>
-                  </View>
-
-                  <MaterialCommunityIcons name="chevron-right" size={20} color={theme.onSurfaceVariant} />
-                </TouchableOpacity>
-              </>
             )}
           </View>
 
-          {/* 2. WALLET SELECTION */}
-          <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant }]}>
-                {isTransfer ? 'SOURCE WALLET (TRANSFER FROM)' : 'SELECT WALLET'}
-              </Text>
-              {selectedWallet && (
-                <Text style={[styles.fieldHeaderBalance, { color: theme.primary }]}>
-                  Bal: {formatCurrency(selectedWallet.current_balance, selectedWallet.currency || baseCurrency)}
-                </Text>
-              )}
-            </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsScrollRow}>
-              {wallets
-                .filter((w) => !isTransfer || w.id !== selectedToWalletId)
-                .map((w) => {
-                  const isSelected = w.id === selectedWalletId;
-                  return (
-                    <TouchableOpacity
-                      key={w.id}
-                      style={[
-                        styles.walletChip,
-                        {
-                          backgroundColor: isSelected ? theme.primaryContainer : theme.pillBg,
-                          borderColor: isSelected ? theme.primary : 'transparent',
-                        },
-                      ]}
-                      onPress={() => {
-                        setSelectedWalletId(w.id);
-                        if (isTransfer && w.id === selectedToWalletId) {
-                          const nextTo = wallets.find((o) => o.id !== w.id);
-                          if (nextTo) setSelectedToWalletId(nextTo.id);
-                        }
-                      }}
-                    >
-                      <MaterialCommunityIcons
-                        name={(w.icon as any) || 'wallet'}
-                        size={15}
-                        color={isSelected ? theme.primary : theme.onSurfaceVariant}
-                      />
-                      <Text
-                        style={[
-                          styles.walletChipText,
-                          {
-                            color: isSelected ? theme.onPrimaryContainer : theme.onSurface,
-                            fontWeight: isSelected ? '700' : '500',
-                          },
-                        ]}
-                      >
-                        {w.name}
-                        <Text
-                          style={[
-                            styles.walletChipBalText,
-                            { color: isSelected ? theme.primary : theme.onSurfaceVariant },
-                          ]}
-                        >
-                          {' '}({formatCurrency(w.current_balance, w.currency || baseCurrency)})
+          {/* 0B. COLLAPSIBLE PEOPLE / OPEN IOU CARD (IOU Mode) */}
+          {isIouMode && (
+            <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
+              <TouchableOpacity
+                style={styles.accordionHeader}
+                onPress={() => {
+                  animateLayout();
+                  const next = activeSheet === 'iou' ? null : 'iou';
+                  if (next) Keyboard.dismiss();
+                  setActiveSheet(next);
+                }}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Toggle people sheet"
+              >
+                <View style={styles.accordionHeaderLeft}>
+                  <View style={[styles.catIconWrap, { backgroundColor: iouContainer }]}>
+                    <MaterialCommunityIcons
+                      name={iouAction === 'settle' ? 'handshake-outline' : 'account-group-outline'}
+                      size={18}
+                      color={iouAccent}
+                    />
+                  </View>
+                  <View style={styles.accordionTitleCol}>
+                    <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant }]}>
+                      {iouAction === 'settle' ? 'OPEN LOAN TO SETTLE' : 'PEOPLE'}
+                    </Text>
+                    {iouAction === 'settle' ? (
+                      (() => {
+                        const chosen = allOpenDebts.find((d) => d.id === selectedDebtId);
+                        return chosen ? (
+                          <Text style={[styles.categoryBreadcrumbText, { color: theme.onSurface }]} numberOfLines={1}>
+                            <Text style={{ fontWeight: '700' }}>{chosen.person_name}</Text>
+                            <Text style={{ color: theme.onSurfaceVariant }}>
+                              {' • '}Rem: {formatCurrency(Math.max(0, chosen.amount - (chosen.paid_amount || 0)), chosen.currency || currency)}
+                            </Text>
+                          </Text>
+                        ) : (
+                          <Text style={[styles.categoryPlaceholderText, { color: theme.onSurfaceVariant }]}>
+                            Tap to select open loan
+                          </Text>
+                        );
+                      })()
+                    ) : splitPeople.length > 0 || iouPersonName.trim() ? (
+                      <Text style={[styles.categoryBreadcrumbText, { color: theme.onSurface }]} numberOfLines={1}>
+                        <Text style={{ fontWeight: '700' }}>
+                          {splitPeople.length > 0
+                            ? splitPeople.map((p) => p.name).join(', ')
+                            : iouPersonName.trim()}
                         </Text>
+                        {iouIncludeMyShare && (
+                          <Text style={{ color: theme.primary, fontWeight: '600' }}>
+                            {' • Categorized'}
+                          </Text>
+                        )}
                       </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-            </ScrollView>
-          </View>
+                    ) : (
+                      <Text style={[styles.categoryPlaceholderText, { color: theme.onSurfaceVariant }]}>
+                        Tap to add or select people
+                      </Text>
+                    )}
+                  </View>
+                </View>
+
+                <MaterialCommunityIcons
+                  name={activeSheet === 'iou' ? 'chevron-up' : 'chevron-down'}
+                  size={22}
+                  color={theme.onSurfaceVariant}
+                />
+              </TouchableOpacity>
+
+              {activeSheet === 'iou' && (
+                <View style={[styles.sheetListWrap, { borderTopColor: theme.divider }]}>
+                  {iouAction === 'settle' ? (
+                    <View style={{ gap: 6 }}>
+                      {allOpenDebts.length === 0 ? (
+                        <Text style={[styles.emptySheetText, { color: theme.onSurfaceVariant }]}>
+                          No open loans to settle right now.
+                        </Text>
+                      ) : (
+                        allOpenDebts.map((debt) => {
+                          const remaining = Math.max(0, debt.amount - (debt.paid_amount || 0));
+                          const isSelected = selectedDebtId === debt.id;
+                          const isLent = debt.type === 'lent';
+                          return (
+                            <TouchableOpacity
+                              key={debt.id}
+                              style={[
+                                styles.walletSheetRow,
+                                {
+                                  backgroundColor: isSelected ? iouContainer : theme.pillBg,
+                                  borderColor: isSelected ? iouAccent : 'transparent',
+                                },
+                              ]}
+                              onPress={() => {
+                                animateLayout();
+                                setSelectedDebtId(debt.id);
+                                setIouPersonName(debt.person_name);
+                                const cur = parseCleanNumber(amountStr);
+                                if (isNaN(cur) || cur <= 0) {
+                                  setAmountStr(formatTypingNumber(remaining.toString()));
+                                }
+                                setActiveSheet(null);
+                                setTimeout(focusAmountInput, 140);
+                              }}
+                              activeOpacity={0.7}
+                            >
+                              <View style={styles.walletSheetLeft}>
+                                <MaterialCommunityIcons
+                                  name={isLent ? 'account-arrow-left' : 'account-arrow-right'}
+                                  size={18}
+                                  color={isLent ? theme.success : theme.error}
+                                />
+                                <View style={{ flex: 1 }}>
+                                  <Text
+                                    style={[
+                                      styles.walletSheetName,
+                                      {
+                                        color: isSelected ? onIouContainer : theme.onSurface,
+                                        fontWeight: isSelected ? '800' : '600',
+                                      },
+                                    ]}
+                                    numberOfLines={1}
+                                  >
+                                    {debt.person_name} ({isLent ? 'owes you' : 'you owe'})
+                                  </Text>
+                                  {!!debt.note && (
+                                    <Text style={{ fontSize: 11, color: theme.onSurfaceVariant }} numberOfLines={1}>
+                                      {debt.note}
+                                    </Text>
+                                  )}
+                                </View>
+                              </View>
+                              <Text
+                                style={[
+                                  styles.walletSheetBal,
+                                  { color: isSelected ? iouAccent : theme.onSurfaceVariant },
+                                ]}
+                              >
+                                {formatCurrency(remaining, debt.currency || currency)}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })
+                      )}
+                    </View>
+                  ) : (
+                    renderPeopleSplitBody(false)
+                  )}
+                </View>
+              )}
+
+              {activeSheet !== 'iou' &&
+                iouAction !== 'settle' &&
+                (splitPeople.length > 0 || iouIncludeMyShare) && (
+                  <View style={[styles.sheetListWrap, { borderTopColor: theme.divider }]}>
+                    {renderIouParticipantCards()}
+                  </View>
+                )}
+            </View>
+          )}
+
+          {isIouMode && renderCategoryCard()}
 
           {/* 3. AMOUNT ROW (NEXT ITEM AFTER WALLET) */}
           <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
@@ -1046,6 +2437,9 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
                 placeholder="0.00"
                 placeholderTextColor={theme.onSurfaceVariant}
                 keyboardType={Platform.OS === 'android' ? 'numeric' : 'decimal-pad'}
+                returnKeyType="next"
+                blurOnSubmit={false}
+                onSubmitEditing={() => taxInputRef.current?.focus()}
                 value={amountStr}
                 onChangeText={(text) => setAmountStr(formatTypingNumber(text))}
                 selectTextOnFocus={false}
@@ -1093,6 +2487,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
                 Add Tax / Fee
               </Text>
               <TextInput
+                ref={taxInputRef}
                 style={[
                   styles.taxInput,
                   {
@@ -1104,6 +2499,9 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
                 placeholder="0"
                 placeholderTextColor={theme.onSurfaceVariant}
                 keyboardType={Platform.OS === 'android' ? 'numeric' : 'decimal-pad'}
+                returnKeyType="next"
+                blurOnSubmit={false}
+                onSubmitEditing={() => noteInputRef.current?.focus()}
                 value={taxAmountStr}
                 onChangeText={(text) => {
                   const formatted = formatTypingNumber(text);
@@ -1265,19 +2663,100 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
             </ScrollView>
           </View>
 
-          {/* 5. NOTE INPUT */}
-          <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
-            <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant }]}>NOTE & TAGS</Text>
-            <TextInput
-              style={[styles.noteInput, { backgroundColor: theme.pillBg, color: theme.onSurface, borderColor: theme.divider }]}
-              placeholder="Add optional notes, tags, or description..."
-              placeholderTextColor={theme.onSurfaceVariant}
-              value={note}
-              onChangeText={setNote}
-              multiline
-              numberOfLines={3}
-            />
-          </View>
+          {/* SEPARATE DUE / END DATE CARD (IOU Mode) */}
+          {isIouMode && iouAction !== 'settle' && (
+            <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
+              <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant }]}>DUE / END DATE (OPTIONAL)</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.chipsScrollRow}
+              >
+                <TouchableOpacity
+                  style={[
+                    styles.dateTimeQuickChip,
+                    {
+                      backgroundColor: !iouDueDate ? iouContainer : theme.pillBg,
+                      borderColor: !iouDueDate ? iouAccent : theme.divider,
+                    },
+                  ]}
+                  onPress={() => setIouDueDate('')}
+                >
+                  <Text
+                    style={[
+                      styles.dateTimeQuickChipText,
+                      {
+                        color: !iouDueDate ? onIouContainer : theme.onSurface,
+                        fontWeight: !iouDueDate ? '700' : '500',
+                      },
+                    ]}
+                  >
+                    No Due Date
+                  </Text>
+                </TouchableOpacity>
+
+                {[7, 30].map((days) => {
+                  const d = new Date(dateStr + 'T12:00:00');
+                  d.setDate(d.getDate() + days);
+                  const presetStr = d.toISOString().slice(0, 10);
+                  const active = iouDueDate === presetStr;
+                  return (
+                    <TouchableOpacity
+                      key={days}
+                      style={[
+                        styles.dateTimeQuickChip,
+                        {
+                          backgroundColor: active ? iouContainer : theme.pillBg,
+                          borderColor: active ? iouAccent : theme.divider,
+                        },
+                      ]}
+                      onPress={() => setIouDueDate(presetStr)}
+                    >
+                      <Text
+                        style={[
+                          styles.dateTimeQuickChipText,
+                          {
+                            color: active ? onIouContainer : theme.onSurface,
+                            fontWeight: active ? '700' : '500',
+                          },
+                        ]}
+                      >
+                        +{days}d
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+
+                <TouchableOpacity
+                  style={[
+                    styles.dateTimeQuickChip,
+                    {
+                      backgroundColor: iouDueDate ? iouContainer : theme.pillBg,
+                      borderColor: iouDueDate ? iouAccent : theme.divider,
+                    },
+                  ]}
+                  onPress={() => setIouDueCalendarVisible(true)}
+                >
+                  <MaterialCommunityIcons
+                    name="calendar-clock"
+                    size={14}
+                    color={iouDueDate ? iouAccent : theme.onSurfaceVariant}
+                  />
+                  <Text
+                    style={[
+                      styles.dateTimeQuickChipText,
+                      {
+                        color: iouDueDate ? onIouContainer : theme.onSurface,
+                        fontWeight: iouDueDate ? '700' : '500',
+                      },
+                    ]}
+                  >
+                    {iouDueDate || 'Pick Date'}
+                  </Text>
+                </TouchableOpacity>
+              </ScrollView>
+            </View>
+          )}
 
           {/* 6. MEDIA ATTACHMENTS (RECEIPT / PHOTO) */}
           <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
@@ -1316,7 +2795,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
           </View>
 
           {/* SPLIT EXPENSE (CREATE IOUs) */}
-          {currentType === 'expense' && (
+          {!isIouMode && currentType === 'expense' && (
             <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
               <View style={styles.toggleRow}>
                 <View style={styles.toggleTextCol}>
@@ -1325,7 +2804,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
                     <Text style={[styles.toggleTitle, { color: theme.onSurface }]}>Split Expense</Text>
                   </View>
                   <Text style={[styles.toggleSubtitle, { color: theme.onSurfaceVariant }]}>
-                    Automatically create IOUs for other people's shares
+                    Automatically create loans for other people's shares
                   </Text>
                 </View>
                 <Switch
@@ -1347,7 +2826,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
                   }}
                 >
                   <Text style={{ fontSize: 11.5, fontWeight: '800', color: theme.onSurfaceVariant }}>
-                    EXISTING IOUs FROM THIS EXPENSE
+                    EXISTING LOANS FROM THIS EXPENSE
                   </Text>
                   {existingLinkedDebts.map((d) => (
                     <Text key={d.id} style={{ fontSize: 12.5, fontWeight: '700', color: theme.onSurface }}>
@@ -1359,192 +2838,23 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
 
               {splitEnabled && (
                 <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: theme.divider }}>
-                  {/* Include Me Toggle */}
-                  <TouchableOpacity
-                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}
-                    onPress={() => setSplitIncludeMe((prev) => !prev)}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={{ fontSize: 13, fontWeight: '600', color: theme.onSurface }}>
-                      Include me in equal split
-                    </Text>
-                    <View
-                      style={{
-                        paddingHorizontal: 10,
-                        paddingVertical: 4,
-                        borderRadius: 12,
-                        backgroundColor: splitIncludeMe ? theme.primaryContainer : theme.pillBg,
-                      }}
-                    >
-                      <Text
-                        style={{
-                          fontSize: 11.5,
-                          fontWeight: '700',
-                          color: splitIncludeMe ? theme.onPrimaryContainer : theme.onSurfaceVariant,
-                        }}
-                      >
-                        {splitIncludeMe ? 'Included' : 'Paid 100% for others'}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-
-                  {/* Add Person Row */}
-                  <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
-                    <TextInput
-                      style={[
-                        styles.taxInput,
-                        {
-                          flex: 1,
-                          maxWidth: undefined,
-                          textAlign: 'left',
-                          paddingVertical: 8,
-                          color: theme.onSurface,
-                          backgroundColor: theme.pillBg,
-                          borderColor: theme.divider,
-                        },
-                      ]}
-                      placeholder="Person name (e.g. Alex)"
-                      placeholderTextColor={theme.onSurfaceVariant}
-                      value={splitPersonInput}
-                      onChangeText={setSplitPersonInput}
-                      onSubmitEditing={() => handleAddSplitPerson()}
-                      returnKeyType="done"
-                    />
-                    <TouchableOpacity
-                      style={{
-                        backgroundColor: theme.primary,
-                        paddingHorizontal: 14,
-                        borderRadius: M3Shape.small,
-                        justifyContent: 'center',
-                      }}
-                      onPress={() => handleAddSplitPerson()}
-                    >
-                      <Text style={{ color: theme.onPrimary, fontSize: 13, fontWeight: '800' }}>Add</Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Quick-tap existing people */}
-                  {knownDebtPeople.length > 0 && (
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={{ gap: 6, marginBottom: 10 }}
-                    >
-                      {knownDebtPeople.map((person) => (
-                        <TouchableOpacity
-                          key={person}
-                          style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            gap: 4,
-                            paddingHorizontal: 10,
-                            paddingVertical: 5,
-                            borderRadius: 14,
-                            backgroundColor: theme.pillBg,
-                            borderWidth: 1,
-                            borderColor: theme.divider,
-                          }}
-                          onPress={() => handleAddSplitPerson(person)}
-                        >
-                          <MaterialCommunityIcons name="plus" size={13} color={theme.primary} />
-                          <Text style={{ fontSize: 12, fontWeight: '700', color: theme.onSurface }}>
-                            {person}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
-                  )}
-
-                  {/* Participant Shares List */}
-                  {splitPeople.map((p, idx) => {
-                    const resolvedItem = splitSummary.resolved[idx];
-                    return (
-                      <View
-                        key={p.name}
-                        style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          gap: 8,
-                          paddingVertical: 6,
-                          borderBottomWidth: idx < splitPeople.length - 1 ? 1 : 0,
-                          borderBottomColor: theme.divider,
-                        }}
-                      >
-                        <Text style={{ flex: 1, fontSize: 13.5, fontWeight: '700', color: theme.onSurface }}>
-                          {p.name}
-                        </Text>
-                        <TextInput
-                          style={[
-                            styles.taxInput,
-                            {
-                              minWidth: 90,
-                              color: theme.onSurface,
-                              backgroundColor: theme.pillBg,
-                              borderColor: theme.divider,
-                            },
-                          ]}
-                          placeholder={splitSummary.equalShare > 0 ? formatTypingNumber(splitSummary.equalShare.toString()) : '0'}
-                          placeholderTextColor={theme.onSurfaceVariant}
-                          keyboardType={Platform.OS === 'android' ? 'numeric' : 'decimal-pad'}
-                          value={p.customAmount ?? ''}
-                          onChangeText={(txt) => {
-                            const formatted = formatTypingNumber(txt);
-                            setSplitPeople((prev) =>
-                              prev.map((item, i) => (i === idx ? { ...item, customAmount: formatted } : item))
-                            );
-                          }}
-                        />
-                        <TouchableOpacity
-                          onPress={() => setSplitPeople((prev) => prev.filter((_, i) => i !== idx))}
-                          hitSlop={6}
-                        >
-                          <MaterialCommunityIcons name="close-circle" size={18} color={theme.error} />
-                        </TouchableOpacity>
-                        {resolvedItem && (
-                          <Text style={{ fontSize: 11, color: theme.primary, fontWeight: '700', minWidth: 46, textAlign: 'right' }}>
-                            {formatCurrency(resolvedItem.share, currency)}
-                          </Text>
-                        )}
-                      </View>
-                    );
-                  })}
-
-                  {splitPeople.length > 0 && (
-                    <View
-                      style={{
-                        marginTop: 10,
-                        paddingHorizontal: 10,
-                        paddingVertical: 8,
-                        borderRadius: M3Shape.small,
-                        backgroundColor: theme.primaryContainer,
-                        flexDirection: 'row',
-                        justifyContent: 'space-between',
-                      }}
-                    >
-                      <Text style={{ fontSize: 12, fontWeight: '700', color: theme.onPrimaryContainer }}>
-                        Your share: {formatCurrency(splitSummary.yourShare, currency)}
-                      </Text>
-                      <Text style={{ fontSize: 12, fontWeight: '800', color: theme.onPrimaryContainer }}>
-                        {splitPeople.length} IOU{splitPeople.length > 1 ? 's' : ''} = {formatCurrency(splitSummary.totalOwedByOthers, currency)}
-                      </Text>
-                    </View>
-                  )}
+                  {renderPeopleSplitBody(true)}
                 </View>
               )}
             </View>
           )}
 
           {/* SETTLE OPEN IOU (ON INCOME) */}
-          {currentType === 'income' && (
+          {!isIouMode && currentType === 'income' && (
             <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
               <View style={styles.toggleRow}>
                 <View style={styles.toggleTextCol}>
                   <View style={styles.labelWithIcon}>
                     <MaterialCommunityIcons name="handshake-outline" size={18} color={theme.success} />
-                    <Text style={[styles.toggleTitle, { color: theme.onSurface }]}>Settle Open IOU</Text>
+                    <Text style={[styles.toggleTitle, { color: theme.onSurface }]}>Settle Open Loan</Text>
                   </View>
                   <Text style={[styles.toggleSubtitle, { color: theme.onSurfaceVariant }]}>
-                    Apply this income to an open IOU someone owes you
+                    Apply this income to an open loan someone owes you
                   </Text>
                 </View>
                 <Switch
@@ -1578,7 +2888,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                     <Text style={{ fontSize: 11.5, fontWeight: '800', color: theme.onSuccessContainer }}>
-                      SETTLED IOU(S) LINKED TO THIS TRANSACTION
+                      SETTLED LOAN(S) LINKED TO THIS TRANSACTION
                     </Text>
                     <TouchableOpacity
                       style={{
@@ -1590,7 +2900,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
                       onPress={() => {
                         if (!initialTransactionId) return;
                         Alert.alert(
-                          'Undo IOU Settlement?',
+                          'Undo Loan Settlement?',
                           'This will restore the settled debt balance back to open and remove any overpayment credit created from this transaction.',
                           [
                             { text: 'Cancel', style: 'cancel' },
@@ -1612,9 +2922,8 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
                     <Text key={s.id} style={{ fontSize: 12.5, fontWeight: '700', color: theme.onSuccessContainer }}>
                       • Settled {s.person_name}'s {formatCurrency(s.applied_amount, s.currency || currency)} debt
                       {s.excess_amount > 0.009
-                        ? ` (exceeded ${formatCurrency(s.excess_amount, s.currency || currency)} • ${
-                            s.excess_mode === 'credit' ? 'Credit' : 'Tip'
-                          })`
+                        ? ` (exceeded ${formatCurrency(s.excess_amount, s.currency || currency)} • ${s.excess_mode === 'credit' ? 'Credit' : 'Tip'
+                        })`
                         : ''}
                     </Text>
                   ))}
@@ -1624,7 +2933,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
               {settleIouEnabled && (
                 openLentDebts.length === 0 ? (
                   <Text style={{ fontSize: 12.5, color: theme.onSurfaceVariant, marginTop: 10 }}>
-                    No open IOUs owed to you yet.
+                    No open loans owed to you yet.
                   </Text>
                 ) : (
                   <ScrollView
@@ -1952,6 +3261,21 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
               </View>
             )}
           </View>
+
+          {/* NOTE & TAGS */}
+          <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
+            <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant }]}>NOTE & TAGS</Text>
+            <TextInput
+              ref={noteInputRef}
+              style={[styles.noteInput, { backgroundColor: theme.pillBg, color: theme.onSurface, borderColor: theme.divider }]}
+              placeholder="Add optional notes, tags, or description..."
+              placeholderTextColor={theme.onSurfaceVariant}
+              value={note}
+              onChangeText={setNote}
+              multiline
+              numberOfLines={3}
+            />
+          </View>
         </ScrollView>
 
         {/* DOCKED BOTTOM SAVE BUTTON (ALWAYS VISIBLE AT BOTTOM OF SCREEN) */}
@@ -2044,6 +3368,15 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
           theme={theme}
           onClose={() => setEndCalendarVisible(false)}
           onSelectDate={(d) => setRepeatEndDate(d)}
+        />
+
+        {/* CALENDAR PICKER MODAL (IOU DUE / END DATE) */}
+        <CalendarPickerModal
+          visible={iouDueCalendarVisible}
+          selectedDate={iouDueDate || dateStr}
+          theme={theme}
+          onClose={() => setIouDueCalendarVisible(false)}
+          onSelectDate={(d) => setIouDueDate(d)}
         />
 
         {/* CURRENCY SELECTOR MODAL */}
@@ -2873,5 +4206,220 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: M3Shape.full,
+  },
+  topBarDropdownBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: M3Shape.full,
+    borderWidth: 1,
+  },
+  topBarDropdownText: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  dropdownBackdropWrap: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 50,
+    alignItems: 'center',
+  },
+  typeDropdownMenu: {
+    position: 'absolute',
+    width: 220,
+    borderRadius: M3Shape.large,
+    borderWidth: 1,
+    padding: 6,
+    gap: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.16,
+    shadowRadius: 12,
+    elevation: 12,
+  },
+  typeDropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: M3Shape.medium,
+  },
+  typeDropdownItemText: {
+    flex: 1,
+    fontSize: 14,
+  },
+  accordionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  accordionHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  accordionTitleCol: {
+    flex: 1,
+    gap: 2,
+  },
+  accordionHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  sheetListWrap: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 10,
+    gap: 8,
+  },
+  emptySheetText: {
+    fontSize: 13,
+    textAlign: 'center',
+    paddingVertical: 10,
+  },
+  catGroupBlock: {
+    gap: 6,
+  },
+  catSheetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: M3Shape.medium,
+    borderWidth: 1,
+    paddingRight: 8,
+    overflow: 'hidden',
+  },
+  catSheetRowMain: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+  },
+  catSheetIconBadge: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  catSheetRowTitle: {
+    flex: 1,
+    fontSize: 14,
+  },
+  catSubCountBadge: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    marginRight: 4,
+  },
+  catDropperBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  subcatSheetList: {
+    marginLeft: 18,
+    paddingLeft: 12,
+    borderLeftWidth: 2,
+    gap: 6,
+  },
+  subcatSheetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: M3Shape.medium,
+    borderWidth: 1,
+  },
+  subcatSheetRowText: {
+    flex: 1,
+    fontSize: 13,
+  },
+  walletSheetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    borderRadius: M3Shape.medium,
+    borderWidth: 1,
+    gap: 10,
+  },
+  walletSheetLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  walletSheetRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  walletSheetName: {
+    fontSize: 14,
+  },
+  walletSheetBal: {
+    fontSize: 12.5,
+    fontWeight: '700',
+  },
+  iouActionRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  iouActionPill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderRadius: M3Shape.medium,
+    borderWidth: 1,
+  },
+  iouActionPillText: {
+    fontSize: 12,
+  },
+  iouPersonInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  iouPersonInput: {
+    flex: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: M3Shape.medium,
+    borderWidth: 1,
+    fontSize: 14,
+  },
+  iouPersonNextBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: M3Shape.medium,
+  },
+  iouSplitToggleBox: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 10,
+    gap: 8,
+  },
+  iouMyShareRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
   },
 });

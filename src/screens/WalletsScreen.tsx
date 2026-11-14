@@ -452,7 +452,7 @@ export const WalletsScreen: React.FC = () => {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={{ fontSize: 14.5, fontWeight: '800', color: theme.onSurface }}>
-                  Debts, IOUs & Splits
+                  Debts, Loans & Splits
                 </Text>
                 <Text style={{ fontSize: 12, color: theme.onSurfaceVariant, marginTop: 2 }}>
                   {openDebts.length === 0
