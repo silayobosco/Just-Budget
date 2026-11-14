@@ -2012,9 +2012,9 @@ export const AnalyticsScreen: React.FC = () => {
                   alignSelf: 'flex-start',
                 }}
               >
-                <MaterialCommunityIcons name="percent-outline" size={14} color={theme.primary} />
+                <MaterialCommunityIcons name="receipt-text-outline" size={14} color={theme.primary} />
                 <Text style={{ fontSize: 12, fontWeight: '700', color: theme.onSurfaceVariant }}>
-                  Taxes & Fees Included: {formatCurrency(totalTaxInPeriod, curr)}
+                  Taxes & Fees: {formatCurrency(totalTaxInPeriod, curr)}
                 </Text>
               </View>
             )}
