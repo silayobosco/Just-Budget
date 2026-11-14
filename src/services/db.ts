@@ -127,6 +127,7 @@ export const initDatabase = async () => {
       due_date TEXT,
       note TEXT,
       wallet_id TEXT,
+      origin_transaction_id TEXT,
       status TEXT NOT NULL DEFAULT 'open', -- 'open' | 'settled'
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT
@@ -170,6 +171,9 @@ export const initDatabase = async () => {
   } catch {}
   try {
     db.runSync(`ALTER TABLE transactions ADD COLUMN tax_amount REAL DEFAULT 0`);
+  } catch {}
+  try {
+    db.runSync(`ALTER TABLE debts ADD COLUMN origin_transaction_id TEXT`);
   } catch {}
   try {
     db.runSync(`ALTER TABLE recurring_bills ADD COLUMN type TEXT DEFAULT 'expense'`);

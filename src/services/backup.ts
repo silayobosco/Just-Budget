@@ -309,8 +309,8 @@ export const restoreFromBackupContentAsync = async (
       if (parsed.debts) {
         for (const d of parsed.debts) {
           db.runSync(
-            `INSERT OR REPLACE INTO debts (id, type, person_name, amount, paid_amount, currency, date, due_date, note, wallet_id, status, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT OR REPLACE INTO debts (id, type, person_name, amount, paid_amount, currency, date, due_date, note, wallet_id, origin_transaction_id, status, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               d.id,
               d.type,
@@ -322,6 +322,7 @@ export const restoreFromBackupContentAsync = async (
               d.due_date || null,
               d.note || null,
               d.wallet_id || null,
+              d.origin_transaction_id || null,
               d.status || 'open',
               d.created_at || new Date().toISOString(),
               d.updated_at || null,

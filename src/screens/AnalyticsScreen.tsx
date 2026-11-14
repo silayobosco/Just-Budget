@@ -815,6 +815,7 @@ export const AnalyticsScreen: React.FC = () => {
     setAnalyticsFocus,
     openCycleModal,
     categoryBudgetProgressList,
+    getEffectiveAmount,
   } = useBudget();
 
   const isDarkMode = settings.theme_mode === 'dark';
@@ -1100,14 +1101,14 @@ export const AnalyticsScreen: React.FC = () => {
   const totalExpense = useMemo(() => {
     return activeTransactions
       .filter((t) => t.type === 'expense')
-      .reduce((sum, t) => sum + (t.amount || t.base_amount || 0), 0);
-  }, [activeTransactions]);
+      .reduce((sum, t) => sum + getEffectiveAmount(t), 0);
+  }, [activeTransactions, getEffectiveAmount]);
 
   const totalIncome = useMemo(() => {
     return activeTransactions
       .filter((t) => t.type === 'income')
-      .reduce((sum, t) => sum + (t.amount || t.base_amount || 0), 0);
-  }, [activeTransactions]);
+      .reduce((sum, t) => sum + getEffectiveAmount(t), 0);
+  }, [activeTransactions, getEffectiveAmount]);
 
   const totalTaxInPeriod = useMemo(() => {
     return activeTransactions.reduce((sum, t) => sum + (t.tax_amount || 0), 0);
@@ -1152,7 +1153,7 @@ export const AnalyticsScreen: React.FC = () => {
           };
         }
 
-        const amt = t.amount || t.base_amount || 0;
+        const amt = getEffectiveAmount(t);
         map[catId].amount += amt;
         map[catId].count += 1;
 
@@ -1308,7 +1309,7 @@ export const AnalyticsScreen: React.FC = () => {
         if (!dayTotals[t.date]) {
           dayTotals[t.date] = { amount: 0, categories: {} };
         }
-        const amt = t.amount || t.base_amount || 0;
+        const amt = getEffectiveAmount(t);
         dayTotals[t.date].amount += amt;
         const cat = categories.find((c) => c.id === t.category_id)?.name || 'Other';
         dayTotals[t.date].categories[cat] = (dayTotals[t.date].categories[cat] || 0) + amt;
@@ -1333,7 +1334,7 @@ export const AnalyticsScreen: React.FC = () => {
       .filter((t) => t.type === 'expense')
       .forEach((t) => {
         const catName = categories.find((c) => c.id === t.category_id)?.name.toLowerCase() || '';
-        const amt = t.amount || t.base_amount || 0;
+        const amt = getEffectiveAmount(t);
         if (
           catName.includes('food') ||
           catName.includes('hous') ||

@@ -192,6 +192,7 @@ interface BudgetContextType {
     due_date?: string;
     note?: string;
     wallet_id?: string;
+    origin_transaction_id?: string;
   }) => Promise<void>;
   updateDebt: (debt: DebtItem) => Promise<void>;
   recordDebtPayment: (
@@ -203,6 +204,7 @@ interface BudgetContextType {
   debtSettlements: DebtSettlement[];
   undoTransactionDebtSettlements: (transactionId: string) => Promise<void>;
   getLastCreatedTransactionId: () => string | null;
+  getEffectiveAmount: (tx: Transaction) => number;
 
   updateBudgetCycle: (params: { id?: string; name: string; start_date: string; end_date: string; target_budget?: number; target_income?: number }) => Promise<void>;
   updateCurrentCycleTarget: (type: 'budget' | 'income', amount: number) => Promise<void>;
@@ -582,19 +584,40 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     );
   }, [transactions, currentCycle]);
 
+  // Effective net amount for analytics & budgets (excludes split lent IOUs from expenses and IOU repayments from income)
+  const getEffectiveAmount = useCallback(
+    (tx: Transaction): number => {
+      const raw = tx.amount || tx.base_amount || 0;
+      if (tx.type === 'expense') {
+        const lentTotal = debts
+          .filter((d) => d.origin_transaction_id === tx.id && d.type === 'lent')
+          .reduce((sum, d) => sum + (d.amount || 0), 0);
+        return Math.max(0, Math.round((raw - lentTotal) * 100) / 100);
+      }
+      if (tx.type === 'income') {
+        const repaidTotal = debtSettlements
+          .filter((s) => s.transaction_id === tx.id)
+          .reduce((sum, s) => sum + (s.applied_amount || 0), 0);
+        return Math.max(0, Math.round((raw - repaidTotal) * 100) / 100);
+      }
+      return raw;
+    },
+    [debts, debtSettlements]
+  );
+
   // Total spent in cycle
   const spentInCycle = useMemo(() => {
     return cycleTransactions
       .filter((t) => t.type === 'expense')
-      .reduce((sum, t) => sum + (t.amount || t.base_amount || 0), 0);
-  }, [cycleTransactions]);
+      .reduce((sum, t) => sum + getEffectiveAmount(t), 0);
+  }, [cycleTransactions, getEffectiveAmount]);
 
   // Total income in cycle
   const incomeInCycle = useMemo(() => {
     return cycleTransactions
       .filter((t) => t.type === 'income')
-      .reduce((sum, t) => sum + (t.amount || t.base_amount || 0), 0);
-  }, [cycleTransactions]);
+      .reduce((sum, t) => sum + getEffectiveAmount(t), 0);
+  }, [cycleTransactions, getEffectiveAmount]);
 
   // Accumulated rollover surplus/deficit if balance mode is 'accumulated'
   const accumulatedRollover = useMemo(() => {
@@ -671,7 +694,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     // Spent today in app currency
     const todayExpenses = transactions
       .filter((t) => t.type === 'expense' && t.date === todayStr)
-      .reduce((sum, t) => sum + (t.amount || t.base_amount || 0), 0);
+      .reduce((sum, t) => sum + getEffectiveAmount(t), 0);
 
     const curr = settings.base_currency || 'TZS';
     const targetBudget = currentCycle?.target_budget ?? 0;
@@ -818,7 +841,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // Spent / Earned across all wallets in current cycle
       const spent = cycleTransactions
         .filter((t) => t.type === cat.type && t.category_id === cat.id)
-        .reduce((sum, t) => sum + t.base_amount, 0);
+        .reduce((sum, t) => sum + getEffectiveAmount(t), 0);
 
       const remaining = limit > 0 ? (isExpense ? limit - spent : Math.max(0, limit - spent)) : 0;
       const percent = limit > 0 ? (spent / limit) * 100 : 0;
@@ -836,7 +859,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         const subLimit = subBudget ? subBudget.amount : 0;
         const subSpent = cycleTransactions
           .filter((t) => t.type === cat.type && t.category_id === cat.id && t.subcategory_id === sub.id)
-          .reduce((sum, t) => sum + t.base_amount, 0);
+          .reduce((sum, t) => sum + getEffectiveAmount(t), 0);
 
         const subRemaining = subLimit > 0 ? (isExpense ? subLimit - subSpent : Math.max(0, subLimit - subSpent)) : 0;
         const subPercent = subLimit > 0 ? (subSpent / subLimit) * 100 : 0;
@@ -1327,6 +1350,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
 
       undoSettlementsInTx(db, id);
+      db.runSync(`UPDATE debts SET origin_transaction_id = NULL WHERE origin_transaction_id = ?`, [id]);
       db.runSync(`DELETE FROM transactions WHERE id = ?`, [id]);
     });
 
@@ -1591,13 +1615,14 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     due_date?: string;
     note?: string;
     wallet_id?: string;
+    origin_transaction_id?: string;
   }) => {
     const db = getDB();
     const id = `debt-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     const nowIso = new Date().toISOString();
     db.runSync(
-      `INSERT INTO debts (id, type, person_name, amount, paid_amount, currency, date, due_date, note, wallet_id, status, created_at)
-       VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 'open', ?)`,
+      `INSERT INTO debts (id, type, person_name, amount, paid_amount, currency, date, due_date, note, wallet_id, origin_transaction_id, status, created_at)
+       VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'open', ?)`,
       [
         id,
         params.type,
@@ -1608,6 +1633,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         params.due_date || null,
         params.note?.trim() || null,
         params.wallet_id || null,
+        params.origin_transaction_id || null,
         nowIso,
       ]
     );
@@ -2222,6 +2248,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         debtSettlements,
         undoTransactionDebtSettlements,
         getLastCreatedTransactionId,
+        getEffectiveAmount,
         updateBudgetCycle,
         updateCurrentCycleTarget,
         deleteBudgetCycle,

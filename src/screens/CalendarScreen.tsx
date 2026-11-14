@@ -490,8 +490,8 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
       cycle?.target_income && cycle.target_income > 0
         ? cycle.target_income
         : settings.cycle_default_income !== undefined
-        ? Number(settings.cycle_default_income)
-        : 0;
+          ? Number(settings.cycle_default_income)
+          : 0;
     const hasGoal = cycleGoal > 0;
 
     const incomeUpToDate = transactions
@@ -961,162 +961,162 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
       >
         {/* AVAILABLE FOR TODAY BANNER */}
         <View style={styles.currentCycleBannerContent}>
-            {/* Available for Today / Focused Date Row */}
-            <View style={styles.todayBalanceRow}>
-              <TouchableOpacity
-                style={{ flex: 1, marginRight: 8 }}
-                activeOpacity={0.7}
-                onPress={() => setAllowanceDetailVisible(true)}
-                accessibilityRole="button"
-                accessibilityLabel="View balance breakdown and description"
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                  <Text
-                    style={[
-                      styles.todayBalanceLabel,
-                      {
-                        color: focusedValues.isPast
-                          ? (focusedValues.availableAmount < 0 ? theme.error : theme.onSurfaceVariant)
-                          : (dailyAllowanceStats.status === 'budget_over' || dailyAllowanceStats.status === 'wallet_empty'
-                            ? theme.error
-                            : dailyAllowanceStats.isOverDaily
-                            ? (isDarkMode ? '#F87171' : theme.error)
-                            : theme.onSurfaceVariant),
-                      },
-                    ]}
-                    maxFontSizeMultiplier={1.2}
-                  >
-                    {focusedValues.isPast
-                      ? `AVAILABLE AT END OF ${formatShortDate(focusedValues.targetDate).toUpperCase()}`
-                      : dailyAllowanceStats.headlineLabel}
-                  </Text>
-                  {focusedValues.isPast ? (
-                    <TouchableOpacity
-                      onPress={handleGoToToday}
-                      activeOpacity={0.7}
-                      style={{
-                        backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.25)' : theme.primaryContainer,
-                        paddingHorizontal: 6,
-                        paddingVertical: 1,
-                        borderRadius: 10,
-                      }}
-                    >
-                      <Text
-                        style={{
-                          fontSize: 9,
-                          fontWeight: '700',
-                          color: isDarkMode ? '#C7D2FE' : theme.onPrimaryContainer,
-                        }}
-                      >
-                        Today ↩
-                      </Text>
-                    </TouchableOpacity>
-                  ) : dailyAllowanceStats.badgeLabel ? (
-                    <View
-                      style={{
-                        backgroundColor:
-                          dailyAllowanceStats.status === 'budget_over' || dailyAllowanceStats.status === 'wallet_empty'
-                            ? (isDarkMode ? 'rgba(239, 68, 68, 0.25)' : '#FEE2E2')
-                            : dailyAllowanceStats.isOverDaily
-                            ? (isDarkMode ? 'rgba(239, 68, 68, 0.20)' : '#FEE2E2')
-                            : (isDarkMode ? 'rgba(99, 102, 241, 0.22)' : 'rgba(99, 102, 241, 0.12)'),
-                        paddingHorizontal: 6,
-                        paddingVertical: 1.5,
-                        borderRadius: M3Shape.full,
-                      }}
-                    >
-                      <Text
-                        style={{
-                          fontSize: 9,
-                          fontWeight: '800',
-                          letterSpacing: 0.3,
-                          color:
-                            dailyAllowanceStats.status === 'budget_over' || dailyAllowanceStats.status === 'wallet_empty'
-                              ? (isDarkMode ? '#FCA5A5' : '#DC2626')
-                              : dailyAllowanceStats.isOverDaily
-                              ? (isDarkMode ? '#FCA5A5' : '#DC2626')
-                              : (isDarkMode ? '#C7D2FE' : theme.primary),
-                        }}
-                      >
-                        {dailyAllowanceStats.badgeLabel}
-                      </Text>
-                    </View>
-                  ) : null}
-
-                  <MaterialCommunityIcons
-                    name="information-outline"
-                    size={12}
-                    color={theme.onSurfaceVariant}
-                    style={{ opacity: 0.6 }}
-                  />
-                </View>
+          {/* Available for Today / Focused Date Row */}
+          <View style={styles.todayBalanceRow}>
+            <TouchableOpacity
+              style={{ flex: 1, marginRight: 8 }}
+              activeOpacity={0.7}
+              onPress={() => setAllowanceDetailVisible(true)}
+              accessibilityRole="button"
+              accessibilityLabel="View balance breakdown and description"
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                 <Text
                   style={[
-                    styles.todayBalanceAmount,
+                    styles.todayBalanceLabel,
                     {
                       color: focusedValues.isPast
-                        ? (focusedValues.availableAmount >= 0 ? theme.primary : theme.error)
-                        : (dailyAllowanceStats.status === 'budget_over' ||
-                          dailyAllowanceStats.status === 'wallet_empty' ||
-                          dailyAllowanceStats.remainingToday < 0
-                            ? theme.error
-                            : theme.primary),
+                        ? (focusedValues.availableAmount < 0 ? theme.error : theme.onSurfaceVariant)
+                        : (dailyAllowanceStats.status === 'budget_over' || dailyAllowanceStats.status === 'wallet_empty'
+                          ? theme.error
+                          : dailyAllowanceStats.isOverDaily
+                            ? (isDarkMode ? '#F87171' : theme.error)
+                            : theme.onSurfaceVariant),
                     },
                   ]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.7}
                   maxFontSizeMultiplier={1.2}
                 >
-                  {wallets.length === 0 && overallBudgetLimit === 0
-                    ? formatCurrency(0, curr)
-                    : formatCurrency(focusedValues.availableAmount, curr)}
+                  {focusedValues.isPast
+                    ? `AVAILABLE AT END OF ${formatShortDate(focusedValues.targetDate).toUpperCase()}`
+                    : dailyAllowanceStats.headlineLabel}
                 </Text>
-              </TouchableOpacity>
+                {focusedValues.isPast ? (
+                  <TouchableOpacity
+                    onPress={handleGoToToday}
+                    activeOpacity={0.7}
+                    style={{
+                      backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.25)' : theme.primaryContainer,
+                      paddingHorizontal: 6,
+                      paddingVertical: 1,
+                      borderRadius: 10,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 9,
+                        fontWeight: '700',
+                        color: isDarkMode ? '#C7D2FE' : theme.onPrimaryContainer,
+                      }}
+                    >
+                      Today ↩
+                    </Text>
+                  </TouchableOpacity>
+                ) : dailyAllowanceStats.badgeLabel ? (
+                  <View
+                    style={{
+                      backgroundColor:
+                        dailyAllowanceStats.status === 'budget_over' || dailyAllowanceStats.status === 'wallet_empty'
+                          ? (isDarkMode ? 'rgba(239, 68, 68, 0.25)' : '#FEE2E2')
+                          : dailyAllowanceStats.isOverDaily
+                            ? (isDarkMode ? 'rgba(239, 68, 68, 0.20)' : '#FEE2E2')
+                            : (isDarkMode ? 'rgba(99, 102, 241, 0.22)' : 'rgba(99, 102, 241, 0.12)'),
+                      paddingHorizontal: 6,
+                      paddingVertical: 1.5,
+                      borderRadius: M3Shape.full,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 9,
+                        fontWeight: '800',
+                        letterSpacing: 0.3,
+                        color:
+                          dailyAllowanceStats.status === 'budget_over' || dailyAllowanceStats.status === 'wallet_empty'
+                            ? (isDarkMode ? '#FCA5A5' : '#DC2626')
+                            : dailyAllowanceStats.isOverDaily
+                              ? (isDarkMode ? '#FCA5A5' : '#DC2626')
+                              : (isDarkMode ? '#C7D2FE' : theme.primary),
+                      }}
+                    >
+                      {dailyAllowanceStats.badgeLabel}
+                    </Text>
+                  </View>
+                ) : null}
 
-              {/* Days Left chip - Tap to open Cycle Type picker */}
-              <TouchableOpacity
+                <MaterialCommunityIcons
+                  name="information-outline"
+                  size={12}
+                  color={theme.onSurfaceVariant}
+                  style={{ opacity: 0.6 }}
+                />
+              </View>
+              <Text
                 style={[
-                  styles.walletSumPill,
+                  styles.todayBalanceAmount,
                   {
-                    backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.16)' : theme.pillBg,
-                    borderColor: isDarkMode ? 'rgba(129, 140, 248, 0.32)' : 'rgba(0, 0, 0, 0.08)',
+                    color: focusedValues.isPast
+                      ? (focusedValues.availableAmount >= 0 ? theme.primary : theme.error)
+                      : (dailyAllowanceStats.status === 'budget_over' ||
+                        dailyAllowanceStats.status === 'wallet_empty' ||
+                        dailyAllowanceStats.remainingToday < 0
+                        ? theme.error
+                        : theme.primary),
                   },
                 ]}
-                onPress={() => setModeSwitcherVisible(true)}
-                activeOpacity={0.7}
-                accessibilityRole="button"
-                accessibilityLabel="Switch Cycle Type"
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+                maxFontSizeMultiplier={1.2}
               >
-                <MaterialCommunityIcons
-                  name="calendar-clock-outline"
-                  size={14}
-                  color={isDarkMode ? '#A5B4FC' : theme.primary}
-                />
-                <Text
-                  style={[
-                    styles.walletSumText,
-                    {
-                      color: isDarkMode ? '#E0E7FF' : theme.onSurface,
-                      fontWeight: '700',
-                    },
-                  ]}
-                >
-                  {focusedValues.isPast
-                    ? focusedValues.daysRemaining === 0
-                      ? 'Ended'
-                      : `${focusedValues.daysRemaining} days left`
-                    : dailyAllowanceStats.isEnded
+                {wallets.length === 0 && overallBudgetLimit === 0
+                  ? formatCurrency(0, curr)
+                  : formatCurrency(focusedValues.availableAmount, curr)}
+              </Text>
+            </TouchableOpacity>
+
+            {/* Days Left chip - Tap to open Cycle Type picker */}
+            <TouchableOpacity
+              style={[
+                styles.walletSumPill,
+                {
+                  backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.16)' : theme.pillBg,
+                  borderColor: isDarkMode ? 'rgba(129, 140, 248, 0.32)' : 'rgba(0, 0, 0, 0.08)',
+                },
+              ]}
+              onPress={() => setModeSwitcherVisible(true)}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Switch Cycle Type"
+            >
+              <MaterialCommunityIcons
+                name="calendar-clock-outline"
+                size={14}
+                color={isDarkMode ? '#A5B4FC' : theme.primary}
+              />
+              <Text
+                style={[
+                  styles.walletSumText,
+                  {
+                    color: isDarkMode ? '#E0E7FF' : theme.onSurface,
+                    fontWeight: '700',
+                  },
+                ]}
+              >
+                {focusedValues.isPast
+                  ? focusedValues.daysRemaining === 0
+                    ? 'Ended'
+                    : `${focusedValues.daysRemaining} days left`
+                  : dailyAllowanceStats.isEnded
                     ? 'Ended'
                     : dailyAllowanceStats.daysRemaining === 0
-                    ? 'Ends today'
-                    : dailyAllowanceStats.daysRemaining === 1
-                    ? '1 day left'
-                    : `${dailyAllowanceStats.daysRemaining} days left`}
-                </Text>
-              </TouchableOpacity>
-            </View>
+                      ? 'Ends today'
+                      : dailyAllowanceStats.daysRemaining === 1
+                        ? '1 day left'
+                        : `${dailyAllowanceStats.daysRemaining} days left`}
+              </Text>
+            </TouchableOpacity>
           </View>
+        </View>
 
         {/* DUAL DISPLAY TARGET CARDS: INCOME GOAL (LEFT) & BUDGET CAP (RIGHT) FROM HOMESCREEN */}
         <View style={styles.dualCardsRow}>
@@ -1538,8 +1538,8 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                             color: isSelected
                               ? theme.primary
                               : isToday
-                              ? (isDarkMode ? '#A5B4FC' : theme.primary)
-                              : theme.onSurface,
+                                ? (isDarkMode ? '#A5B4FC' : theme.primary)
+                                : theme.onSurface,
                             fontWeight: isSelected || isToday ? '800' : '600',
                           },
                         ]}
@@ -1555,8 +1555,8 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                               backgroundColor: dayBills.some((b) => b.isOverdue)
                                 ? (isDarkMode ? 'rgba(239, 68, 68, 0.25)' : '#FEE2E2')
                                 : dayBills.some((b) => b.isDueToday)
-                                ? (isDarkMode ? 'rgba(245, 158, 11, 0.25)' : '#FEF3C7')
-                                : (isDarkMode ? 'rgba(99, 102, 241, 0.25)' : theme.primaryContainer),
+                                  ? (isDarkMode ? 'rgba(245, 158, 11, 0.25)' : '#FEF3C7')
+                                  : (isDarkMode ? 'rgba(99, 102, 241, 0.25)' : theme.primaryContainer),
                             },
                           ]}
                         >
@@ -1567,8 +1567,8 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                               dayBills.some((b) => b.isOverdue)
                                 ? (isDarkMode ? '#FCA5A5' : '#DC2626')
                                 : dayBills.some((b) => b.isDueToday)
-                                ? (isDarkMode ? '#FCD34D' : '#D97706')
-                                : theme.primary
+                                  ? (isDarkMode ? '#FCD34D' : '#D97706')
+                                  : theme.primary
                             }
                           />
                           <Text
@@ -1578,8 +1578,8 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                                 color: dayBills.some((b) => b.isOverdue)
                                   ? (isDarkMode ? '#FCA5A5' : '#DC2626')
                                   : dayBills.some((b) => b.isDueToday)
-                                  ? (isDarkMode ? '#FCD34D' : '#D97706')
-                                  : theme.primary,
+                                    ? (isDarkMode ? '#FCD34D' : '#D97706')
+                                    : theme.primary,
                               },
                             ]}
                           >
@@ -1614,8 +1614,8 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                             borderColor: occ.isOverdue
                               ? (isDarkMode ? 'rgba(239, 68, 68, 0.6)' : '#FCA5A5')
                               : occ.isDueToday
-                              ? (isDarkMode ? 'rgba(245, 158, 11, 0.6)' : '#FCD34D')
-                              : (isDarkMode ? 'rgba(99, 102, 241, 0.35)' : theme.divider),
+                                ? (isDarkMode ? 'rgba(245, 158, 11, 0.6)' : '#FCD34D')
+                                : (isDarkMode ? 'rgba(99, 102, 241, 0.35)' : theme.divider),
                           },
                           M3Elevation.level1,
                         ]}
@@ -1627,8 +1627,8 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                               backgroundColor: occ.isOverdue
                                 ? '#FEE2E2'
                                 : occ.isDueToday
-                                ? '#FEF3C7'
-                                : cat?.color || theme.primaryContainer,
+                                  ? '#FEF3C7'
+                                  : cat?.color || theme.primaryContainer,
                             },
                           ]}
                         >
@@ -1639,10 +1639,10 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                               occ.isOverdue
                                 ? '#DC2626'
                                 : occ.isDueToday
-                                ? '#D97706'
-                                : cat?.color
-                                ? '#FFFFFF'
-                                : theme.primary
+                                  ? '#D97706'
+                                  : cat?.color
+                                    ? '#FFFFFF'
+                                    : theme.primary
                             }
                           />
                         </View>
@@ -1659,8 +1659,8 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                                   backgroundColor: occ.isOverdue
                                     ? (isDarkMode ? 'rgba(239, 68, 68, 0.3)' : '#FEE2E2')
                                     : occ.isDueToday
-                                    ? (isDarkMode ? 'rgba(245, 158, 11, 0.3)' : '#FEF3C7')
-                                    : (isDarkMode ? 'rgba(99, 102, 241, 0.25)' : theme.pillBg),
+                                      ? (isDarkMode ? 'rgba(245, 158, 11, 0.3)' : '#FEF3C7')
+                                      : (isDarkMode ? 'rgba(99, 102, 241, 0.25)' : theme.pillBg),
                                 },
                               ]}
                             >
@@ -1671,8 +1671,8 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                                     color: occ.isOverdue
                                       ? (isDarkMode ? '#FCA5A5' : '#DC2626')
                                       : occ.isDueToday
-                                      ? (isDarkMode ? '#FCD34D' : '#D97706')
-                                      : theme.onSurfaceVariant,
+                                        ? (isDarkMode ? '#FCD34D' : '#D97706')
+                                        : theme.onSurfaceVariant,
                                   },
                                 ]}
                               >
@@ -1802,8 +1802,8 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                                   color: isExpense
                                     ? theme.error
                                     : isTransfer
-                                    ? theme.tertiary
-                                    : theme.success,
+                                      ? theme.tertiary
+                                      : theme.success,
                                 },
                               ]}
                             >
@@ -2168,8 +2168,8 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                       dailyAllowanceStats.status === 'budget_over' || dailyAllowanceStats.status === 'wallet_empty'
                         ? theme.errorContainer
                         : dailyAllowanceStats.isOverDaily
-                        ? (isDarkMode ? 'rgba(239, 68, 68, 0.25)' : '#FEE2E2')
-                        : theme.primaryContainer,
+                          ? (isDarkMode ? 'rgba(239, 68, 68, 0.25)' : '#FEE2E2')
+                          : theme.primaryContainer,
                   },
                 ]}
               >
@@ -2178,14 +2178,14 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                     dailyAllowanceStats.status === 'budget_over' || dailyAllowanceStats.status === 'wallet_empty'
                       ? 'alert-circle-outline'
                       : dailyAllowanceStats.isOverDaily
-                      ? 'alert-outline'
-                      : 'calendar-clock-outline'
+                        ? 'alert-outline'
+                        : 'calendar-clock-outline'
                   }
                   size={20}
                   color={
                     dailyAllowanceStats.status === 'budget_over' ||
-                    dailyAllowanceStats.status === 'wallet_empty' ||
-                    dailyAllowanceStats.isOverDaily
+                      dailyAllowanceStats.status === 'wallet_empty' ||
+                      dailyAllowanceStats.isOverDaily
                       ? theme.error
                       : theme.primary
                   }
@@ -2229,8 +2229,8 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                         : (dailyAllowanceStats.status === 'budget_over' ||
                           dailyAllowanceStats.status === 'wallet_empty' ||
                           dailyAllowanceStats.remainingToday < 0
-                            ? theme.error
-                            : theme.primary),
+                          ? theme.error
+                          : theme.primary),
                   },
                 ]}
               >

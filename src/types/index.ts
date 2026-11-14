@@ -178,6 +178,7 @@ export interface DebtItem {
   due_date?: string | null; // YYYY-MM-DD
   note?: string | null;
   wallet_id?: string | null;
+  origin_transaction_id?: string | null;
   status: DebtStatus;
   created_at?: string;
   updated_at?: string;
