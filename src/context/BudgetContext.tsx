@@ -930,9 +930,30 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             ? params.repeat_due_day
             : (parseInt(params.date.slice(8, 10), 10) || 1);
 
+        const advanceDate = (baseDateStr: string, freq: BillFrequency): string => {
+          const d = new Date(baseDateStr + 'T12:00:00');
+          if (freq === 'weekly') d.setDate(d.getDate() + 7);
+          else if (freq === 'yearly') d.setFullYear(d.getFullYear() + 1);
+          else d.setMonth(d.getMonth() + 1);
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          return `${y}-${m}-${day}`;
+        };
+
+        const initialNextDue = isPaid ? advanceDate(params.date, params.repeat_frequency) : params.date;
+        const initialCount = isPaid ? 1 : 0;
+        const endType = params.repeat_end_type || 'never';
+        let isActive = 1;
+        if (endType === 'after_occurrences' && params.repeat_end_occurrences && initialCount >= params.repeat_end_occurrences) {
+          isActive = 0;
+        } else if (endType === 'on_date' && params.repeat_end_date && initialNextDue > params.repeat_end_date) {
+          isActive = 0;
+        }
+
         db.runSync(
           `INSERT INTO recurring_bills (id, name, amount, currency, frequency, type, due_day, next_due_date, category_id, subcategory_id, wallet_id, reminder_enabled, is_active, end_type, end_occurrences, end_date, occurrences_count, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 0, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             finalBillId,
             billName,
@@ -941,14 +962,16 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             params.repeat_frequency,
             params.type === 'income' ? 'income' : 'expense',
             dueDay,
-            params.date,
+            initialNextDue,
             params.category_id || null,
             params.subcategory_id || null,
             params.wallet_id,
             params.reminder_enabled !== false ? 1 : 0,
-            params.repeat_end_type || 'never',
+            isActive,
+            endType,
             params.repeat_end_occurrences || null,
             params.repeat_end_date || null,
+            initialCount,
             new Date().toISOString(),
           ]
         );
@@ -1053,6 +1076,18 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             ? params.repeat_due_day
             : (parseInt(params.date.slice(8, 10), 10) || 1);
 
+        const advanceDate = (baseDateStr: string, freq: BillFrequency): string => {
+          const d = new Date(baseDateStr + 'T12:00:00');
+          if (freq === 'weekly') d.setDate(d.getDate() + 7);
+          else if (freq === 'yearly') d.setFullYear(d.getFullYear() + 1);
+          else d.setMonth(d.getMonth() + 1);
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          return `${y}-${m}-${day}`;
+        };
+        const computedNextDue = isNewPaid ? advanceDate(params.date, params.repeat_frequency) : params.date;
+
         if (updatedBillId) {
           // Update existing recurring bill
           db.runSync(
@@ -1064,7 +1099,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               params.repeat_frequency,
               params.type === 'income' ? 'income' : 'expense',
               dueDay,
-              params.date,
+              computedNextDue,
               params.category_id || null,
               params.subcategory_id || null,
               params.wallet_id,
@@ -1078,9 +1113,10 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         } else {
           // Create new recurring bill
           updatedBillId = `bill-${Date.now()}`;
+          const initialCount = isNewPaid ? 1 : 0;
           db.runSync(
             `INSERT INTO recurring_bills (id, name, amount, currency, frequency, type, due_day, next_due_date, category_id, subcategory_id, wallet_id, reminder_enabled, is_active, end_type, end_occurrences, end_date, occurrences_count, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 0, ?)`,
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
             [
               updatedBillId,
               billName,
@@ -1089,7 +1125,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               params.repeat_frequency,
               params.type === 'income' ? 'income' : 'expense',
               dueDay,
-              params.date,
+              computedNextDue,
               params.category_id || null,
               params.subcategory_id || null,
               params.wallet_id,
@@ -1097,6 +1133,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               params.repeat_end_type || 'never',
               params.repeat_end_occurrences || null,
               params.repeat_end_date || null,
+              initialCount,
               new Date().toISOString(),
             ]
           );
