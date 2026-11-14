@@ -282,21 +282,21 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     setViewingTransaction((prev) =>
       prev && prev.id === editingTransaction.id
         ? {
-            ...prev,
-            amount: txData.amount,
-            wallet_id: txData.wallet_id,
-            category_id: txData.category_id,
-            subcategory_id: txData.subcategory_id,
-            type: txData.type,
-            currency: txData.currency,
-            date: txData.date,
-            time: txData.time,
-            is_paid: txData.is_paid,
-            tax_amount: txData.tax_amount,
-            note: txData.note,
-            media_uri: txData.media_uri,
-            recurring_bill_id: txData.repeat_frequency ? prev.recurring_bill_id : null,
-          }
+          ...prev,
+          amount: txData.amount,
+          wallet_id: txData.wallet_id,
+          category_id: txData.category_id,
+          subcategory_id: txData.subcategory_id,
+          type: txData.type,
+          currency: txData.currency,
+          date: txData.date,
+          time: txData.time,
+          is_paid: txData.is_paid,
+          tax_amount: txData.tax_amount,
+          note: txData.note,
+          media_uri: txData.media_uri,
+          recurring_bill_id: txData.repeat_frequency ? prev.recurring_bill_id : null,
+        }
         : prev
     );
 
@@ -1925,7 +1925,153 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
           },
         ]}
       >
-        {/* IOU / Split Button (Top) */}
+        {/* Record Expense Button (Top) */}
+        <TouchableOpacity
+          style={[
+            styles.fabRecordBtn,
+            {
+              backgroundColor: theme.errorContainer,
+              borderColor: theme.error,
+            },
+            M3Elevation.level3,
+          ]}
+          onPress={() => handleOpenAddFlow('expense')}
+          activeOpacity={0.85}
+          accessibilityLabel="Record Expense"
+        >
+          <View style={styles.fabRecordBtnContent}>
+            <View style={styles.fabRecordHeaderRow}>
+              <MaterialCommunityIcons name="minus-circle" size={16} color={theme.error} />
+              <Text
+                style={[styles.fabRecordBtnTitle, { color: theme.onErrorContainer }]}
+                numberOfLines={1}
+              >
+                Record Expense
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.fabRecordBadge,
+                {
+                  backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.85)',
+                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.fabRecordBadgeText,
+                  { color: isDarkMode ? '#FCA5A5' : '#B91C1C' },
+                ]}
+                numberOfLines={1}
+              >
+                {expenseSwitcherProgress.hasTarget
+                  ? expenseSwitcherProgress.isOver
+                    ? `Over: ${formatCurrency(expenseSwitcherProgress.overBy, curr)}`
+                    : `Remain: ${formatCurrency(expenseSwitcherProgress.remaining, curr)}`
+                  : `Total: ${formatCurrency(effectiveSpent, curr)}`}
+              </Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+
+        {/* Record Income Button */}
+        <TouchableOpacity
+          style={[
+            styles.fabRecordBtn,
+            {
+              backgroundColor: theme.successContainer,
+              borderColor: theme.success,
+            },
+            M3Elevation.level3,
+          ]}
+          onPress={() => handleOpenAddFlow('income')}
+          activeOpacity={0.85}
+          accessibilityLabel="Record Income"
+        >
+          <View style={styles.fabRecordBtnContent}>
+            <View style={styles.fabRecordHeaderRow}>
+              <MaterialCommunityIcons name="plus-circle" size={16} color={theme.success} />
+              <Text
+                style={[styles.fabRecordBtnTitle, { color: theme.onSuccessContainer }]}
+                numberOfLines={1}
+              >
+                Record Income
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.fabRecordBadge,
+                {
+                  backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.85)',
+                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.fabRecordBadgeText,
+                  { color: isDarkMode ? '#6EE7B7' : '#047857' },
+                ]}
+                numberOfLines={1}
+              >
+                {incomeSwitcherProgress.hasGoal
+                  ? incomeSwitcherProgress.isReached
+                    ? '🎉 Reached'
+                    : `Remain: ${formatCurrency(incomeSwitcherProgress.remaining, curr)}`
+                  : `Total: ${formatCurrency(effectiveIncome, curr)}`}
+              </Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+
+        {/* Transfer Button */}
+        <TouchableOpacity
+          style={[
+            styles.fabRecordBtn,
+            {
+              backgroundColor: theme.primaryContainer,
+              borderColor: theme.primary,
+            },
+            M3Elevation.level3,
+          ]}
+          onPress={() => handleOpenAddFlow('transfer')}
+          activeOpacity={0.85}
+          accessibilityLabel="Record Transfer"
+        >
+          <View style={styles.fabRecordBtnContent}>
+            <View style={styles.fabRecordHeaderRow}>
+              <MaterialCommunityIcons name="swap-horizontal" size={16} color={theme.primary} />
+              <Text
+                style={[styles.fabRecordBtnTitle, { color: theme.onPrimaryContainer }]}
+                numberOfLines={1}
+              >
+                Transfer
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.fabRecordBadge,
+                {
+                  backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.85)',
+                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.fabRecordBadgeText,
+                  { color: theme.primary },
+                ]}
+                numberOfLines={1}
+              >
+                {wallets.length} wallets
+              </Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+
+        {/* IOU / Split Button (Bottom - Above FAB) */}
         <TouchableOpacity
           style={[
             styles.fabRecordBtn,
@@ -1979,152 +2125,6 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                   const openCount = debts.filter((d) => d.status === 'open').length;
                   return openCount > 0 ? `${openCount} open` : 'Loans & Splits';
                 })()}
-              </Text>
-            </View>
-          </View>
-        </TouchableOpacity>
-
-        {/* Transfer Button */}
-        <TouchableOpacity
-          style={[
-            styles.fabRecordBtn,
-            {
-              backgroundColor: theme.primaryContainer,
-              borderColor: theme.primary,
-            },
-            M3Elevation.level3,
-          ]}
-          onPress={() => handleOpenAddFlow('transfer')}
-          activeOpacity={0.85}
-          accessibilityLabel="Record Transfer"
-        >
-          <View style={styles.fabRecordBtnContent}>
-            <View style={styles.fabRecordHeaderRow}>
-              <MaterialCommunityIcons name="swap-horizontal" size={16} color={theme.primary} />
-              <Text
-                style={[styles.fabRecordBtnTitle, { color: theme.onPrimaryContainer }]}
-                numberOfLines={1}
-              >
-                Transfer
-              </Text>
-            </View>
-            <View
-              style={[
-                styles.fabRecordBadge,
-                {
-                  backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.85)',
-                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
-                },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.fabRecordBadgeText,
-                  { color: theme.primary },
-                ]}
-                numberOfLines={1}
-              >
-                {wallets.length} wallets
-              </Text>
-            </View>
-          </View>
-        </TouchableOpacity>
-
-        {/* Record Expense Button */}
-        <TouchableOpacity
-          style={[
-            styles.fabRecordBtn,
-            {
-              backgroundColor: theme.errorContainer,
-              borderColor: theme.error,
-            },
-            M3Elevation.level3,
-          ]}
-          onPress={() => handleOpenAddFlow('expense')}
-          activeOpacity={0.85}
-          accessibilityLabel="Record Expense"
-        >
-          <View style={styles.fabRecordBtnContent}>
-            <View style={styles.fabRecordHeaderRow}>
-              <MaterialCommunityIcons name="minus-circle" size={16} color={theme.error} />
-              <Text
-                style={[styles.fabRecordBtnTitle, { color: theme.onErrorContainer }]}
-                numberOfLines={1}
-              >
-                Record Expense
-              </Text>
-            </View>
-            <View
-              style={[
-                styles.fabRecordBadge,
-                {
-                  backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.85)',
-                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
-                },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.fabRecordBadgeText,
-                  { color: isDarkMode ? '#FCA5A5' : '#B91C1C' },
-                ]}
-                numberOfLines={1}
-              >
-                {expenseSwitcherProgress.hasTarget
-                  ? expenseSwitcherProgress.isOver
-                    ? `Over: ${formatCurrency(expenseSwitcherProgress.overBy, curr)}`
-                    : `Remain: ${formatCurrency(expenseSwitcherProgress.remaining, curr)}`
-                  : `Total: ${formatCurrency(effectiveSpent, curr)}`}
-              </Text>
-            </View>
-          </View>
-        </TouchableOpacity>
-
-        {/* Record Income Button (Bottom - Below Expense, Above FAB) */}
-        <TouchableOpacity
-          style={[
-            styles.fabRecordBtn,
-            {
-              backgroundColor: theme.successContainer,
-              borderColor: theme.success,
-            },
-            M3Elevation.level3,
-          ]}
-          onPress={() => handleOpenAddFlow('income')}
-          activeOpacity={0.85}
-          accessibilityLabel="Record Income"
-        >
-          <View style={styles.fabRecordBtnContent}>
-            <View style={styles.fabRecordHeaderRow}>
-              <MaterialCommunityIcons name="plus-circle" size={16} color={theme.success} />
-              <Text
-                style={[styles.fabRecordBtnTitle, { color: theme.onSuccessContainer }]}
-                numberOfLines={1}
-              >
-                Record Income
-              </Text>
-            </View>
-            <View
-              style={[
-                styles.fabRecordBadge,
-                {
-                  backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.85)',
-                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
-                },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.fabRecordBadgeText,
-                  { color: isDarkMode ? '#6EE7B7' : '#047857' },
-                ]}
-                numberOfLines={1}
-              >
-                {incomeSwitcherProgress.hasGoal
-                  ? incomeSwitcherProgress.isReached
-                    ? '🎉 Reached'
-                    : `Remain: ${formatCurrency(incomeSwitcherProgress.remaining, curr)}`
-                  : `Total: ${formatCurrency(effectiveIncome, curr)}`}
               </Text>
             </View>
           </View>

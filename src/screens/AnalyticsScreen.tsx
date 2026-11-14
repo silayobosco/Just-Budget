@@ -59,33 +59,33 @@ export const GradientProgressBar: React.FC<{
   borderRadius = 3,
   trackColor = 'rgba(0,0,0,0.06)',
 }) => {
-  const widthPct = Math.min(100, Math.max(2, percent));
-  const gradId = `grad-${color.replace(/[^a-zA-Z0-9]/g, '')}-${height}`;
+    const widthPct = Math.min(100, Math.max(2, percent));
+    const gradId = `grad-${color.replace(/[^a-zA-Z0-9]/g, '')}-${height}`;
 
-  return (
-    <View
-      style={{
-        height,
-        borderRadius,
-        overflow: 'hidden',
-        backgroundColor: trackColor,
-        width: '100%',
-      }}
-    >
-      <View style={{ width: `${widthPct}%`, height: '100%', borderRadius, overflow: 'hidden' }}>
-        <Svg width="100%" height={height}>
-          <Defs>
-            <LinearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="0%">
-              <Stop offset="0%" stopColor={color} stopOpacity={0.65} />
-              <Stop offset="100%" stopColor={color} stopOpacity={1} />
-            </LinearGradient>
-          </Defs>
-          <Rect x="0" y="0" width="100%" height={height} fill={`url(#${gradId})`} />
-        </Svg>
+    return (
+      <View
+        style={{
+          height,
+          borderRadius,
+          overflow: 'hidden',
+          backgroundColor: trackColor,
+          width: '100%',
+        }}
+      >
+        <View style={{ width: `${widthPct}%`, height: '100%', borderRadius, overflow: 'hidden' }}>
+          <Svg width="100%" height={height}>
+            <Defs>
+              <LinearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="0%">
+                <Stop offset="0%" stopColor={color} stopOpacity={0.65} />
+                <Stop offset="100%" stopColor={color} stopOpacity={1} />
+              </LinearGradient>
+            </Defs>
+            <Rect x="0" y="0" width="100%" height={height} fill={`url(#${gradId})`} />
+          </Svg>
+        </View>
       </View>
-    </View>
-  );
-};
+    );
+  };
 
 export interface DonutSlice {
   name: string;
@@ -115,223 +115,223 @@ export const AdvancedDonutChart: React.FC<{
   isZoomed = false,
   theme,
 }) => {
-  const chartWidth = Math.min(350, Dimensions.get('window').width - 32);
-  const chartHeight = 270;
-  const cx = chartWidth / 2;
-  const cy = chartHeight / 2;
-  const outerRadius = 76;
-  const innerRadius = 46;
+    const chartWidth = Math.min(350, Dimensions.get('window').width - 32);
+    const chartHeight = 270;
+    const cx = chartWidth / 2;
+    const cy = chartHeight / 2;
+    const outerRadius = 76;
+    const innerRadius = 46;
 
-  if (total <= 0 || slices.length === 0) {
+    if (total <= 0 || slices.length === 0) {
+      return (
+        <View style={{ width: chartWidth, height: chartHeight, alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+          <Svg width={chartWidth} height={chartHeight}>
+            <Circle
+              cx={cx}
+              cy={cy}
+              r={outerRadius - 15}
+              stroke={theme.divider}
+              strokeWidth={30}
+              fill="none"
+            />
+          </Svg>
+          <View pointerEvents="none" style={[styles.pieCenterLabel, { width: innerRadius * 1.8, height: innerRadius * 1.8 }]}>
+            <Text style={[styles.pieCenterSub, { color: theme.onSurfaceVariant }]}>No Data</Text>
+          </View>
+        </View>
+      );
+    }
+
+    // Pre-calculate angles for each slice
+    let cumulativeAngle = -Math.PI / 2;
+    const sliceAngles = slices.map((slice) => {
+      const angle = (slice.amount / total) * (2 * Math.PI);
+      const start = cumulativeAngle;
+      const end = cumulativeAngle + angle;
+      const mid = (start + end) / 2;
+      cumulativeAngle = end;
+      return { slice, angle, start, end, mid };
+    });
+
     return (
       <View style={{ width: chartWidth, height: chartHeight, alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
         <Svg width={chartWidth} height={chartHeight}>
-          <Circle
-            cx={cx}
-            cy={cy}
-            r={outerRadius - 15}
-            stroke={theme.divider}
-            strokeWidth={30}
-            fill="none"
-          />
-        </Svg>
-        <View pointerEvents="none" style={[styles.pieCenterLabel, { width: innerRadius * 1.8, height: innerRadius * 1.8 }]}>
-          <Text style={[styles.pieCenterSub, { color: theme.onSurfaceVariant }]}>No Data</Text>
-        </View>
-      </View>
-    );
-  }
+          {/* Slices Paths */}
+          <G>
+            {sliceAngles.map((item, idx) => {
+              const { slice, angle, start, end, mid } = item;
+              const isPopped = Boolean(slice.isPopped);
+              const popDistance = isPopped ? 8 : 0;
+              const curOuterR = isPopped ? outerRadius + 8 : outerRadius;
+              const curInnerR = innerRadius;
 
-  // Pre-calculate angles for each slice
-  let cumulativeAngle = -Math.PI / 2;
-  const sliceAngles = slices.map((slice) => {
-    const angle = (slice.amount / total) * (2 * Math.PI);
-    const start = cumulativeAngle;
-    const end = cumulativeAngle + angle;
-    const mid = (start + end) / 2;
-    cumulativeAngle = end;
-    return { slice, angle, start, end, mid };
-  });
+              const sliceCx = cx + popDistance * Math.cos(mid);
+              const sliceCy = cy + popDistance * Math.sin(mid);
 
-  return (
-    <View style={{ width: chartWidth, height: chartHeight, alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-      <Svg width={chartWidth} height={chartHeight}>
-        {/* Slices Paths */}
-        <G>
-          {sliceAngles.map((item, idx) => {
-            const { slice, angle, start, end, mid } = item;
-            const isPopped = Boolean(slice.isPopped);
-            const popDistance = isPopped ? 8 : 0;
-            const curOuterR = isPopped ? outerRadius + 8 : outerRadius;
-            const curInnerR = innerRadius;
+              if (slices.length === 1 || slice.percent >= 99) {
+                return (
+                  <Circle
+                    key={idx}
+                    cx={sliceCx}
+                    cy={sliceCy}
+                    r={(curOuterR + curInnerR) / 2}
+                    stroke={slice.color}
+                    strokeWidth={curOuterR - curInnerR}
+                    fill="none"
+                    onPress={() => slice.id && onSlicePress?.(slice.id)}
+                  />
+                );
+              }
 
-            const sliceCx = cx + popDistance * Math.cos(mid);
-            const sliceCy = cy + popDistance * Math.sin(mid);
+              const x1 = sliceCx + curOuterR * Math.cos(start);
+              const y1 = sliceCy + curOuterR * Math.sin(start);
+              const x2 = sliceCx + curOuterR * Math.cos(end);
+              const y2 = sliceCy + curOuterR * Math.sin(end);
 
-            if (slices.length === 1 || slice.percent >= 99) {
+              const x3 = sliceCx + curInnerR * Math.cos(end);
+              const y3 = sliceCy + curInnerR * Math.sin(end);
+              const x4 = sliceCx + curInnerR * Math.cos(start);
+              const y4 = sliceCy + curInnerR * Math.sin(start);
+
+              const largeArc = angle > Math.PI ? 1 : 0;
+              const pathData = `M ${x1} ${y1} A ${curOuterR} ${curOuterR} 0 ${largeArc} 1 ${x2} ${y2} L ${x3} ${y3} A ${curInnerR} ${curInnerR} 0 ${largeArc} 0 ${x4} ${y4} Z`;
+
               return (
-                <Circle
+                <Path
                   key={idx}
-                  cx={sliceCx}
-                  cy={sliceCy}
-                  r={(curOuterR + curInnerR) / 2}
-                  stroke={slice.color}
-                  strokeWidth={curOuterR - curInnerR}
-                  fill="none"
+                  d={pathData}
+                  fill={slice.color}
+                  stroke={theme.cardBg}
+                  strokeWidth={1.5}
                   onPress={() => slice.id && onSlicePress?.(slice.id)}
                 />
               );
-            }
+            })}
+          </G>
 
-            const x1 = sliceCx + curOuterR * Math.cos(start);
-            const y1 = sliceCy + curOuterR * Math.sin(start);
-            const x2 = sliceCx + curOuterR * Math.cos(end);
-            const y2 = sliceCy + curOuterR * Math.sin(end);
+          {/* Slice Inside Percentages */}
+          <G pointerEvents="none">
+            {sliceAngles.map((item, idx) => {
+              const { slice, angle, mid } = item;
+              if (slice.percent < 3 || angle < 0.2) return null;
 
-            const x3 = sliceCx + curInnerR * Math.cos(end);
-            const y3 = sliceCy + curInnerR * Math.sin(end);
-            const x4 = sliceCx + curInnerR * Math.cos(start);
-            const y4 = sliceCy + curInnerR * Math.sin(start);
+              const isPopped = Boolean(slice.isPopped);
+              const popDistance = isPopped ? 8 : 0;
+              const curOuterR = isPopped ? outerRadius + 8 : outerRadius;
+              const rMid = (innerRadius + curOuterR) / 2;
 
-            const largeArc = angle > Math.PI ? 1 : 0;
-            const pathData = `M ${x1} ${y1} A ${curOuterR} ${curOuterR} 0 ${largeArc} 1 ${x2} ${y2} L ${x3} ${y3} A ${curInnerR} ${curInnerR} 0 ${largeArc} 0 ${x4} ${y4} Z`;
+              const tx = cx + popDistance * Math.cos(mid) + rMid * Math.cos(mid);
+              const ty = cy + popDistance * Math.sin(mid) + rMid * Math.sin(mid);
 
-            return (
-              <Path
-                key={idx}
-                d={pathData}
-                fill={slice.color}
-                stroke={theme.cardBg}
-                strokeWidth={1.5}
-                onPress={() => slice.id && onSlicePress?.(slice.id)}
-              />
-            );
-          })}
-        </G>
-
-        {/* Slice Inside Percentages */}
-        <G pointerEvents="none">
-          {sliceAngles.map((item, idx) => {
-            const { slice, angle, mid } = item;
-            if (slice.percent < 3 || angle < 0.2) return null;
-
-            const isPopped = Boolean(slice.isPopped);
-            const popDistance = isPopped ? 8 : 0;
-            const curOuterR = isPopped ? outerRadius + 8 : outerRadius;
-            const rMid = (innerRadius + curOuterR) / 2;
-
-            const tx = cx + popDistance * Math.cos(mid) + rMid * Math.cos(mid);
-            const ty = cy + popDistance * Math.sin(mid) + rMid * Math.sin(mid);
-
-            return (
-              <SvgText
-                key={`pct-${idx}`}
-                x={tx}
-                y={ty + 3}
-                fill="#FFFFFF"
-                fontSize={slice.percent >= 10 ? 9.5 : 8.5}
-                fontWeight="800"
-                textAnchor="middle"
-              >
-                {`${slice.percent}%`}
-              </SvgText>
-            );
-          })}
-        </G>
-
-        {/* Leader Lines & Callout Labels */}
-        <G pointerEvents="none">
-          {sliceAngles.slice(0, 8).map((item, idx) => {
-            const { slice, mid } = item;
-            if (slice.percent < 1.5) return null;
-
-            const isPopped = Boolean(slice.isPopped);
-            const popDistance = isPopped ? 8 : 0;
-            const curOuterR = isPopped ? outerRadius + 8 : outerRadius;
-
-            const sliceCx = cx + popDistance * Math.cos(mid);
-            const sliceCy = cy + popDistance * Math.sin(mid);
-
-            const startR = curOuterR + 3;
-            const elbowR = startR + 13;
-
-            const pStartX = sliceCx + startR * Math.cos(mid);
-            const pStartY = sliceCy + startR * Math.sin(mid);
-            const pElbowX = sliceCx + elbowR * Math.cos(mid);
-            const pElbowY = sliceCy + elbowR * Math.sin(mid);
-
-            const isRight = Math.cos(mid) >= 0;
-            const horizontalLen = 14;
-            const pEndX = pElbowX + (isRight ? horizontalLen : -horizontalLen);
-            const pEndY = pElbowY;
-
-            const labelX = pEndX + (isRight ? 4 : -4);
-            const labelY = pEndY + 3.5;
-            const cleanName = slice.name.length > 12 ? slice.name.slice(0, 11) + '…' : slice.name;
-
-            return (
-              <G key={`leader-${idx}`}>
-                <Path
-                  d={`M ${pStartX} ${pStartY} L ${pElbowX} ${pElbowY} L ${pEndX} ${pEndY}`}
-                  stroke={slice.color}
-                  strokeWidth={1.2}
-                  fill="none"
-                  opacity={0.85}
-                />
+              return (
                 <SvgText
-                  x={labelX}
-                  y={labelY}
-                  fill={theme.onSurface}
-                  fontSize={10.5}
-                  fontWeight="700"
-                  textAnchor={isRight ? 'start' : 'end'}
+                  key={`pct-${idx}`}
+                  x={tx}
+                  y={ty + 3}
+                  fill="#FFFFFF"
+                  fontSize={slice.percent >= 10 ? 9.5 : 8.5}
+                  fontWeight="800"
+                  textAnchor="middle"
                 >
-                  {cleanName}
+                  {`${slice.percent}%`}
                 </SvgText>
-              </G>
-            );
-          })}
-        </G>
-      </Svg>
+              );
+            })}
+          </G>
 
-      {/* Center Circle Content */}
-      <View
-        pointerEvents="box-none"
-        style={[
-          styles.pieCenterLabel,
-          {
-            width: innerRadius * 1.8,
-            height: innerRadius * 1.8,
-            borderRadius: (innerRadius * 1.8) / 2,
-            backgroundColor: theme.cardBg,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 1 },
-            shadowOpacity: 0.1,
-            shadowRadius: 2,
-            elevation: 2,
-          },
-        ]}
-      >
-        <Text style={[styles.pieCenterSub, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
-          {centerSubtitle}
-        </Text>
-        <Text style={[styles.pieCenterMain, { color: theme.onSurface }]} numberOfLines={1}>
-          {centerTitle}
-        </Text>
-        {isZoomed && onResetPress && (
-          <TouchableOpacity
-            style={[styles.unzoomPill, { backgroundColor: theme.primaryContainer }]}
-            onPress={onResetPress}
-            activeOpacity={0.7}
-          >
-            <MaterialCommunityIcons name="arrow-left" size={11} color={theme.onPrimaryContainer} />
-            <Text style={[styles.unzoomPillText, { color: theme.onPrimaryContainer }]}>All</Text>
-          </TouchableOpacity>
-        )}
+          {/* Leader Lines & Callout Labels */}
+          <G pointerEvents="none">
+            {sliceAngles.slice(0, 8).map((item, idx) => {
+              const { slice, mid } = item;
+              if (slice.percent < 1.5) return null;
+
+              const isPopped = Boolean(slice.isPopped);
+              const popDistance = isPopped ? 8 : 0;
+              const curOuterR = isPopped ? outerRadius + 8 : outerRadius;
+
+              const sliceCx = cx + popDistance * Math.cos(mid);
+              const sliceCy = cy + popDistance * Math.sin(mid);
+
+              const startR = curOuterR + 3;
+              const elbowR = startR + 13;
+
+              const pStartX = sliceCx + startR * Math.cos(mid);
+              const pStartY = sliceCy + startR * Math.sin(mid);
+              const pElbowX = sliceCx + elbowR * Math.cos(mid);
+              const pElbowY = sliceCy + elbowR * Math.sin(mid);
+
+              const isRight = Math.cos(mid) >= 0;
+              const horizontalLen = 14;
+              const pEndX = pElbowX + (isRight ? horizontalLen : -horizontalLen);
+              const pEndY = pElbowY;
+
+              const labelX = pEndX + (isRight ? 4 : -4);
+              const labelY = pEndY + 3.5;
+              const cleanName = slice.name.length > 12 ? slice.name.slice(0, 11) + '…' : slice.name;
+
+              return (
+                <G key={`leader-${idx}`}>
+                  <Path
+                    d={`M ${pStartX} ${pStartY} L ${pElbowX} ${pElbowY} L ${pEndX} ${pEndY}`}
+                    stroke={slice.color}
+                    strokeWidth={1.2}
+                    fill="none"
+                    opacity={0.85}
+                  />
+                  <SvgText
+                    x={labelX}
+                    y={labelY}
+                    fill={theme.onSurface}
+                    fontSize={10.5}
+                    fontWeight="700"
+                    textAnchor={isRight ? 'start' : 'end'}
+                  >
+                    {cleanName}
+                  </SvgText>
+                </G>
+              );
+            })}
+          </G>
+        </Svg>
+
+        {/* Center Circle Content */}
+        <View
+          pointerEvents="box-none"
+          style={[
+            styles.pieCenterLabel,
+            {
+              width: innerRadius * 1.8,
+              height: innerRadius * 1.8,
+              borderRadius: (innerRadius * 1.8) / 2,
+              backgroundColor: theme.cardBg,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 1 },
+              shadowOpacity: 0.1,
+              shadowRadius: 2,
+              elevation: 2,
+            },
+          ]}
+        >
+          <Text style={[styles.pieCenterSub, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
+            {centerSubtitle}
+          </Text>
+          <Text style={[styles.pieCenterMain, { color: theme.onSurface }]} numberOfLines={1}>
+            {centerTitle}
+          </Text>
+          {isZoomed && onResetPress && (
+            <TouchableOpacity
+              style={[styles.unzoomPill, { backgroundColor: theme.primaryContainer }]}
+              onPress={onResetPress}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons name="arrow-left" size={11} color={theme.onPrimaryContainer} />
+              <Text style={[styles.unzoomPillText, { color: theme.onPrimaryContainer }]}>All</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
-    </View>
-  );
-};
+    );
+  };
 
 export const DonutPieChart = AdvancedDonutChart;
 
@@ -2779,7 +2779,153 @@ export const AnalyticsScreen: React.FC = () => {
           },
         ]}
       >
-        {/* IOU / Split Button (Top) */}
+        {/* Record Expense Button (Top) */}
+        <TouchableOpacity
+          style={[
+            styles.fabRecordBtn,
+            {
+              backgroundColor: theme.errorContainer,
+              borderColor: theme.error,
+            },
+            M3Elevation.level3,
+          ]}
+          onPress={() => handleOpenAddFlow('expense')}
+          activeOpacity={0.85}
+          accessibilityLabel="Record Expense"
+        >
+          <View style={styles.fabRecordBtnContent}>
+            <View style={styles.fabRecordHeaderRow}>
+              <MaterialCommunityIcons name="minus-circle" size={16} color={theme.error} />
+              <Text
+                style={[styles.fabRecordBtnTitle, { color: theme.onErrorContainer }]}
+                numberOfLines={1}
+              >
+                Record Expense
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.fabRecordBadge,
+                {
+                  backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.85)',
+                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.fabRecordBadgeText,
+                  { color: isDarkMode ? '#FCA5A5' : '#B91C1C' },
+                ]}
+                numberOfLines={1}
+              >
+                {expenseSwitcherProgress.hasTarget
+                  ? expenseSwitcherProgress.isOver
+                    ? `Over: ${formatCurrency(expenseSwitcherProgress.overBy, curr)}`
+                    : `Remain: ${formatCurrency(expenseSwitcherProgress.remaining, curr)}`
+                  : `Total: ${formatCurrency(spentInCycle, curr)}`}
+              </Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+
+        {/* Record Income Button */}
+        <TouchableOpacity
+          style={[
+            styles.fabRecordBtn,
+            {
+              backgroundColor: theme.successContainer,
+              borderColor: theme.success,
+            },
+            M3Elevation.level3,
+          ]}
+          onPress={() => handleOpenAddFlow('income')}
+          activeOpacity={0.85}
+          accessibilityLabel="Record Income"
+        >
+          <View style={styles.fabRecordBtnContent}>
+            <View style={styles.fabRecordHeaderRow}>
+              <MaterialCommunityIcons name="plus-circle" size={16} color={theme.success} />
+              <Text
+                style={[styles.fabRecordBtnTitle, { color: theme.onSuccessContainer }]}
+                numberOfLines={1}
+              >
+                Record Income
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.fabRecordBadge,
+                {
+                  backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.85)',
+                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.fabRecordBadgeText,
+                  { color: isDarkMode ? '#6EE7B7' : '#047857' },
+                ]}
+                numberOfLines={1}
+              >
+                {incomeSwitcherProgress.hasGoal
+                  ? incomeSwitcherProgress.isReached
+                    ? '🎉 Reached'
+                    : `Remain: ${formatCurrency(incomeSwitcherProgress.remaining, curr)}`
+                  : `Total: ${formatCurrency(incomeInCycle, curr)}`}
+              </Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+
+        {/* Transfer Button */}
+        <TouchableOpacity
+          style={[
+            styles.fabRecordBtn,
+            {
+              backgroundColor: theme.primaryContainer,
+              borderColor: theme.primary,
+            },
+            M3Elevation.level3,
+          ]}
+          onPress={() => handleOpenAddFlow('transfer')}
+          activeOpacity={0.85}
+          accessibilityLabel="Record Transfer"
+        >
+          <View style={styles.fabRecordBtnContent}>
+            <View style={styles.fabRecordHeaderRow}>
+              <MaterialCommunityIcons name="swap-horizontal" size={16} color={theme.primary} />
+              <Text
+                style={[styles.fabRecordBtnTitle, { color: theme.onPrimaryContainer }]}
+                numberOfLines={1}
+              >
+                Transfer
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.fabRecordBadge,
+                {
+                  backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.85)',
+                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.fabRecordBadgeText,
+                  { color: theme.primary },
+                ]}
+                numberOfLines={1}
+              >
+                {wallets.length} wallets
+              </Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+
+        {/* IOU / Split Button (Bottom - Above FAB) */}
         <TouchableOpacity
           style={[
             styles.fabRecordBtn,
@@ -2833,152 +2979,6 @@ export const AnalyticsScreen: React.FC = () => {
                   const openCount = debts.filter((d) => d.status === 'open').length;
                   return openCount > 0 ? `${openCount} open` : 'Loans & Splits';
                 })()}
-              </Text>
-            </View>
-          </View>
-        </TouchableOpacity>
-
-        {/* Transfer Button */}
-        <TouchableOpacity
-          style={[
-            styles.fabRecordBtn,
-            {
-              backgroundColor: theme.primaryContainer,
-              borderColor: theme.primary,
-            },
-            M3Elevation.level3,
-          ]}
-          onPress={() => handleOpenAddFlow('transfer')}
-          activeOpacity={0.85}
-          accessibilityLabel="Record Transfer"
-        >
-          <View style={styles.fabRecordBtnContent}>
-            <View style={styles.fabRecordHeaderRow}>
-              <MaterialCommunityIcons name="swap-horizontal" size={16} color={theme.primary} />
-              <Text
-                style={[styles.fabRecordBtnTitle, { color: theme.onPrimaryContainer }]}
-                numberOfLines={1}
-              >
-                Transfer
-              </Text>
-            </View>
-            <View
-              style={[
-                styles.fabRecordBadge,
-                {
-                  backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.85)',
-                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
-                },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.fabRecordBadgeText,
-                  { color: theme.primary },
-                ]}
-                numberOfLines={1}
-              >
-                {wallets.length} wallets
-              </Text>
-            </View>
-          </View>
-        </TouchableOpacity>
-
-        {/* Record Expense Button */}
-        <TouchableOpacity
-          style={[
-            styles.fabRecordBtn,
-            {
-              backgroundColor: theme.errorContainer,
-              borderColor: theme.error,
-            },
-            M3Elevation.level3,
-          ]}
-          onPress={() => handleOpenAddFlow('expense')}
-          activeOpacity={0.85}
-          accessibilityLabel="Record Expense"
-        >
-          <View style={styles.fabRecordBtnContent}>
-            <View style={styles.fabRecordHeaderRow}>
-              <MaterialCommunityIcons name="minus-circle" size={16} color={theme.error} />
-              <Text
-                style={[styles.fabRecordBtnTitle, { color: theme.onErrorContainer }]}
-                numberOfLines={1}
-              >
-                Record Expense
-              </Text>
-            </View>
-            <View
-              style={[
-                styles.fabRecordBadge,
-                {
-                  backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.85)',
-                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
-                },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.fabRecordBadgeText,
-                  { color: isDarkMode ? '#FCA5A5' : '#B91C1C' },
-                ]}
-                numberOfLines={1}
-              >
-                {expenseSwitcherProgress.hasTarget
-                  ? expenseSwitcherProgress.isOver
-                    ? `Over: ${formatCurrency(expenseSwitcherProgress.overBy, curr)}`
-                    : `Remain: ${formatCurrency(expenseSwitcherProgress.remaining, curr)}`
-                  : `Total: ${formatCurrency(spentInCycle, curr)}`}
-              </Text>
-            </View>
-          </View>
-        </TouchableOpacity>
-
-        {/* Record Income Button (Bottom - Below Expense, Above FAB) */}
-        <TouchableOpacity
-          style={[
-            styles.fabRecordBtn,
-            {
-              backgroundColor: theme.successContainer,
-              borderColor: theme.success,
-            },
-            M3Elevation.level3,
-          ]}
-          onPress={() => handleOpenAddFlow('income')}
-          activeOpacity={0.85}
-          accessibilityLabel="Record Income"
-        >
-          <View style={styles.fabRecordBtnContent}>
-            <View style={styles.fabRecordHeaderRow}>
-              <MaterialCommunityIcons name="plus-circle" size={16} color={theme.success} />
-              <Text
-                style={[styles.fabRecordBtnTitle, { color: theme.onSuccessContainer }]}
-                numberOfLines={1}
-              >
-                Record Income
-              </Text>
-            </View>
-            <View
-              style={[
-                styles.fabRecordBadge,
-                {
-                  backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.85)',
-                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
-                },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.fabRecordBadgeText,
-                  { color: isDarkMode ? '#6EE7B7' : '#047857' },
-                ]}
-                numberOfLines={1}
-              >
-                {incomeSwitcherProgress.hasGoal
-                  ? incomeSwitcherProgress.isReached
-                    ? '🎉 Reached'
-                    : `Remain: ${formatCurrency(incomeSwitcherProgress.remaining, curr)}`
-                  : `Total: ${formatCurrency(incomeInCycle, curr)}`}
               </Text>
             </View>
           </View>
