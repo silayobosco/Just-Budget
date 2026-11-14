@@ -253,19 +253,26 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
     setPaymentWalletId(item.wallet_id || wallets[0]?.id || '');
   };
 
-  const logPaymentToWallet = async (debt: DebtItem, paidAmt: number, targetWalletId: string) => {
+  const logPaymentToWallet = async (
+    debt: DebtItem,
+    paidAmt: number,
+    targetWalletId: string,
+    tipAmt?: number
+  ) => {
     if (!targetWalletId || paidAmt <= 0) return;
+    const curr = debt.currency || baseCurr;
+    const tipSuffix = tipAmt && tipAmt > 0.009 ? ` • incl. ${formatCurrency(tipAmt, curr)} tip` : '';
     await addTransaction({
       wallet_id: targetWalletId,
       type: debt.type === 'lent' ? 'income' : 'expense',
       amount: paidAmt,
-      currency: debt.currency || baseCurr,
+      currency: curr,
       date: new Date().toISOString().slice(0, 10),
       is_paid: true,
       note:
         debt.type === 'lent'
-          ? `IOU Repaid: ${debt.person_name}${debt.note ? ` (${debt.note})` : ''}`
-          : `IOU Paid: ${debt.person_name}${debt.note ? ` (${debt.note})` : ''}`,
+          ? `IOU Repaid: ${debt.person_name}${debt.note ? ` (${debt.note})` : ''}${tipSuffix}`
+          : `IOU Paid: ${debt.person_name}${debt.note ? ` (${debt.note})` : ''}${tipSuffix}`,
     });
   };
 
@@ -298,16 +305,16 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
     if (unabsorbedExcess > 0.009) {
       const creditMsg =
         payingDebt.type === 'lent'
-          ? `${payingDebt.person_name} overpaid by ${formatCurrency(unabsorbedExcess, curr)}. Record this change as an amount you owe them?`
-          : `You overpaid ${payingDebt.person_name} by ${formatCurrency(unabsorbedExcess, curr)}. Record this change as an amount they owe you?`;
+          ? `${payingDebt.person_name} overpaid by ${formatCurrency(unabsorbedExcess, curr)}. Claim the extra as a tip or record it as change you owe them?`
+          : `You overpaid ${payingDebt.person_name} by ${formatCurrency(unabsorbedExcess, curr)}. Treat the extra as a tip or record it as credit they owe you?`;
 
       Alert.alert('Overpayment Detected', creditMsg, [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Settle Only',
+          text: payingDebt.type === 'lent' ? 'Claim as Tip' : 'Treat as Tip',
           onPress: async () => {
             await recordDebtPayment(activeDebt.id, parsed, { recordExcessAsCredit: false });
-            if (shouldLog) await logPaymentToWallet(activeDebt, parsed, chosenWallet);
+            if (shouldLog) await logPaymentToWallet(activeDebt, parsed, chosenWallet, unabsorbedExcess);
             setPayingDebt(null);
             setPaymentStr('');
           },
