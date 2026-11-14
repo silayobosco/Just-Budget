@@ -42,6 +42,7 @@ interface TransactionDetailsModalProps {
   initialNote?: string;
   initialMediaUri?: string | null;
   initialIsPaid?: boolean;
+  initialTaxAmount?: number;
   initialCurrency?: string;
   isEditing?: boolean;
   initialRepeatEnabled?: boolean;
@@ -67,6 +68,7 @@ interface TransactionDetailsModalProps {
     date: string;
     time?: string;
     is_paid: boolean;
+    tax_amount?: number;
     note?: string;
     media_uri?: string;
     repeat_frequency?: BillFrequency;
@@ -95,6 +97,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   initialNote,
   initialMediaUri,
   initialIsPaid,
+  initialTaxAmount,
   initialCurrency,
   isEditing,
   initialRepeatEnabled,
@@ -122,6 +125,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   const bottomScrollPadding = Math.max(360, Math.round(windowHeight * 0.52)) + bottomInset;
   const [currentType, setCurrentType] = useState<TransactionType>(defaultTxType);
   const [amountStr, setAmountStr] = useState<string>('');
+  const [taxAmountStr, setTaxAmountStr] = useState<string>('');
   const amountInputRef = useRef<any>(null);
   const [categorySheetVisible, setCategorySheetVisible] = useState<boolean>(false);
   const [keyboardHeight, setKeyboardHeight] = useState<number>(0);
@@ -280,6 +284,11 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
     if (visible) {
       setCurrentType(defaultTxType);
       setAmountStr(initialAmount > 0 ? formatTypingNumber(initialAmount.toString()) : '');
+      setTaxAmountStr(
+        initialTaxAmount && initialTaxAmount > 0
+          ? formatTypingNumber(initialTaxAmount.toString())
+          : ''
+      );
       const initFrom = initialWalletId || (wallets.length > 0 ? wallets[0].id : '');
       setSelectedWalletId(initFrom);
       const initTo =
@@ -343,6 +352,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
     initialNote,
     initialMediaUri,
     initialIsPaid,
+    initialTaxAmount,
     initialCurrency,
     initialRepeatEnabled,
     initialRepeatFrequency,
@@ -465,6 +475,18 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       Alert.alert('Invalid Amount', 'Please enter a valid amount greater than 0');
       return;
     }
+    const parsedTax = taxAmountStr.trim() ? parseCleanNumber(taxAmountStr) : 0;
+    if (isNaN(parsedTax) || parsedTax < 0) {
+      Alert.alert('Invalid Tax / Fee', 'Please enter a valid tax or fee amount (0 or greater).');
+      return;
+    }
+    if (parsedTax > parsed) {
+      Alert.alert(
+        'Tax / Fee Exceeds Total',
+        'The included tax or fee cannot be greater than the total transaction amount.'
+      );
+      return;
+    }
     if (!selectedWalletId && wallets.length === 0) {
       Alert.alert('No Wallet', 'Please create a wallet first');
       return;
@@ -491,6 +513,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       date: dateStr,
       time: timeStr,
       is_paid: isPaid,
+      tax_amount: parsedTax > 0 ? parsedTax : 0,
       note: note.trim() || undefined,
       media_uri: mediaUri || undefined,
       repeat_frequency: repeatEnabled ? repeatFrequency : undefined,
@@ -885,6 +908,47 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
                   {isPaid ? 'Paid' : 'Unpaid'}
                 </Text>
               </TouchableOpacity>
+            </View>
+
+            {/* Optional Tax / Fee Included */}
+            <View style={[styles.taxRow, { borderTopColor: theme.divider }]}>
+              <MaterialCommunityIcons
+                name="percent-outline"
+                size={16}
+                color={theme.onSurfaceVariant}
+              />
+              <Text style={[styles.taxLabel, { color: theme.onSurfaceVariant }]}>
+                Tax / Fee (optional)
+              </Text>
+              <TextInput
+                style={[
+                  styles.taxInput,
+                  {
+                    color: theme.onSurface,
+                    backgroundColor: theme.pillBg,
+                    borderColor: theme.divider,
+                  },
+                ]}
+                placeholder="0"
+                placeholderTextColor={theme.onSurfaceVariant}
+                keyboardType={Platform.OS === 'android' ? 'numeric' : 'decimal-pad'}
+                value={taxAmountStr}
+                onChangeText={(text) => setTaxAmountStr(formatTypingNumber(text))}
+              />
+              {(() => {
+                const totalVal = parseCleanNumber(amountStr);
+                const taxVal = taxAmountStr.trim() ? parseCleanNumber(taxAmountStr) : 0;
+                if (!isNaN(totalVal) && !isNaN(taxVal) && taxVal > 0 && totalVal >= taxVal) {
+                  return (
+                    <View style={[styles.taxNetBadge, { backgroundColor: theme.primaryContainer }]}>
+                      <Text style={[styles.taxNetText, { color: theme.onPrimaryContainer }]}>
+                        Net {(totalVal - taxVal).toLocaleString()}
+                      </Text>
+                    </View>
+                  );
+                }
+                return null;
+              })()}
             </View>
           </View>
 
@@ -1717,6 +1781,39 @@ const styles = StyleSheet.create({
   },
   paidChipText: {
     fontSize: 12.5,
+    fontWeight: '700',
+  },
+  taxRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    gap: 8,
+  },
+  taxLabel: {
+    fontSize: 12.5,
+    fontWeight: '600',
+  },
+  taxInput: {
+    minWidth: 74,
+    maxWidth: 110,
+    fontSize: 13.5,
+    fontWeight: '700',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: M3Shape.small,
+    borderWidth: 1,
+    textAlign: 'right',
+  },
+  taxNetBadge: {
+    marginLeft: 'auto',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: M3Shape.small,
+  },
+  taxNetText: {
+    fontSize: 11,
     fontWeight: '700',
   },
   dateTimeChipsContainer: {

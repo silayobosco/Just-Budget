@@ -341,6 +341,23 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
               </View>
             </View>
 
+            {/* Tax / Fee Row (optional) */}
+            {Boolean(transaction.tax_amount && transaction.tax_amount > 0) && (
+              <View style={[styles.detailRow, { borderBottomColor: theme.divider }]}>
+                <View style={[styles.detailIconCircle, { backgroundColor: theme.pillBg }]}>
+                  <MaterialCommunityIcons name="percent-outline" size={18} color={theme.primary} />
+                </View>
+                <View style={styles.detailCol}>
+                  <Text style={[styles.detailLabel, { color: theme.onSurfaceVariant }]}>Tax / Fee Included</Text>
+                  <Text style={[styles.detailValue, { color: theme.onSurface }]}>
+                    {transaction.currency} {(transaction.tax_amount || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    {'  •  '}
+                    Net: {transaction.currency} {Math.max(0, transaction.amount - (transaction.tax_amount || 0)).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  </Text>
+                </View>
+              </View>
+            )}
+
             {/* Recurring Status Row */}
             {Boolean(linkedBill) && (
               <View style={[styles.detailRow, { borderBottomColor: transaction.note || transaction.media_uri ? theme.divider : 'transparent' }]}>

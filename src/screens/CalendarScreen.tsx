@@ -155,6 +155,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     date: string;
     time?: string;
     is_paid: boolean;
+    tax_amount?: number;
     note?: string;
     media_uri?: string;
     repeat_frequency?: BillFrequency;
@@ -175,6 +176,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
       date: txData.date,
       time: txData.time,
       is_paid: txData.is_paid,
+      tax_amount: txData.tax_amount,
       note: txData.note,
       media_uri: txData.media_uri,
       repeat_frequency: txData.repeat_frequency,
@@ -233,6 +235,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     date: string;
     time?: string;
     is_paid: boolean;
+    tax_amount?: number;
     note?: string;
     media_uri?: string;
     repeat_frequency?: BillFrequency;
@@ -256,6 +259,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
       date: txData.date,
       time: txData.time,
       is_paid: txData.is_paid,
+      tax_amount: txData.tax_amount,
       note: txData.note,
       media_uri: txData.media_uri,
       recurring_bill_id: editingTransaction.recurring_bill_id,
@@ -281,6 +285,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
             date: txData.date,
             time: txData.time,
             is_paid: txData.is_paid,
+            tax_amount: txData.tax_amount,
             note: txData.note,
             media_uri: txData.media_uri,
           }
@@ -1866,6 +1871,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
           initialNote={editingTransaction?.note}
           initialMediaUri={editingTransaction?.media_uri}
           initialIsPaid={editingTransaction?.is_paid}
+          initialTaxAmount={editingTransaction?.tax_amount || 0}
           initialCurrency={editingTransaction?.currency}
           isEditing={true}
           initialRepeatEnabled={Boolean(editingLinkedBill)}

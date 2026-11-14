@@ -558,6 +558,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
     date: string;
     time?: string;
     is_paid: boolean;
+    tax_amount?: number;
     note?: string;
     media_uri?: string;
     repeat_frequency?: BillFrequency;
@@ -578,6 +579,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
       date: txData.date,
       time: txData.time,
       is_paid: txData.is_paid,
+      tax_amount: txData.tax_amount,
       note: txData.note,
       media_uri: txData.media_uri,
       repeat_frequency: txData.repeat_frequency,

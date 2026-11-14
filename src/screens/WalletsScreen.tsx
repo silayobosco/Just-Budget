@@ -19,6 +19,7 @@ import { Wallet, Transaction, BillFrequency, RecurrenceEndType } from '../types'
 import { formatCurrency, formatTypingNumber, parseCleanNumber } from '../utils/format';
 import { TransactionDetailModal } from '../components/TransactionDetailModal';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
+import { DebtsModal } from '../components/DebtsModal';
 
 export const WalletsScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
@@ -35,6 +36,7 @@ export const WalletsScreen: React.FC = () => {
     transactions,
     recurringBills,
     categories,
+    debts,
     deleteTransaction,
     updateTransaction,
     addSubcategory,
@@ -45,6 +47,7 @@ export const WalletsScreen: React.FC = () => {
   // Modals
   const [walletModalVisible, setWalletModalVisible] = useState(false);
   const [transferModalVisible, setTransferModalVisible] = useState(false);
+  const [debtsModalVisible, setDebtsModalVisible] = useState(false);
   const [editingWallet, setEditingWallet] = useState<Wallet | null>(null);
 
   // Selected Wallet Detail & Transaction Viewer States
@@ -83,6 +86,7 @@ export const WalletsScreen: React.FC = () => {
     date: string;
     time?: string;
     is_paid: boolean;
+    tax_amount?: number;
     note?: string;
     media_uri?: string;
     repeat_frequency?: BillFrequency;
@@ -106,6 +110,7 @@ export const WalletsScreen: React.FC = () => {
       date: txData.date,
       time: txData.time,
       is_paid: txData.is_paid,
+      tax_amount: txData.tax_amount,
       note: txData.note,
       media_uri: txData.media_uri,
       recurring_bill_id: editingTransaction.recurring_bill_id,
@@ -131,6 +136,7 @@ export const WalletsScreen: React.FC = () => {
             date: txData.date,
             time: txData.time,
             is_paid: txData.is_paid,
+            tax_amount: txData.tax_amount,
             note: txData.note,
             media_uri: txData.media_uri,
           }
@@ -402,6 +408,61 @@ export const WalletsScreen: React.FC = () => {
             <Text style={[styles.actionBtnText, { color: theme.primary }]}>Transfer Funds</Text>
           </TouchableOpacity>
         </View>
+
+        {/* DEBTS & IOUS QUICK CARD */}
+        {(() => {
+          const openDebts = debts.filter((d) => d.status === 'open');
+          const owedToYou = openDebts
+            .filter((d) => d.type === 'lent')
+            .reduce((sum, d) => sum + Math.max(0, d.amount - (d.paid_amount || 0)), 0);
+          const youOwe = openDebts
+            .filter((d) => d.type === 'borrowed')
+            .reduce((sum, d) => sum + Math.max(0, d.amount - (d.paid_amount || 0)), 0);
+          return (
+            <TouchableOpacity
+              style={[
+                {
+                  backgroundColor: theme.cardBg,
+                  borderColor: theme.divider,
+                  borderWidth: 1,
+                  borderRadius: M3Shape.large,
+                  padding: 14,
+                  marginBottom: 18,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 12,
+                },
+                M3Elevation.level1,
+              ]}
+              onPress={() => setDebtsModalVisible(true)}
+              activeOpacity={0.75}
+            >
+              <View
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 12,
+                  backgroundColor: theme.primaryContainer,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <MaterialCommunityIcons name="handshake-outline" size={22} color={theme.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 14.5, fontWeight: '800', color: theme.onSurface }}>
+                  Debts, IOUs & Splits
+                </Text>
+                <Text style={{ fontSize: 12, color: theme.onSurfaceVariant, marginTop: 2 }}>
+                  {openDebts.length === 0
+                    ? 'Track money lent, borrowed, or split bills'
+                    : `Owed to you: ${formatCurrency(owedToYou, settings.base_currency)} • You owe: ${formatCurrency(youOwe, settings.base_currency)}`}
+                </Text>
+              </View>
+              <MaterialCommunityIcons name="chevron-right" size={20} color={theme.onSurfaceVariant} />
+            </TouchableOpacity>
+          );
+        })()}
 
         {/* WALLETS LIST */}
         <Text style={[styles.sectionTitle, { color: theme.onSurface }]}>My Wallets & Accounts</Text>
@@ -1066,6 +1127,7 @@ export const WalletsScreen: React.FC = () => {
           initialNote={editingTransaction?.note}
           initialMediaUri={editingTransaction?.media_uri}
           initialIsPaid={editingTransaction?.is_paid}
+          initialTaxAmount={editingTransaction?.tax_amount || 0}
           initialCurrency={editingTransaction?.currency}
           isEditing={true}
           initialRepeatEnabled={Boolean(editingLinkedBill)}
@@ -1090,6 +1152,11 @@ export const WalletsScreen: React.FC = () => {
           onAddSubcategory={addSubcategory}
         />
       )}
+
+      <DebtsModal
+        visible={debtsModalVisible}
+        onClose={() => setDebtsModalVisible(false)}
+      />
     </View>
   );
 };

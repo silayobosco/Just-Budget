@@ -21,6 +21,8 @@ import {
   BudgetLimit,
   BudgetProgress,
   BudgetScope,
+  DebtItem,
+  DebtType,
 } from '../types';
 
 interface BudgetContextType {
@@ -28,6 +30,7 @@ interface BudgetContextType {
   categories: Category[];
   transactions: Transaction[];
   recurringBills: RecurringBill[];
+  debts: DebtItem[];
   budgets: BudgetLimit[];
   currentCycle: BudgetCycle | null;
   allCycles: BudgetCycle[];
@@ -94,6 +97,7 @@ interface BudgetContextType {
     subcategory_id?: string;
     type: TransactionType;
     amount: number;
+    tax_amount?: number;
     currency?: string;
     date: string;
     time?: string;
@@ -116,6 +120,7 @@ interface BudgetContextType {
     subcategory_id?: string;
     type: TransactionType;
     amount: number;
+    tax_amount?: number;
     currency?: string;
     date: string;
     time?: string;
@@ -177,6 +182,20 @@ interface BudgetContextType {
   deleteRecurringBill: (id: string) => Promise<void>;
   payRecurringBill: (bill: RecurringBill, targetDate?: string) => Promise<void>;
 
+  addDebt: (params: {
+    type: DebtType;
+    person_name: string;
+    amount: number;
+    currency?: string;
+    date: string;
+    due_date?: string;
+    note?: string;
+    wallet_id?: string;
+  }) => Promise<void>;
+  updateDebt: (debt: DebtItem) => Promise<void>;
+  recordDebtPayment: (id: string, paymentAmount: number) => Promise<void>;
+  deleteDebt: (id: string) => Promise<void>;
+
   updateBudgetCycle: (params: { id?: string; name: string; start_date: string; end_date: string; target_budget?: number; target_income?: number }) => Promise<void>;
   updateCurrentCycleTarget: (type: 'budget' | 'income', amount: number) => Promise<void>;
   deleteBudgetCycle: (id: string) => Promise<void>;
@@ -217,6 +236,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [categories, setCategories] = useState<Category[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [recurringBills, setRecurringBills] = useState<RecurringBill[]>([]);
+  const [debts, setDebts] = useState<DebtItem[]>([]);
   const [budgets, setBudgets] = useState<BudgetLimit[]>([]);
   const [currentCycle, setCurrentCycle] = useState<BudgetCycle | null>(null);
   const [allCycles, setAllCycles] = useState<BudgetCycle[]>([]);
@@ -482,6 +502,14 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // Budgets (overall, category, subcategory limits)
       const budgetRows = db.getAllSync<BudgetLimit>(`SELECT * FROM budgets`);
       setBudgets(budgetRows);
+
+      // Debts / IOUs
+      try {
+        const debtRows = db.getAllSync<DebtItem>(`SELECT * FROM debts ORDER BY status ASC, date DESC, created_at DESC`);
+        setDebts(debtRows);
+      } catch {
+        setDebts([]);
+      }
     } catch (err) {
       console.error('Error loading budget data:', err);
     } finally {
@@ -867,6 +895,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     subcategory_id?: string;
     type: TransactionType;
     amount: number;
+    tax_amount?: number;
     currency?: string;
     date: string;
     time?: string;
@@ -926,8 +955,8 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
 
       db.runSync(
-        `INSERT INTO transactions (id, wallet_id, category_id, subcategory_id, type, amount, currency, base_amount, date, time, is_paid, media_uri, note, to_wallet_id, recurring_bill_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO transactions (id, wallet_id, category_id, subcategory_id, type, amount, tax_amount, currency, base_amount, date, time, is_paid, media_uri, note, to_wallet_id, recurring_bill_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           params.wallet_id,
@@ -935,6 +964,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           params.subcategory_id || null,
           params.type,
           params.amount,
+          params.tax_amount ?? 0,
           txCurrency,
           params.amount,
           params.date,
@@ -985,6 +1015,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     subcategory_id?: string;
     type: TransactionType;
     amount: number;
+    tax_amount?: number;
     currency?: string;
     date: string;
     time?: string;
@@ -1111,6 +1142,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
            subcategory_id = ?,
            type = ?,
            amount = ?,
+           tax_amount = ?,
            currency = ?,
            base_amount = ?,
            date = ?,
@@ -1128,6 +1160,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           params.subcategory_id || null,
           params.type,
           params.amount,
+          params.tax_amount ?? 0,
           newCurrency,
           params.amount,
           params.date,
@@ -1453,6 +1486,84 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       `UPDATE recurring_bills SET next_due_date = ?, occurrences_count = ?, is_active = ? WHERE id = ?`,
       [nextDateStr, newCount, stillActive, bill.id]
     );
+    await loadData();
+  };
+
+  const addDebt = async (params: {
+    type: DebtType;
+    person_name: string;
+    amount: number;
+    currency?: string;
+    date: string;
+    due_date?: string;
+    note?: string;
+    wallet_id?: string;
+  }) => {
+    const db = getDB();
+    const id = `debt-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const nowIso = new Date().toISOString();
+    db.runSync(
+      `INSERT INTO debts (id, type, person_name, amount, paid_amount, currency, date, due_date, note, wallet_id, status, created_at)
+       VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 'open', ?)`,
+      [
+        id,
+        params.type,
+        params.person_name.trim(),
+        params.amount,
+        params.currency || settings.base_currency,
+        params.date,
+        params.due_date || null,
+        params.note?.trim() || null,
+        params.wallet_id || null,
+        nowIso,
+      ]
+    );
+    await loadData();
+  };
+
+  const updateDebt = async (debt: DebtItem) => {
+    const db = getDB();
+    const nowIso = new Date().toISOString();
+    const status = debt.paid_amount >= debt.amount ? 'settled' : debt.status;
+    db.runSync(
+      `UPDATE debts SET type = ?, person_name = ?, amount = ?, paid_amount = ?, currency = ?, date = ?, due_date = ?, note = ?, wallet_id = ?, status = ?, updated_at = ? WHERE id = ?`,
+      [
+        debt.type,
+        debt.person_name.trim(),
+        debt.amount,
+        debt.paid_amount,
+        debt.currency,
+        debt.date,
+        debt.due_date || null,
+        debt.note?.trim() || null,
+        debt.wallet_id || null,
+        status,
+        nowIso,
+        debt.id,
+      ]
+    );
+    await loadData();
+  };
+
+  const recordDebtPayment = async (id: string, paymentAmount: number) => {
+    const db = getDB();
+    const target = debts.find((d) => d.id === id);
+    if (!target || paymentAmount <= 0) return;
+
+    const newPaid = Math.min(target.amount, (target.paid_amount || 0) + paymentAmount);
+    const newStatus = newPaid >= target.amount ? 'settled' : 'open';
+    const nowIso = new Date().toISOString();
+
+    db.runSync(
+      `UPDATE debts SET paid_amount = ?, status = ?, updated_at = ? WHERE id = ?`,
+      [newPaid, newStatus, nowIso, id]
+    );
+    await loadData();
+  };
+
+  const deleteDebt = async (id: string) => {
+    const db = getDB();
+    db.runSync(`DELETE FROM debts WHERE id = ?`, [id]);
     await loadData();
   };
 
@@ -1852,6 +1963,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         categories,
         transactions,
         recurringBills,
+        debts,
         budgets,
         currentCycle,
         allCycles,
@@ -1909,6 +2021,10 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         updateRecurringBill,
         deleteRecurringBill,
         payRecurringBill,
+        addDebt,
+        updateDebt,
+        recordDebtPayment,
+        deleteDebt,
         updateBudgetCycle,
         updateCurrentCycleTarget,
         deleteBudgetCycle,

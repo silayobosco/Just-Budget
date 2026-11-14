@@ -34,6 +34,7 @@ export interface Transaction {
   subcategory_id?: string | null;
   type: TransactionType;
   amount: number;
+  tax_amount?: number | null;
   currency: string;
   base_amount: number;
   date: string; // YYYY-MM-DD
@@ -161,4 +162,23 @@ export interface DailyAllowanceStats {
   headlineLabel: string;
   badgeLabel?: string;
   subText: string;
+}
+
+export type DebtType = 'lent' | 'borrowed';
+export type DebtStatus = 'open' | 'settled';
+
+export interface DebtItem {
+  id: string;
+  type: DebtType;
+  person_name: string;
+  amount: number;
+  paid_amount: number;
+  currency: string;
+  date: string; // YYYY-MM-DD
+  due_date?: string | null; // YYYY-MM-DD
+  note?: string | null;
+  wallet_id?: string | null;
+  status: DebtStatus;
+  created_at?: string;
+  updated_at?: string;
 }

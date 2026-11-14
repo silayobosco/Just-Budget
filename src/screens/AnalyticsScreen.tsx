@@ -917,6 +917,7 @@ export const AnalyticsScreen: React.FC = () => {
     date: string;
     time?: string;
     is_paid: boolean;
+    tax_amount?: number;
     note?: string;
     media_uri?: string;
     repeat_frequency?: BillFrequency;
@@ -937,6 +938,7 @@ export const AnalyticsScreen: React.FC = () => {
       date: txData.date,
       time: txData.time,
       is_paid: txData.is_paid,
+      tax_amount: txData.tax_amount,
       note: txData.note,
       media_uri: txData.media_uri,
       repeat_frequency: txData.repeat_frequency,
@@ -1105,6 +1107,10 @@ export const AnalyticsScreen: React.FC = () => {
     return activeTransactions
       .filter((t) => t.type === 'income')
       .reduce((sum, t) => sum + (t.amount || t.base_amount || 0), 0);
+  }, [activeTransactions]);
+
+  const totalTaxInPeriod = useMemo(() => {
+    return activeTransactions.reduce((sum, t) => sum + (t.tax_amount || 0), 0);
   }, [activeTransactions]);
 
   const netSavings = totalIncome - totalExpense;
@@ -1991,6 +1997,27 @@ export const AnalyticsScreen: React.FC = () => {
                 {formatCurrency(totalExpense, curr)}
               </Text>
             </View>
+
+            {totalTaxInPeriod > 0 && (
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 6,
+                  backgroundColor: theme.pillBg,
+                  paddingHorizontal: 10,
+                  paddingVertical: 6,
+                  borderRadius: 10,
+                  marginBottom: 10,
+                  alignSelf: 'flex-start',
+                }}
+              >
+                <MaterialCommunityIcons name="percent-outline" size={14} color={theme.primary} />
+                <Text style={{ fontSize: 12, fontWeight: '700', color: theme.onSurfaceVariant }}>
+                  Taxes & Fees Included: {formatCurrency(totalTaxInPeriod, curr)}
+                </Text>
+              </View>
+            )}
 
             {/* Multi-Color Continuous Stacked Distribution Bar */}
             {totalExpense > 0 && categorySpending.length > 0 && (

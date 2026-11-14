@@ -2,7 +2,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
 import { getDB } from './db';
-import { Wallet, Category, Subcategory, Transaction, BudgetCycle, RecurringBill, BudgetLimit } from '../types';
+import { Wallet, Category, Subcategory, Transaction, BudgetCycle, RecurringBill, BudgetLimit, DebtItem } from '../types';
 import { encryptBackupPayload, decryptBackupPayload } from './security';
 
 export interface BackupData {
@@ -17,6 +17,7 @@ export interface BackupData {
   budget_cycles: BudgetCycle[];
   recurring_bills?: RecurringBill[];
   budgets?: BudgetLimit[];
+  debts?: DebtItem[];
 }
 
 export const exportBackupData = async (passphrase?: string): Promise<boolean> => {
@@ -36,6 +37,7 @@ export const exportBackupData = async (passphrase?: string): Promise<boolean> =>
   const budget_cycles = db.getAllSync<BudgetCycle>(`SELECT * FROM budget_cycles`);
   const recurring_bills = db.getAllSync<RecurringBill>(`SELECT * FROM recurring_bills`);
   const budgets = db.getAllSync<BudgetLimit>(`SELECT * FROM budgets`);
+  const debts = db.getAllSync<DebtItem>(`SELECT * FROM debts`);
 
   const backup: BackupData = {
     app: 'just budget',
@@ -49,6 +51,7 @@ export const exportBackupData = async (passphrase?: string): Promise<boolean> =>
     budget_cycles,
     recurring_bills,
     budgets,
+    debts,
   };
 
   let fileData = JSON.stringify(backup, null, 2);
@@ -171,6 +174,7 @@ export const restoreFromBackupContentAsync = async (
       db.runSync(`DELETE FROM transactions`);
       db.runSync(`DELETE FROM budgets`);
       db.runSync(`DELETE FROM recurring_bills`);
+      db.runSync(`DELETE FROM debts`);
       db.runSync(`DELETE FROM subcategories`);
       db.runSync(`DELETE FROM categories`);
       db.runSync(`DELETE FROM wallets`);
@@ -223,8 +227,8 @@ export const restoreFromBackupContentAsync = async (
       // Restore transactions
       for (const t of parsed.transactions) {
         db.runSync(
-          `INSERT OR REPLACE INTO transactions (id, wallet_id, category_id, subcategory_id, type, amount, currency, base_amount, date, time, is_paid, media_uri, note, to_wallet_id, recurring_bill_id, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT OR REPLACE INTO transactions (id, wallet_id, category_id, subcategory_id, type, amount, tax_amount, currency, base_amount, date, time, is_paid, media_uri, note, to_wallet_id, recurring_bill_id, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             t.id,
             t.wallet_id,
@@ -232,6 +236,7 @@ export const restoreFromBackupContentAsync = async (
             t.subcategory_id || null,
             t.type,
             t.amount,
+            t.tax_amount ?? 0,
             t.currency,
             t.base_amount,
             t.date,
@@ -291,6 +296,31 @@ export const restoreFromBackupContentAsync = async (
               b.amount,
               b.period,
               b.created_at || new Date().toISOString(),
+            ]
+          );
+        }
+      }
+
+      // Restore debts
+      if (parsed.debts) {
+        for (const d of parsed.debts) {
+          db.runSync(
+            `INSERT OR REPLACE INTO debts (id, type, person_name, amount, paid_amount, currency, date, due_date, note, wallet_id, status, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              d.id,
+              d.type,
+              d.person_name,
+              d.amount,
+              d.paid_amount ?? 0,
+              d.currency,
+              d.date,
+              d.due_date || null,
+              d.note || null,
+              d.wallet_id || null,
+              d.status || 'open',
+              d.created_at || new Date().toISOString(),
+              d.updated_at || null,
             ]
           );
         }

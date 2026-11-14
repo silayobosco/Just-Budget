@@ -52,6 +52,7 @@ export const initDatabase = async () => {
       subcategory_id TEXT,
       type TEXT NOT NULL, -- 'expense' | 'income' | 'transfer'
       amount REAL NOT NULL,
+      tax_amount REAL DEFAULT 0,
       currency TEXT NOT NULL,
       base_amount REAL NOT NULL,
       date TEXT NOT NULL, -- YYYY-MM-DD
@@ -114,6 +115,22 @@ export const initDatabase = async () => {
       FOREIGN KEY (category_id) REFERENCES categories (id) ON DELETE CASCADE,
       FOREIGN KEY (subcategory_id) REFERENCES subcategories (id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS debts (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL, -- 'lent' | 'borrowed'
+      person_name TEXT NOT NULL,
+      amount REAL NOT NULL,
+      paid_amount REAL NOT NULL DEFAULT 0,
+      currency TEXT NOT NULL,
+      date TEXT NOT NULL,
+      due_date TEXT,
+      note TEXT,
+      wallet_id TEXT,
+      status TEXT NOT NULL DEFAULT 'open', -- 'open' | 'settled'
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT
+    );
   `);
 
   // Safe migrations for table changes
@@ -136,6 +153,9 @@ export const initDatabase = async () => {
   } catch {}
   try {
     db.runSync(`ALTER TABLE transactions ADD COLUMN updated_at TEXT`);
+  } catch {}
+  try {
+    db.runSync(`ALTER TABLE transactions ADD COLUMN tax_amount REAL DEFAULT 0`);
   } catch {}
   try {
     db.runSync(`ALTER TABLE recurring_bills ADD COLUMN type TEXT DEFAULT 'expense'`);

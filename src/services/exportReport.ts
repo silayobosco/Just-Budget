@@ -121,7 +121,7 @@ export const exportAnalyticsSummaryReport = async (data: AnalyticsExportData): P
  * Export Detailed Transactions to CSV
  */
 export const exportTransactionsCSV = async (data: AnalyticsExportData): Promise<boolean> => {
-  const headers = ['Date', 'Time', 'Type', 'Category', 'Subcategory', 'Amount', 'Currency', 'Base Amount', 'Wallet', 'Note', 'Status'];
+  const headers = ['Date', 'Time', 'Type', 'Category', 'Subcategory', 'Amount', 'Tax / Fee', 'Currency', 'Base Amount', 'Wallet', 'Note', 'Status'];
   const rows: string[] = [headers.join(',')];
 
   data.transactions.forEach((tx) => {
@@ -143,6 +143,7 @@ export const exportTransactionsCSV = async (data: AnalyticsExportData): Promise<
         escapeCsv(cat?.name || 'Uncategorized'),
         escapeCsv(sub?.name || ''),
         escapeCsv(tx.amount || tx.base_amount || 0),
+        escapeCsv(tx.tax_amount || 0),
         escapeCsv(tx.currency || data.baseCurrency),
         escapeCsv(tx.base_amount || tx.amount || 0),
         escapeCsv(w?.name || 'Default Wallet'),
