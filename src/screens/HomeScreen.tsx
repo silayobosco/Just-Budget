@@ -26,6 +26,7 @@ import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
 import { DateRangePickerModal } from '../components/DateRangePickerModal';
 import { CycleModeSwitcherModal } from '../components/CycleModeSwitcherModal';
 import { OverdueBillReminderBanner } from '../components/OverdueBillReminderBanner';
+import { DebtsModal } from '../components/DebtsModal';
 
 import { TabType } from '../components/BottomTabs';
 
@@ -135,6 +136,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
     payRecurringBill,
     categories,
     wallets,
+    debts,
     addTransaction,
     addWallet,
     addSubcategory,
@@ -189,6 +191,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
   const [detailsModalVisible, setDetailsModalVisible] = useState(false);
   const [prefilledCategoryId, setPrefilledCategoryId] = useState<string | undefined>(undefined);
   const [prefilledSubcategoryId, setPrefilledSubcategoryId] = useState<string | undefined>(undefined);
+  const [debtsModalVisible, setDebtsModalVisible] = useState(false);
 
   // Quick Wallet modal
   const [quickWalletModalVisible, setQuickWalletModalVisible] = useState(false);
@@ -1301,6 +1304,101 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
                 </View>
               </TouchableOpacity>
             </View>
+
+            {/* COMPACT QUICK ACTION STRIP: TRANSFER & IOU / SPLIT */}
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
+              <TouchableOpacity
+                style={[
+                  {
+                    flex: 1,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                    paddingVertical: 8,
+                    paddingHorizontal: 10,
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    backgroundColor: isDarkMode ? 'rgba(56, 189, 248, 0.12)' : theme.primaryContainer,
+                    borderColor: isDarkMode ? 'rgba(56, 189, 248, 0.35)' : theme.primary + '55',
+                  },
+                ]}
+                onPress={() => {
+                  setActiveTxType('transfer');
+                  setPrefilledCategoryId(undefined);
+                  setPrefilledSubcategoryId(undefined);
+                  setDetailsModalVisible(true);
+                }}
+                activeOpacity={0.85}
+              >
+                <MaterialCommunityIcons
+                  name="swap-horizontal"
+                  size={16}
+                  color={isDarkMode ? '#38BDF8' : theme.primary}
+                />
+                <Text
+                  style={{
+                    fontSize: 12,
+                    fontWeight: '700',
+                    color: isDarkMode ? '#E0F2FE' : theme.onPrimaryContainer,
+                  }}
+                  numberOfLines={1}
+                >
+                  Transfer
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  {
+                    flex: 1,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                    paddingVertical: 8,
+                    paddingHorizontal: 10,
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    backgroundColor: isDarkMode ? '#312E81' : '#E0E7FF',
+                    borderColor: isDarkMode ? '#6366F1' : '#818CF8',
+                  },
+                ]}
+                onPress={() => setDebtsModalVisible(true)}
+                activeOpacity={0.85}
+              >
+                <MaterialCommunityIcons
+                  name="handshake-outline"
+                  size={16}
+                  color={isDarkMode ? '#C7D2FE' : '#3730A3'}
+                />
+                <Text
+                  style={{
+                    fontSize: 12,
+                    fontWeight: '700',
+                    color: isDarkMode ? '#E0E7FF' : '#312E81',
+                  }}
+                  numberOfLines={1}
+                >
+                  IOU / Split
+                </Text>
+                {(() => {
+                  const openCount = debts.filter((d) => d.status !== 'settled' && (d.amount - d.paid_amount) > 0.01).length;
+                  return (
+                    <Text
+                      style={{
+                        fontSize: 10,
+                        fontWeight: '600',
+                        color: isDarkMode ? '#A5B4FC' : '#4338CA',
+                      }}
+                      numberOfLines={1}
+                    >
+                      {openCount > 0 ? `(${openCount} open)` : '· Splits'}
+                    </Text>
+                  );
+                })()}
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </View>
@@ -1917,6 +2015,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
         onSave={handleSaveTransactionDetails}
         onManageCategories={() => setCategoryModalVisible(true)}
         onAddSubcategory={addSubcategory}
+      />
+
+      <DebtsModal
+        visible={debtsModalVisible}
+        onClose={() => setDebtsModalVisible(false)}
       />
 
       {/* QUICK TARGET EDIT DIALOGUE (TRIGGERED ON LONG PRESS OF INCOME GOAL OR BUDGET CAP) */}
