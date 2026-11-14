@@ -36,6 +36,7 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
     updateDebt,
     recordDebtPayment,
     deleteDebt,
+    addTransaction,
   } = useBudget();
   const theme = settings.theme_mode === 'dark' ? darkTheme : lightTheme;
   const insets = useSafeAreaInsets();
@@ -66,6 +67,8 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
   // Payment modal state
   const [payingDebt, setPayingDebt] = useState<DebtItem | null>(null);
   const [paymentStr, setPaymentStr] = useState('');
+  const [logToWallet, setLogToWallet] = useState(true);
+  const [paymentWalletId, setPaymentWalletId] = useState('');
 
   const baseCurr = settings.base_currency;
 
@@ -246,6 +249,24 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
     const remaining = Math.max(0, item.amount - (item.paid_amount || 0));
     setPayingDebt(item);
     setPaymentStr(formatTypingNumber(remaining.toString()));
+    setLogToWallet(wallets.length > 0);
+    setPaymentWalletId(item.wallet_id || wallets[0]?.id || '');
+  };
+
+  const logPaymentToWallet = async (debt: DebtItem, paidAmt: number, targetWalletId: string) => {
+    if (!targetWalletId || paidAmt <= 0) return;
+    await addTransaction({
+      wallet_id: targetWalletId,
+      type: debt.type === 'lent' ? 'income' : 'expense',
+      amount: paidAmt,
+      currency: debt.currency || baseCurr,
+      date: new Date().toISOString().slice(0, 10),
+      is_paid: true,
+      note:
+        debt.type === 'lent'
+          ? `IOU Repaid: ${debt.person_name}${debt.note ? ` (${debt.note})` : ''}`
+          : `IOU Paid: ${debt.person_name}${debt.note ? ` (${debt.note})` : ''}`,
+    });
   };
 
   const handleConfirmPayment = async () => {
@@ -270,7 +291,9 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
 
     const unabsorbedExcess = Math.round((parsed - remaining - otherOpenTotal) * 100) / 100;
     const curr = payingDebt.currency || baseCurr;
-    const targetId = payingDebt.id;
+    const activeDebt = payingDebt;
+    const shouldLog = logToWallet && Boolean(paymentWalletId);
+    const chosenWallet = paymentWalletId;
 
     if (unabsorbedExcess > 0.009) {
       const creditMsg =
@@ -283,7 +306,8 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
         {
           text: 'Settle Only',
           onPress: async () => {
-            await recordDebtPayment(targetId, parsed, { recordExcessAsCredit: false });
+            await recordDebtPayment(activeDebt.id, parsed, { recordExcessAsCredit: false });
+            if (shouldLog) await logPaymentToWallet(activeDebt, parsed, chosenWallet);
             setPayingDebt(null);
             setPaymentStr('');
           },
@@ -291,7 +315,8 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
         {
           text: 'Record as Credit',
           onPress: async () => {
-            await recordDebtPayment(targetId, parsed, { recordExcessAsCredit: true });
+            await recordDebtPayment(activeDebt.id, parsed, { recordExcessAsCredit: true });
+            if (shouldLog) await logPaymentToWallet(activeDebt, parsed, chosenWallet);
             setPayingDebt(null);
             setPaymentStr('');
           },
@@ -300,13 +325,37 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
       return;
     }
 
-    await recordDebtPayment(targetId, parsed);
+    await recordDebtPayment(activeDebt.id, parsed);
+    if (shouldLog) await logPaymentToWallet(activeDebt, parsed, chosenWallet);
     setPayingDebt(null);
     setPaymentStr('');
   };
 
   const handleSettleFull = (item: DebtItem) => {
     const remaining = Math.max(0, item.amount - (item.paid_amount || 0));
+    const defaultWalletId = item.wallet_id || wallets[0]?.id || '';
+    const defaultWallet = wallets.find((w) => w.id === defaultWalletId);
+    if (defaultWallet) {
+      Alert.alert(
+        'Settle in Full?',
+        `Mark remaining ${formatCurrency(remaining, item.currency || baseCurr)} with ${item.person_name} as settled?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Settle Only',
+            onPress: () => recordDebtPayment(item.id, remaining),
+          },
+          {
+            text: `Settle & Log (${defaultWallet.name})`,
+            onPress: async () => {
+              await recordDebtPayment(item.id, remaining);
+              await logPaymentToWallet(item, remaining, defaultWallet.id);
+            },
+          },
+        ]
+      );
+      return;
+    }
     Alert.alert(
       'Settle in Full?',
       `Mark remaining ${formatCurrency(remaining, item.currency || baseCurr)} with ${item.person_name} as settled?`,
@@ -1138,6 +1187,79 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
                 onChangeText={(txt) => setPaymentStr(formatTypingNumber(txt))}
                 autoFocus
               />
+
+              {wallets.length > 0 && (
+                <View style={{ marginBottom: 14 }}>
+                  <TouchableOpacity
+                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}
+                    onPress={() => setLogToWallet((prev) => !prev)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={{ fontSize: 12.5, fontWeight: '700', color: theme.onSurface }}>
+                      {payingDebt?.type === 'lent' ? 'Log as Income to Wallet' : 'Log as Expense from Wallet'}
+                    </Text>
+                    <View
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 4,
+                        borderRadius: 12,
+                        backgroundColor: logToWallet ? theme.primaryContainer : theme.pillBg,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 11.5,
+                          fontWeight: '700',
+                          color: logToWallet ? theme.onPrimaryContainer : theme.onSurfaceVariant,
+                        }}
+                      >
+                        {logToWallet ? 'On' : 'Off'}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  {logToWallet && (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={{ gap: 8 }}
+                    >
+                      {wallets.map((w) => {
+                        const selected = paymentWalletId === w.id;
+                        return (
+                          <TouchableOpacity
+                            key={w.id}
+                            style={[
+                              styles.walletChip,
+                              {
+                                backgroundColor: selected ? theme.primaryContainer : theme.pillBg,
+                                borderColor: selected ? theme.primary : theme.divider,
+                              },
+                            ]}
+                            onPress={() => setPaymentWalletId(w.id)}
+                          >
+                            <MaterialCommunityIcons
+                              name={(w.icon as any) || 'wallet'}
+                              size={14}
+                              color={selected ? theme.primary : theme.onSurfaceVariant}
+                            />
+                            <Text
+                              style={{
+                                fontSize: 12,
+                                fontWeight: '700',
+                                color: selected ? theme.onPrimaryContainer : theme.onSurface,
+                              }}
+                            >
+                              {w.name}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  )}
+                </View>
+              )}
+
               <View style={styles.dialogBtns}>
                 <TouchableOpacity
                   style={[styles.dialogBtn, { backgroundColor: theme.pillBg }]}

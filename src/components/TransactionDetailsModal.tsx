@@ -117,7 +117,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   onManageCategories,
   onAddSubcategory,
 }) => {
-  const { debts, addDebt } = useBudget();
+  const { debts, addDebt, recordDebtPayment } = useBudget();
   const insets = useSafeAreaInsets();
   const insetsRef = useRef(insets);
   insetsRef.current = insets;
@@ -246,6 +246,8 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   const [splitIncludeMe, setSplitIncludeMe] = useState(true);
   const [splitPeople, setSplitPeople] = useState<{ name: string; customAmount?: string }[]>([]);
   const [splitPersonInput, setSplitPersonInput] = useState('');
+  const [settleIouEnabled, setSettleIouEnabled] = useState(false);
+  const [selectedDebtId, setSelectedDebtId] = useState('');
 
   const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const yesterdayStr = useMemo(() => {
@@ -348,6 +350,8 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       setSplitIncludeMe(true);
       setSplitPeople([]);
       setSplitPersonInput('');
+      setSettleIouEnabled(false);
+      setSelectedDebtId('');
     }
   }, [
     visible,
@@ -507,6 +511,11 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
     return { total, equalShare, resolved, totalOwedByOthers, yourShare };
   }, [amountStr, splitPeople, splitIncludeMe]);
 
+  const openLentDebts = useMemo(
+    () => debts.filter((d) => d.status === 'open' && d.type === 'lent'),
+    [debts]
+  );
+
   const handleAddSplitPerson = (rawName?: string) => {
     const clean = (rawName ?? splitPersonInput).trim();
     if (!clean) return;
@@ -562,6 +571,11 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       }
     }
 
+    if (currentType === 'income' && !isEditing && settleIouEnabled && !selectedDebtId) {
+      Alert.alert('Select an IOU', 'Choose which open IOU this income is repaying, or turn off Settle Open IOU.');
+      return;
+    }
+
     await onSave({
       amount: parsed,
       wallet_id: selectedWalletId || wallets[0].id,
@@ -602,6 +616,10 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
           });
         }
       }
+    }
+
+    if (currentType === 'income' && !isEditing && settleIouEnabled && selectedDebtId) {
+      await recordDebtPayment(selectedDebtId, parsed, { recordExcessAsCredit: true });
     }
     onClose();
   };
@@ -1414,6 +1432,92 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
                     </View>
                   )}
                 </View>
+              )}
+            </View>
+          )}
+
+          {/* SETTLE OPEN IOU (ON INCOME) */}
+          {currentType === 'income' && !isEditing && openLentDebts.length > 0 && (
+            <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
+              <View style={styles.toggleRow}>
+                <View style={styles.toggleTextCol}>
+                  <View style={styles.labelWithIcon}>
+                    <MaterialCommunityIcons name="handshake-outline" size={18} color={theme.success} />
+                    <Text style={[styles.toggleTitle, { color: theme.onSurface }]}>Settle Open IOU</Text>
+                  </View>
+                  <Text style={[styles.toggleSubtitle, { color: theme.onSurfaceVariant }]}>
+                    Apply this income to an open IOU someone owes you
+                  </Text>
+                </View>
+                <Switch
+                  value={settleIouEnabled}
+                  onValueChange={(val) => {
+                    setSettleIouEnabled(val);
+                    if (val && !selectedDebtId && openLentDebts.length === 1) {
+                      const only = openLentDebts[0];
+                      setSelectedDebtId(only.id);
+                      const cur = parseCleanNumber(amountStr);
+                      if (isNaN(cur) || cur <= 0) {
+                        const rem = Math.max(0, only.amount - (only.paid_amount || 0));
+                        setAmountStr(formatTypingNumber(rem.toString()));
+                      }
+                    }
+                  }}
+                  trackColor={{ false: theme.outlineVariant, true: theme.successContainer }}
+                  thumbColor={settleIouEnabled ? theme.success : '#f4f3f4'}
+                />
+              </View>
+
+              {settleIouEnabled && (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ gap: 8, marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.divider }}
+                >
+                  {openLentDebts.map((d) => {
+                    const rem = Math.max(0, d.amount - (d.paid_amount || 0));
+                    const selected = selectedDebtId === d.id;
+                    return (
+                      <TouchableOpacity
+                        key={d.id}
+                        style={{
+                          paddingHorizontal: 12,
+                          paddingVertical: 8,
+                          borderRadius: M3Shape.medium,
+                          borderWidth: 1,
+                          backgroundColor: selected ? theme.successContainer : theme.pillBg,
+                          borderColor: selected ? theme.success : theme.divider,
+                        }}
+                        onPress={() => {
+                          setSelectedDebtId(d.id);
+                          const cur = parseCleanNumber(amountStr);
+                          if (isNaN(cur) || cur <= 0) {
+                            setAmountStr(formatTypingNumber(rem.toString()));
+                          }
+                        }}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 12.5,
+                            fontWeight: '800',
+                            color: selected ? theme.onSuccessContainer : theme.onSurface,
+                          }}
+                        >
+                          {d.person_name}
+                        </Text>
+                        <Text
+                          style={{
+                            fontSize: 11,
+                            fontWeight: '600',
+                            color: selected ? theme.onSuccessContainer : theme.onSurfaceVariant,
+                          }}
+                        >
+                          Owes {formatCurrency(rem, d.currency || currency)}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
               )}
             </View>
           )}
