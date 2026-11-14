@@ -162,8 +162,8 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
         heightFromScreenBottom > 0
           ? heightFromScreenBottom
           : coordHeight > 0
-          ? coordHeight + (Platform.OS === 'android' ? (insetsRef.current.bottom || 0) : 0)
-          : 0;
+            ? coordHeight + (Platform.OS === 'android' ? (insetsRef.current.bottom || 0) : 0)
+            : 0;
 
       try {
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -334,7 +334,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       setRepeatDueDay(!isNaN(parsedDay) ? parsedDay : new Date().getDate());
       setTimeStr(
         initialTime ||
-          `${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`
+        `${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`
       );
       setIsPaid(initialIsPaid !== undefined ? initialIsPaid : true);
       setMediaUri(initialMediaUri || null);
@@ -605,59 +605,95 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       return;
     }
 
-    await onSave({
-      amount: parsed,
-      wallet_id: selectedWalletId || wallets[0].id,
-      to_wallet_id: currentType === 'transfer' ? selectedToWalletId : undefined,
-      category_id: currentType === 'transfer' ? undefined : (selectedCategoryId || undefined),
-      subcategory_id: currentType === 'transfer' ? undefined : (selectedSubcategoryId || undefined),
-      type: currentType,
-      currency,
-      date: dateStr,
-      time: timeStr,
-      is_paid: isPaid,
-      tax_amount: parsedTax > 0 ? parsedTax : 0,
-      note: note.trim() || undefined,
-      media_uri: mediaUri || undefined,
-      repeat_frequency: repeatEnabled ? repeatFrequency : undefined,
-      repeat_due_day: repeatEnabled ? repeatDueDay : undefined,
-      repeat_end_type: repeatEnabled ? repeatEndType : undefined,
-      repeat_end_occurrences:
-        repeatEnabled && repeatEndType === 'after_occurrences'
-          ? parseInt(repeatEndOccurrences, 10) || 12
-          : undefined,
-      repeat_end_date: repeatEnabled && repeatEndType === 'on_date' ? repeatEndDate : undefined,
-      reminder_enabled: repeatEnabled ? reminderEnabled : undefined,
-    });
+    const performSave = async (recordExcessAsCredit: boolean) => {
+      await onSave({
+        amount: parsed,
+        wallet_id: selectedWalletId || wallets[0].id,
+        to_wallet_id: currentType === 'transfer' ? selectedToWalletId : undefined,
+        category_id: currentType === 'transfer' ? undefined : (selectedCategoryId || undefined),
+        subcategory_id: currentType === 'transfer' ? undefined : (selectedSubcategoryId || undefined),
+        type: currentType,
+        currency,
+        date: dateStr,
+        time: timeStr,
+        is_paid: isPaid,
+        tax_amount: parsedTax > 0 ? parsedTax : 0,
+        note: note.trim() || undefined,
+        media_uri: mediaUri || undefined,
+        repeat_frequency: repeatEnabled ? repeatFrequency : undefined,
+        repeat_due_day: repeatEnabled ? repeatDueDay : undefined,
+        repeat_end_type: repeatEnabled ? repeatEndType : undefined,
+        repeat_end_occurrences:
+          repeatEnabled && repeatEndType === 'after_occurrences'
+            ? parseInt(repeatEndOccurrences, 10) || 12
+            : undefined,
+        repeat_end_date: repeatEnabled && repeatEndType === 'on_date' ? repeatEndDate : undefined,
+        reminder_enabled: repeatEnabled ? reminderEnabled : undefined,
+      });
 
-    if (currentType === 'expense' && splitEnabled && splitSummary.resolved.length > 0) {
-      const splitNote = note.trim() ? `${note.trim()} (Split)` : 'Split expense';
-      for (const participant of splitSummary.resolved) {
-        if (participant.share > 0) {
-          await addDebt({
-            type: 'lent',
-            person_name: participant.name,
-            amount: participant.share,
-            currency,
-            date: dateStr,
-            wallet_id: selectedWalletId || wallets[0]?.id,
-            note: splitNote,
-          });
+      if (currentType === 'expense' && splitEnabled && splitSummary.resolved.length > 0) {
+        const splitNote = note.trim() ? `${note.trim()} (Split)` : 'Split expense';
+        for (const participant of splitSummary.resolved) {
+          if (participant.share > 0) {
+            await addDebt({
+              type: 'lent',
+              person_name: participant.name,
+              amount: participant.share,
+              currency,
+              date: dateStr,
+              wallet_id: selectedWalletId || wallets[0]?.id,
+              note: splitNote,
+            });
+          }
+        }
+      }
+
+      if (currentType === 'income' && settleIouEnabled && selectedDebtId) {
+        const txId =
+          isEditing && initialTransactionId
+            ? initialTransactionId
+            : getLastCreatedTransactionId() || undefined;
+        await recordDebtPayment(selectedDebtId, parsed, {
+          recordExcessAsCredit,
+          transactionId: txId,
+        });
+      }
+      onClose();
+    };
+
+    if (currentType === 'income' && settleIouEnabled && selectedDebtId) {
+      const targetDebt = debts.find((d) => d.id === selectedDebtId);
+      if (targetDebt) {
+        const remaining = Math.max(0, targetDebt.amount - (targetDebt.paid_amount || 0));
+        const normalizedPerson = targetDebt.person_name.trim().toLowerCase();
+        const otherOpenTotal = debts
+          .filter(
+            (d) =>
+              d.id !== targetDebt.id &&
+              d.status === 'open' &&
+              d.type === targetDebt.type &&
+              d.person_name.trim().toLowerCase() === normalizedPerson
+          )
+          .reduce((sum, d) => sum + Math.max(0, d.amount - (d.paid_amount || 0)), 0);
+
+        const unabsorbedExcess = Math.round((parsed - remaining - otherOpenTotal) * 100) / 100;
+        if (unabsorbedExcess > 0.009) {
+          const debtCurr = targetDebt.currency || currency;
+          Alert.alert(
+            'Overpayment Detected',
+            `${targetDebt.person_name} overpaid by ${formatCurrency(unabsorbedExcess, debtCurr)}. Claim the extra as a tip or record it as change you owe them?`,
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Claim as Tip', onPress: () => performSave(false) },
+              { text: 'Record as Credit', onPress: () => performSave(true) },
+            ]
+          );
+          return;
         }
       }
     }
 
-    if (currentType === 'income' && settleIouEnabled && selectedDebtId) {
-      const txId =
-        isEditing && initialTransactionId
-          ? initialTransactionId
-          : getLastCreatedTransactionId() || undefined;
-      await recordDebtPayment(selectedDebtId, parsed, {
-        recordExcessAsCredit: true,
-        transactionId: txId,
-      });
-    }
-    onClose();
+    await performSave(true);
   };
 
   if (!visible) return null;
@@ -1591,50 +1627,50 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
                     showsHorizontalScrollIndicator={false}
                     contentContainerStyle={{ gap: 8, marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.divider }}
                   >
-                  {openLentDebts.map((d) => {
-                    const rem = Math.max(0, d.amount - (d.paid_amount || 0));
-                    const selected = selectedDebtId === d.id;
-                    return (
-                      <TouchableOpacity
-                        key={d.id}
-                        style={{
-                          paddingHorizontal: 12,
-                          paddingVertical: 8,
-                          borderRadius: M3Shape.medium,
-                          borderWidth: 1,
-                          backgroundColor: selected ? theme.successContainer : theme.pillBg,
-                          borderColor: selected ? theme.success : theme.divider,
-                        }}
-                        onPress={() => {
-                          setSelectedDebtId(d.id);
-                          const cur = parseCleanNumber(amountStr);
-                          if (isNaN(cur) || cur <= 0) {
-                            setAmountStr(formatTypingNumber(rem.toString()));
-                          }
-                        }}
-                      >
-                        <Text
+                    {openLentDebts.map((d) => {
+                      const rem = Math.max(0, d.amount - (d.paid_amount || 0));
+                      const selected = selectedDebtId === d.id;
+                      return (
+                        <TouchableOpacity
+                          key={d.id}
                           style={{
-                            fontSize: 12.5,
-                            fontWeight: '800',
-                            color: selected ? theme.onSuccessContainer : theme.onSurface,
+                            paddingHorizontal: 12,
+                            paddingVertical: 8,
+                            borderRadius: M3Shape.medium,
+                            borderWidth: 1,
+                            backgroundColor: selected ? theme.successContainer : theme.pillBg,
+                            borderColor: selected ? theme.success : theme.divider,
+                          }}
+                          onPress={() => {
+                            setSelectedDebtId(d.id);
+                            const cur = parseCleanNumber(amountStr);
+                            if (isNaN(cur) || cur <= 0) {
+                              setAmountStr(formatTypingNumber(rem.toString()));
+                            }
                           }}
                         >
-                          {d.person_name}
-                        </Text>
-                        <Text
-                          style={{
-                            fontSize: 11,
-                            fontWeight: '600',
-                            color: selected ? theme.onSuccessContainer : theme.onSurfaceVariant,
-                          }}
-                        >
-                          Owes {formatCurrency(rem, d.currency || currency)}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
+                          <Text
+                            style={{
+                              fontSize: 12.5,
+                              fontWeight: '800',
+                              color: selected ? theme.onSuccessContainer : theme.onSurface,
+                            }}
+                          >
+                            {d.person_name}
+                          </Text>
+                          <Text
+                            style={{
+                              fontSize: 11,
+                              fontWeight: '600',
+                              color: selected ? theme.onSuccessContainer : theme.onSurfaceVariant,
+                            }}
+                          >
+                            Owes {formatCurrency(rem, d.currency || currency)}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
                 )
               )}
             </View>
@@ -2079,7 +2115,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
                 Alert.alert('Camera Unavailable', message);
               }}
             />
-            <View style={[styles.cameraControls, { paddingBottom: bottomInset + 16 }]}> 
+            <View style={[styles.cameraControls, { paddingBottom: bottomInset + 16 }]}>
               <TouchableOpacity
                 style={[styles.cameraCloseButton, { backgroundColor: 'rgba(0, 0, 0, 0.55)' }]}
                 onPress={() => setCameraVisible(false)}

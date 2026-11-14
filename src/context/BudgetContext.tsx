@@ -1158,10 +1158,11 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
       } else if (params.repeat_frequency === undefined && (params.recurring_bill_id === null || params.recurring_bill_id === '')) {
         // Explicitly disabled recurrence
-        if (updatedBillId) {
-          db.runSync(`DELETE FROM recurring_bills WHERE id = ?`, [updatedBillId]);
-          updatedBillId = null;
+        const billToDelete = updatedBillId || tx.recurring_bill_id;
+        if (billToDelete) {
+          db.runSync(`DELETE FROM recurring_bills WHERE id = ?`, [billToDelete]);
         }
+        updatedBillId = null;
       }
 
       // 1. Revert old balance effect (if old was paid)

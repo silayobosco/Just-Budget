@@ -262,7 +262,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
       tax_amount: txData.tax_amount,
       note: txData.note,
       media_uri: txData.media_uri,
-      recurring_bill_id: editingTransaction.recurring_bill_id,
+      recurring_bill_id: txData.repeat_frequency ? editingTransaction.recurring_bill_id : null,
       repeat_frequency: txData.repeat_frequency,
       repeat_due_day: txData.repeat_due_day,
       repeat_end_type: txData.repeat_end_type,
@@ -288,6 +288,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
             tax_amount: txData.tax_amount,
             note: txData.note,
             media_uri: txData.media_uri,
+            recurring_bill_id: txData.repeat_frequency ? prev.recurring_bill_id : null,
           }
         : prev
     );
