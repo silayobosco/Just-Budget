@@ -28,6 +28,7 @@ import { M3Elevation, M3Shape } from '../theme';
 import { AnalogClockModal } from './AnalogClockModal';
 import { CalendarPickerModal } from './CalendarPickerModal';
 import { CategoryPickerSheet } from './CategoryPickerSheet';
+import { useBudget } from '../context/BudgetContext';
 
 interface TransactionDetailsModalProps {
   visible: boolean;
@@ -116,6 +117,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   onManageCategories,
   onAddSubcategory,
 }) => {
+  const { debts, addDebt } = useBudget();
   const insets = useSafeAreaInsets();
   const insetsRef = useRef(insets);
   insetsRef.current = insets;
@@ -240,6 +242,10 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   const [mediaUri, setMediaUri] = useState<string | null>(null);
   const [cameraVisible, setCameraVisible] = useState(false);
   const cameraRef = useRef<CameraView>(null);
+  const [splitEnabled, setSplitEnabled] = useState(false);
+  const [splitIncludeMe, setSplitIncludeMe] = useState(true);
+  const [splitPeople, setSplitPeople] = useState<{ name: string; customAmount?: string }[]>([]);
+  const [splitPersonInput, setSplitPersonInput] = useState('');
 
   const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const yesterdayStr = useMemo(() => {
@@ -338,6 +344,10 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
         setRepeatEndDate(nextY.toISOString().slice(0, 10));
       }
       setReminderEnabled(initialReminderEnabled !== undefined ? initialReminderEnabled : true);
+      setSplitEnabled(false);
+      setSplitIncludeMe(true);
+      setSplitPeople([]);
+      setSplitPersonInput('');
     }
   }, [
     visible,
@@ -469,6 +479,45 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
     }
   };
 
+  const knownDebtPeople = useMemo(() => {
+    const map = new Map<string, string>();
+    debts.forEach((d) => {
+      const clean = d.person_name.trim();
+      if (clean) {
+        const key = clean.toLowerCase();
+        if (!map.has(key)) map.set(key, clean);
+      }
+    });
+    const addedKeys = new Set(splitPeople.map((p) => p.name.trim().toLowerCase()));
+    return Array.from(map.values()).filter((n) => !addedKeys.has(n.toLowerCase()));
+  }, [debts, splitPeople]);
+
+  const splitSummary = useMemo(() => {
+    const total = parseCleanNumber(amountStr) || 0;
+    const count = splitPeople.length;
+    const divisor = splitIncludeMe ? count + 1 : Math.max(1, count);
+    const equalShare = count > 0 && divisor > 0 ? Math.round((total / divisor) * 100) / 100 : 0;
+    const resolved = splitPeople.map((p) => {
+      const custom = p.customAmount?.trim() ? parseCleanNumber(p.customAmount) : NaN;
+      const share = !isNaN(custom) && custom >= 0 ? custom : equalShare;
+      return { name: p.name.trim(), share };
+    });
+    const totalOwedByOthers = resolved.reduce((s, r) => s + r.share, 0);
+    const yourShare = Math.max(0, Math.round((total - totalOwedByOthers) * 100) / 100);
+    return { total, equalShare, resolved, totalOwedByOthers, yourShare };
+  }, [amountStr, splitPeople, splitIncludeMe]);
+
+  const handleAddSplitPerson = (rawName?: string) => {
+    const clean = (rawName ?? splitPersonInput).trim();
+    if (!clean) return;
+    if (splitPeople.some((p) => p.name.toLowerCase() === clean.toLowerCase())) {
+      if (!rawName) setSplitPersonInput('');
+      return;
+    }
+    setSplitPeople((prev) => [...prev, { name: clean }]);
+    if (!rawName) setSplitPersonInput('');
+  };
+
   const handleSave = async () => {
     const parsed = parseCleanNumber(amountStr);
     if (isNaN(parsed) || parsed <= 0) {
@@ -502,6 +551,17 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       }
     }
 
+    if (currentType === 'expense' && !isEditing && splitEnabled) {
+      if (splitPeople.length === 0) {
+        Alert.alert('Add Participants', 'Add at least one person to split this expense with, or turn off Split Expense.');
+        return;
+      }
+      if (splitSummary.totalOwedByOthers > parsed + 0.01) {
+        Alert.alert('Split Exceeds Total', 'The sum of split shares cannot exceed the total expense amount.');
+        return;
+      }
+    }
+
     await onSave({
       amount: parsed,
       wallet_id: selectedWalletId || wallets[0].id,
@@ -526,6 +586,23 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       repeat_end_date: repeatEnabled && repeatEndType === 'on_date' ? repeatEndDate : undefined,
       reminder_enabled: repeatEnabled ? reminderEnabled : undefined,
     });
+
+    if (currentType === 'expense' && !isEditing && splitEnabled && splitSummary.resolved.length > 0) {
+      const splitNote = note.trim() ? `${note.trim()} (Split)` : 'Split expense';
+      for (const participant of splitSummary.resolved) {
+        if (participant.share > 0) {
+          await addDebt({
+            type: 'lent',
+            person_name: participant.name,
+            amount: participant.share,
+            currency,
+            date: dateStr,
+            wallet_id: selectedWalletId || wallets[0]?.id,
+            note: splitNote,
+          });
+        }
+      }
+    }
     onClose();
   };
 
@@ -1142,6 +1219,204 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
               </View>
             )}
           </View>
+
+          {/* SPLIT EXPENSE (CREATE IOUs) */}
+          {currentType === 'expense' && !isEditing && (
+            <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
+              <View style={styles.toggleRow}>
+                <View style={styles.toggleTextCol}>
+                  <View style={styles.labelWithIcon}>
+                    <MaterialCommunityIcons name="account-group-outline" size={18} color={theme.primary} />
+                    <Text style={[styles.toggleTitle, { color: theme.onSurface }]}>Split Expense</Text>
+                  </View>
+                  <Text style={[styles.toggleSubtitle, { color: theme.onSurfaceVariant }]}>
+                    Automatically create IOUs for other people's shares
+                  </Text>
+                </View>
+                <Switch
+                  value={splitEnabled}
+                  onValueChange={setSplitEnabled}
+                  trackColor={{ false: theme.outlineVariant, true: theme.primaryContainer }}
+                  thumbColor={splitEnabled ? theme.primary : '#f4f3f4'}
+                />
+              </View>
+
+              {splitEnabled && (
+                <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: theme.divider }}>
+                  {/* Include Me Toggle */}
+                  <TouchableOpacity
+                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}
+                    onPress={() => setSplitIncludeMe((prev) => !prev)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: theme.onSurface }}>
+                      Include me in equal split
+                    </Text>
+                    <View
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 4,
+                        borderRadius: 12,
+                        backgroundColor: splitIncludeMe ? theme.primaryContainer : theme.pillBg,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 11.5,
+                          fontWeight: '700',
+                          color: splitIncludeMe ? theme.onPrimaryContainer : theme.onSurfaceVariant,
+                        }}
+                      >
+                        {splitIncludeMe ? 'Included' : 'Paid 100% for others'}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  {/* Add Person Row */}
+                  <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+                    <TextInput
+                      style={[
+                        styles.taxInput,
+                        {
+                          flex: 1,
+                          maxWidth: undefined,
+                          textAlign: 'left',
+                          paddingVertical: 8,
+                          color: theme.onSurface,
+                          backgroundColor: theme.pillBg,
+                          borderColor: theme.divider,
+                        },
+                      ]}
+                      placeholder="Person name (e.g. Alex)"
+                      placeholderTextColor={theme.onSurfaceVariant}
+                      value={splitPersonInput}
+                      onChangeText={setSplitPersonInput}
+                      onSubmitEditing={() => handleAddSplitPerson()}
+                      returnKeyType="done"
+                    />
+                    <TouchableOpacity
+                      style={{
+                        backgroundColor: theme.primary,
+                        paddingHorizontal: 14,
+                        borderRadius: M3Shape.small,
+                        justifyContent: 'center',
+                      }}
+                      onPress={() => handleAddSplitPerson()}
+                    >
+                      <Text style={{ color: theme.onPrimary, fontSize: 13, fontWeight: '800' }}>Add</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Quick-tap existing people */}
+                  {knownDebtPeople.length > 0 && (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={{ gap: 6, marginBottom: 10 }}
+                    >
+                      {knownDebtPeople.map((person) => (
+                        <TouchableOpacity
+                          key={person}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 4,
+                            paddingHorizontal: 10,
+                            paddingVertical: 5,
+                            borderRadius: 14,
+                            backgroundColor: theme.pillBg,
+                            borderWidth: 1,
+                            borderColor: theme.divider,
+                          }}
+                          onPress={() => handleAddSplitPerson(person)}
+                        >
+                          <MaterialCommunityIcons name="plus" size={13} color={theme.primary} />
+                          <Text style={{ fontSize: 12, fontWeight: '700', color: theme.onSurface }}>
+                            {person}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  )}
+
+                  {/* Participant Shares List */}
+                  {splitPeople.map((p, idx) => {
+                    const resolvedItem = splitSummary.resolved[idx];
+                    return (
+                      <View
+                        key={p.name}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 8,
+                          paddingVertical: 6,
+                          borderBottomWidth: idx < splitPeople.length - 1 ? 1 : 0,
+                          borderBottomColor: theme.divider,
+                        }}
+                      >
+                        <Text style={{ flex: 1, fontSize: 13.5, fontWeight: '700', color: theme.onSurface }}>
+                          {p.name}
+                        </Text>
+                        <TextInput
+                          style={[
+                            styles.taxInput,
+                            {
+                              minWidth: 90,
+                              color: theme.onSurface,
+                              backgroundColor: theme.pillBg,
+                              borderColor: theme.divider,
+                            },
+                          ]}
+                          placeholder={splitSummary.equalShare > 0 ? formatTypingNumber(splitSummary.equalShare.toString()) : '0'}
+                          placeholderTextColor={theme.onSurfaceVariant}
+                          keyboardType={Platform.OS === 'android' ? 'numeric' : 'decimal-pad'}
+                          value={p.customAmount ?? ''}
+                          onChangeText={(txt) => {
+                            const formatted = formatTypingNumber(txt);
+                            setSplitPeople((prev) =>
+                              prev.map((item, i) => (i === idx ? { ...item, customAmount: formatted } : item))
+                            );
+                          }}
+                        />
+                        <TouchableOpacity
+                          onPress={() => setSplitPeople((prev) => prev.filter((_, i) => i !== idx))}
+                          hitSlop={6}
+                        >
+                          <MaterialCommunityIcons name="close-circle" size={18} color={theme.error} />
+                        </TouchableOpacity>
+                        {resolvedItem && (
+                          <Text style={{ fontSize: 11, color: theme.primary, fontWeight: '700', minWidth: 46, textAlign: 'right' }}>
+                            {formatCurrency(resolvedItem.share, currency)}
+                          </Text>
+                        )}
+                      </View>
+                    );
+                  })}
+
+                  {splitPeople.length > 0 && (
+                    <View
+                      style={{
+                        marginTop: 10,
+                        paddingHorizontal: 10,
+                        paddingVertical: 8,
+                        borderRadius: M3Shape.small,
+                        backgroundColor: theme.primaryContainer,
+                        flexDirection: 'row',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: theme.onPrimaryContainer }}>
+                        Your share: {formatCurrency(splitSummary.yourShare, currency)}
+                      </Text>
+                      <Text style={{ fontSize: 12, fontWeight: '800', color: theme.onPrimaryContainer }}>
+                        {splitPeople.length} IOU{splitPeople.length > 1 ? 's' : ''} = {formatCurrency(splitSummary.totalOwedByOthers, currency)}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              )}
+            </View>
+          )}
 
           {/* 7. REPEAT & REMINDERS (RECURRING TRANSACTION) */}
           <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>

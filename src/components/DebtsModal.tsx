@@ -25,6 +25,7 @@ interface DebtsModalProps {
 }
 
 type FilterTab = 'open' | 'lent' | 'borrowed' | 'settled';
+type ViewMode = 'by_person' | 'all_items';
 
 export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
   const {
@@ -45,6 +46,8 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
   const bottomInset = Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 16);
 
   const [filter, setFilter] = useState<FilterTab>('open');
+  const [viewMode, setViewMode] = useState<ViewMode>('by_person');
+  const [expandedPersonKey, setExpandedPersonKey] = useState<string | null>(null);
   const [formVisible, setFormVisible] = useState(false);
   const [editingDebt, setEditingDebt] = useState<DebtItem | null>(null);
 
@@ -87,6 +90,54 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
     });
   }, [debts, filter]);
 
+  const personGroups = useMemo(() => {
+    const groups = new Map<
+      string,
+      {
+        key: string;
+        displayName: string;
+        items: DebtItem[];
+        lentOpen: number;
+        borrowedOpen: number;
+        netBalance: number;
+        openCount: number;
+        settledCount: number;
+      }
+    >();
+
+    filteredDebts.forEach((d) => {
+      const cleanName = d.person_name.trim() || 'Unknown';
+      const key = cleanName.toLowerCase();
+      if (!groups.has(key)) {
+        groups.set(key, {
+          key,
+          displayName: cleanName,
+          items: [],
+          lentOpen: 0,
+          borrowedOpen: 0,
+          netBalance: 0,
+          openCount: 0,
+          settledCount: 0,
+        });
+      }
+      const g = groups.get(key)!;
+      g.items.push(d);
+      if (d.status === 'open') {
+        const rem = Math.max(0, d.amount - (d.paid_amount || 0));
+        if (d.type === 'lent') g.lentOpen += rem;
+        else g.borrowedOpen += rem;
+        g.openCount += 1;
+      } else {
+        g.settledCount += 1;
+      }
+      g.netBalance = g.lentOpen - g.borrowedOpen;
+    });
+
+    return Array.from(groups.values()).sort(
+      (a, b) => Math.abs(b.netBalance) - Math.abs(a.netBalance)
+    );
+  }, [filteredDebts]);
+
   const resetForm = (defaultType: DebtType = 'lent') => {
     setEditingDebt(null);
     setDebtType(defaultType);
@@ -98,9 +149,31 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
     setNote('');
   };
 
-  const openAddForm = (type: DebtType = 'lent') => {
+  const openAddForm = (type: DebtType = 'lent', prefillPerson?: string) => {
     resetForm(type);
+    if (prefillPerson) setPersonName(prefillPerson);
     setFormVisible(true);
+  };
+
+  const handleSettleAllForPerson = (displayName: string, items: DebtItem[]) => {
+    const openItems = items.filter((d) => d.status === 'open');
+    if (openItems.length === 0) return;
+    Alert.alert(
+      `Settle All with ${displayName}?`,
+      `Mark all ${openItems.length} open IOU(s) with ${displayName} as settled?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Settle All',
+          onPress: async () => {
+            for (const item of openItems) {
+              const rem = Math.max(0, item.amount - (item.paid_amount || 0));
+              if (rem > 0) await recordDebtPayment(item.id, rem);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const openEditForm = (item: DebtItem) => {
@@ -280,6 +353,39 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
             </View>
           </View>
 
+          {/* View Mode Toggle (By Person vs All Items) */}
+          <View style={[styles.typeToggleRow, { backgroundColor: theme.pillBg, marginBottom: 12 }]}>
+            {(
+              [
+                { key: 'by_person', label: 'By Person' },
+                { key: 'all_items', label: 'All Items' },
+              ] as { key: ViewMode; label: string }[]
+            ).map((mode) => {
+              const active = viewMode === mode.key;
+              return (
+                <TouchableOpacity
+                  key={mode.key}
+                  style={[
+                    styles.typeToggleBtn,
+                    active && { backgroundColor: theme.primaryContainer },
+                  ]}
+                  onPress={() => setViewMode(mode.key)}
+                >
+                  <Text
+                    style={[
+                      styles.typeToggleText,
+                      {
+                        color: active ? theme.onPrimaryContainer : theme.onSurfaceVariant,
+                      },
+                    ]}
+                  >
+                    {mode.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
           {/* Filter Tabs */}
           <ScrollView
             horizontal
@@ -343,6 +449,213 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
                 </Text>
               </TouchableOpacity>
             </View>
+          ) : viewMode === 'by_person' ? (
+            personGroups.map((group) => {
+              const isExpanded = expandedPersonKey === group.key;
+              const isNetPositive = group.netBalance > 0.009;
+              const isNetNegative = group.netBalance < -0.009;
+              return (
+                <View
+                  key={group.key}
+                  style={[
+                    styles.debtCard,
+                    { backgroundColor: theme.surface, borderColor: theme.divider },
+                    M3Elevation.level1,
+                  ]}
+                >
+                  <TouchableOpacity
+                    style={styles.debtTopRow}
+                    onPress={() =>
+                      setExpandedPersonKey((prev) => (prev === group.key ? null : group.key))
+                    }
+                    activeOpacity={0.75}
+                  >
+                    <View
+                      style={[
+                        styles.avatarCircle,
+                        {
+                          backgroundColor: isNetNegative
+                            ? theme.errorContainer
+                            : isNetPositive
+                            ? theme.successContainer
+                            : theme.pillBg,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.avatarText,
+                          {
+                            color: isNetNegative
+                              ? theme.onErrorContainer
+                              : isNetPositive
+                              ? theme.onSuccessContainer
+                              : theme.onSurfaceVariant,
+                          },
+                        ]}
+                      >
+                        {group.displayName.charAt(0).toUpperCase()}
+                      </Text>
+                    </View>
+
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.personName, { color: theme.onSurface }]}>
+                        {group.displayName}
+                      </Text>
+                      <Text style={[styles.metaText, { color: theme.onSurfaceVariant }]}>
+                        {group.openCount > 0 ? `${group.openCount} open` : ''}
+                        {group.openCount > 0 && group.settledCount > 0 ? ' • ' : ''}
+                        {group.settledCount > 0 ? `${group.settledCount} settled` : ''}
+                      </Text>
+                    </View>
+
+                    <View style={{ alignItems: 'flex-end', marginRight: 4 }}>
+                      <Text
+                        style={[
+                          styles.remainingAmount,
+                          {
+                            color: isNetNegative
+                              ? theme.error
+                              : isNetPositive
+                              ? theme.success
+                              : theme.onSurfaceVariant,
+                          },
+                        ]}
+                      >
+                        {isNetPositive
+                          ? `Owes ${formatCurrency(group.netBalance, baseCurr)}`
+                          : isNetNegative
+                          ? `You owe ${formatCurrency(Math.abs(group.netBalance), baseCurr)}`
+                          : 'Settled'}
+                      </Text>
+                      {group.lentOpen > 0 && group.borrowedOpen > 0 && (
+                        <Text style={[styles.totalSmall, { color: theme.onSurfaceVariant }]}>
+                          +{formatCurrency(group.lentOpen, baseCurr)} / -{formatCurrency(group.borrowedOpen, baseCurr)}
+                        </Text>
+                      )}
+                    </View>
+
+                    <MaterialCommunityIcons
+                      name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                      size={20}
+                      color={theme.onSurfaceVariant}
+                    />
+                  </TouchableOpacity>
+
+                  {isExpanded && (
+                    <View
+                      style={{
+                        marginTop: 12,
+                        paddingTop: 10,
+                        borderTopWidth: 1,
+                        borderTopColor: theme.divider,
+                        gap: 10,
+                      }}
+                    >
+                      {group.items.map((item) => {
+                        const isLent = item.type === 'lent';
+                        const paid = item.paid_amount || 0;
+                        const remaining = Math.max(0, item.amount - paid);
+                        const curr = item.currency || baseCurr;
+                        return (
+                          <View
+                            key={item.id}
+                            style={{
+                              backgroundColor: theme.pillBg,
+                              borderRadius: M3Shape.medium,
+                              padding: 10,
+                            }}
+                          >
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ fontSize: 12.5, fontWeight: '800', color: theme.onSurface }}>
+                                  {isLent ? 'Lent' : 'Borrowed'} • {item.date}
+                                </Text>
+                                {Boolean(item.note) && (
+                                  <Text style={{ fontSize: 11.5, color: theme.onSurfaceVariant, marginTop: 2 }}>
+                                    {item.note}
+                                  </Text>
+                                )}
+                              </View>
+                              <Text
+                                style={{
+                                  fontSize: 13.5,
+                                  fontWeight: '800',
+                                  color:
+                                    item.status === 'settled'
+                                      ? theme.onSurfaceVariant
+                                      : isLent
+                                      ? theme.success
+                                      : theme.error,
+                                }}
+                              >
+                                {formatCurrency(item.status === 'settled' ? item.amount : remaining, curr)}
+                              </Text>
+                            </View>
+
+                            <View style={[styles.cardActionsRow, { marginTop: 8 }]}>
+                              {item.status === 'open' ? (
+                                <>
+                                  <TouchableOpacity
+                                    style={[styles.cardActionBtn, { backgroundColor: theme.primaryContainer }]}
+                                    onPress={() => handleOpenPayment(item)}
+                                  >
+                                    <MaterialCommunityIcons name="cash-plus" size={14} color={theme.onPrimaryContainer} />
+                                    <Text style={[styles.cardActionText, { color: theme.onPrimaryContainer }]}>Pay</Text>
+                                  </TouchableOpacity>
+                                  <TouchableOpacity
+                                    style={[styles.cardActionBtn, { backgroundColor: theme.successContainer }]}
+                                    onPress={() => handleSettleFull(item)}
+                                  >
+                                    <MaterialCommunityIcons name="check-circle-outline" size={14} color={theme.onSuccessContainer} />
+                                    <Text style={[styles.cardActionText, { color: theme.onSuccessContainer }]}>Settle</Text>
+                                  </TouchableOpacity>
+                                </>
+                              ) : (
+                                <View style={[styles.settledBadge, { backgroundColor: theme.successContainer }]}>
+                                  <MaterialCommunityIcons name="check" size={13} color={theme.success} />
+                                  <Text style={[styles.settledBadgeText, { color: theme.onSuccessContainer }]}>Settled</Text>
+                                </View>
+                              )}
+                              <View style={{ flex: 1 }} />
+                              <TouchableOpacity onPress={() => openEditForm(item)} style={styles.iconAction}>
+                                <MaterialCommunityIcons name="pencil-outline" size={16} color={theme.onSurfaceVariant} />
+                              </TouchableOpacity>
+                              <TouchableOpacity onPress={() => handleDelete(item)} style={styles.iconAction}>
+                                <MaterialCommunityIcons name="trash-can-outline" size={16} color={theme.error} />
+                              </TouchableOpacity>
+                            </View>
+                          </View>
+                        );
+                      })}
+
+                      <View style={{ flexDirection: 'row', gap: 8, marginTop: 2 }}>
+                        <TouchableOpacity
+                          style={[styles.cardActionBtn, { backgroundColor: theme.primaryContainer, flex: 1, justifyContent: 'center', paddingVertical: 8 }]}
+                          onPress={() => openAddForm('lent', group.displayName)}
+                        >
+                          <MaterialCommunityIcons name="plus" size={15} color={theme.onPrimaryContainer} />
+                          <Text style={[styles.cardActionText, { color: theme.onPrimaryContainer }]}>
+                            Add IOU
+                          </Text>
+                        </TouchableOpacity>
+                        {group.openCount > 1 && (
+                          <TouchableOpacity
+                            style={[styles.cardActionBtn, { backgroundColor: theme.successContainer, flex: 1, justifyContent: 'center', paddingVertical: 8 }]}
+                            onPress={() => handleSettleAllForPerson(group.displayName, group.items)}
+                          >
+                            <MaterialCommunityIcons name="check-all" size={15} color={theme.onSuccessContainer} />
+                            <Text style={[styles.cardActionText, { color: theme.onSuccessContainer }]}>
+                              Settle All ({group.openCount})
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    </View>
+                  )}
+                </View>
+              );
+            })
           ) : (
             filteredDebts.map((item) => {
               const isLent = item.type === 'lent';
