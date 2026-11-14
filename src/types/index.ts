@@ -182,3 +182,17 @@ export interface DebtItem {
   created_at?: string;
   updated_at?: string;
 }
+
+export interface DebtSettlement {
+  id: string;
+  transaction_id?: string | null;
+  debt_id: string;
+  debt_type: DebtType;
+  person_name: string;
+  applied_amount: number;
+  excess_amount: number;
+  excess_mode?: 'tip' | 'credit' | 'none' | null;
+  created_debt_id?: string | null;
+  currency: string;
+  created_at?: string;
+}

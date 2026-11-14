@@ -63,7 +63,11 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
     );
   }, [transaction, recurringBills]);
 
-  const { debts } = useBudget();
+  const { debts, debtSettlements } = useBudget();
+  const linkedSettlements = useMemo(() => {
+    if (!transaction) return [];
+    return debtSettlements.filter((s) => s.transaction_id === transaction.id);
+  }, [transaction, debtSettlements]);
   const linkedDebts = useMemo(() => {
     if (!transaction) return [];
     return debts.filter((d) => {
@@ -381,8 +385,35 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
               </View>
             )}
 
+            {/* Linked IOU Settlements Row */}
+            {linkedSettlements.length > 0 && (
+              <View style={[styles.detailRow, { borderBottomColor: theme.divider }]}>
+                <View style={[styles.detailIconCircle, { backgroundColor: theme.successContainer }]}>
+                  <MaterialCommunityIcons name="handshake-outline" size={18} color={theme.success} />
+                </View>
+                <View style={styles.detailCol}>
+                  <Text style={[styles.detailLabel, { color: theme.onSurfaceVariant }]}>
+                    Settled IOU{linkedSettlements.length > 1 ? 's' : ''}
+                  </Text>
+                  {linkedSettlements.map((s) => (
+                    <View key={s.id} style={{ marginTop: 2 }}>
+                      <Text style={[styles.detailValue, { color: theme.onSurface }]}>
+                        Settled {s.person_name}'s {formatCurrency(s.applied_amount, s.currency || baseCurrency)} debt
+                      </Text>
+                      {s.excess_amount > 0.009 && (
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: theme.primary, marginTop: 1 }}>
+                          Exceeded by {formatCurrency(s.excess_amount, s.currency || baseCurrency)} (
+                          {s.excess_mode === 'credit' ? 'Recorded as Credit' : 'Claimed as Tip'})
+                        </Text>
+                      )}
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
+
             {/* Linked IOUs / Splits Row */}
-            {linkedDebts.length > 0 && (
+            {linkedSettlements.length === 0 && linkedDebts.length > 0 && (
               <View style={[styles.detailRow, { borderBottomColor: theme.divider }]}>
                 <View style={[styles.detailIconCircle, { backgroundColor: theme.primaryContainer }]}>
                   <MaterialCommunityIcons name="handshake-outline" size={18} color={theme.primary} />

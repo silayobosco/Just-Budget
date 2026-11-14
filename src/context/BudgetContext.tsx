@@ -23,6 +23,7 @@ import {
   BudgetScope,
   DebtItem,
   DebtType,
+  DebtSettlement,
 } from '../types';
 
 interface BudgetContextType {
@@ -196,9 +197,12 @@ interface BudgetContextType {
   recordDebtPayment: (
     id: string,
     paymentAmount: number,
-    options?: { recordExcessAsCredit?: boolean }
+    options?: { recordExcessAsCredit?: boolean; transactionId?: string }
   ) => Promise<void>;
   deleteDebt: (id: string) => Promise<void>;
+  debtSettlements: DebtSettlement[];
+  undoTransactionDebtSettlements: (transactionId: string) => Promise<void>;
+  getLastCreatedTransactionId: () => string | null;
 
   updateBudgetCycle: (params: { id?: string; name: string; start_date: string; end_date: string; target_budget?: number; target_income?: number }) => Promise<void>;
   updateCurrentCycleTarget: (type: 'budget' | 'income', amount: number) => Promise<void>;
@@ -241,6 +245,9 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [recurringBills, setRecurringBills] = useState<RecurringBill[]>([]);
   const [debts, setDebts] = useState<DebtItem[]>([]);
+  const [debtSettlements, setDebtSettlements] = useState<DebtSettlement[]>([]);
+  const lastCreatedTransactionIdRef = useRef<string | null>(null);
+  const getLastCreatedTransactionId = useCallback(() => lastCreatedTransactionIdRef.current, []);
   const [budgets, setBudgets] = useState<BudgetLimit[]>([]);
   const [currentCycle, setCurrentCycle] = useState<BudgetCycle | null>(null);
   const [allCycles, setAllCycles] = useState<BudgetCycle[]>([]);
@@ -513,6 +520,12 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setDebts(debtRows);
       } catch {
         setDebts([]);
+      }
+      try {
+        const settlementRows = db.getAllSync<DebtSettlement>(`SELECT * FROM debt_settlements ORDER BY created_at DESC`);
+        setDebtSettlements(settlementRows);
+      } catch {
+        setDebtSettlements([]);
       }
     } catch (err) {
       console.error('Error loading budget data:', err);
@@ -917,6 +930,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }) => {
     const db = getDB();
     const id = `tx-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    lastCreatedTransactionIdRef.current = id;
     const txCurrency = params.currency || settings.base_currency;
     const isPaid = params.is_paid !== false;
 
@@ -1244,6 +1258,42 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     await loadData();
   };
 
+  const undoSettlementsInTx = (db: ReturnType<typeof getDB>, transactionId: string) => {
+    const linked = db.getAllSync<DebtSettlement>(
+      `SELECT * FROM debt_settlements WHERE transaction_id = ?`,
+      [transactionId]
+    );
+    const nowIso = new Date().toISOString();
+    for (const s of linked) {
+      const debt = db.getFirstSync<DebtItem>(`SELECT * FROM debts WHERE id = ?`, [s.debt_id]);
+      if (debt) {
+        const restoredPaid = Math.max(
+          0,
+          Math.round(((debt.paid_amount || 0) - s.applied_amount) * 100) / 100
+        );
+        const restoredStatus = restoredPaid >= debt.amount - 0.009 ? 'settled' : 'open';
+        db.runSync(
+          `UPDATE debts SET paid_amount = ?, status = ?, updated_at = ? WHERE id = ?`,
+          [restoredPaid, restoredStatus, nowIso, debt.id]
+        );
+      }
+      if (s.created_debt_id) {
+        db.runSync(`DELETE FROM debts WHERE id = ?`, [s.created_debt_id]);
+      }
+    }
+    if (linked.length > 0) {
+      db.runSync(`DELETE FROM debt_settlements WHERE transaction_id = ?`, [transactionId]);
+    }
+  };
+
+  const undoTransactionDebtSettlements = async (transactionId: string) => {
+    const db = getDB();
+    db.withTransactionSync(() => {
+      undoSettlementsInTx(db, transactionId);
+    });
+    await loadData();
+  };
+
   const deleteTransaction = async (id: string) => {
     const db = getDB();
     const tx = transactions.find((t) => t.id === id);
@@ -1275,6 +1325,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
       }
 
+      undoSettlementsInTx(db, id);
       db.runSync(`DELETE FROM transactions WHERE id = ?`, [id]);
     });
 
@@ -1589,7 +1640,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const recordDebtPayment = async (
     id: string,
     paymentAmount: number,
-    options?: { recordExcessAsCredit?: boolean }
+    options?: { recordExcessAsCredit?: boolean; transactionId?: string }
   ) => {
     const db = getDB();
     const target = debts.find((d) => d.id === id);
@@ -1601,6 +1652,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const newPaid = Math.round(((target.paid_amount || 0) + appliedToTarget) * 100) / 100;
     const newStatus = newPaid >= target.amount - 0.009 ? 'settled' : 'open';
     let excess = Math.round((paymentAmount - appliedToTarget) * 100) / 100;
+    const txId = options?.transactionId || null;
 
     db.withTransactionSync(() => {
       db.runSync(
@@ -1608,6 +1660,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         [Math.min(target.amount, newPaid), newStatus, nowIso, id]
       );
 
+      const spilloverRows: { debt: DebtItem; applied: number }[] = [];
       if (excess > 0.009) {
         const normalizedPerson = target.person_name.trim().toLowerCase();
         const otherOpen = debts
@@ -1631,29 +1684,70 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             `UPDATE debts SET paid_amount = ?, status = ?, updated_at = ? WHERE id = ?`,
             [Math.min(other.amount, otherNewPaid), otherStatus, nowIso, other.id]
           );
+          spilloverRows.push({ debt: other, applied: apply });
           excess = Math.round((excess - apply) * 100) / 100;
         }
+      }
 
-        if (excess > 0.009 && options?.recordExcessAsCredit) {
-          const reverseType: DebtType = target.type === 'lent' ? 'borrowed' : 'lent';
-          const creditId = `debt-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-          const todayStr = new Date().toISOString().slice(0, 10);
-          db.runSync(
-            `INSERT INTO debts (id, type, person_name, amount, paid_amount, currency, date, due_date, note, wallet_id, status, created_at)
-             VALUES (?, ?, ?, ?, 0, ?, ?, NULL, ?, ?, 'open', ?)`,
-            [
-              creditId,
-              reverseType,
-              target.person_name.trim(),
-              excess,
-              target.currency || settings.base_currency,
-              todayStr,
-              `Overpayment credit${target.note ? ` (${target.note})` : ''}`,
-              target.wallet_id || null,
-              nowIso,
-            ]
-          );
-        }
+      let createdCreditId: string | null = null;
+      if (excess > 0.009 && options?.recordExcessAsCredit) {
+        const reverseType: DebtType = target.type === 'lent' ? 'borrowed' : 'lent';
+        createdCreditId = `debt-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        const todayStr = new Date().toISOString().slice(0, 10);
+        db.runSync(
+          `INSERT INTO debts (id, type, person_name, amount, paid_amount, currency, date, due_date, note, wallet_id, status, created_at)
+           VALUES (?, ?, ?, ?, 0, ?, ?, NULL, ?, ?, 'open', ?)`,
+          [
+            createdCreditId,
+            reverseType,
+            target.person_name.trim(),
+            excess,
+            target.currency || settings.base_currency,
+            todayStr,
+            `Overpayment credit${target.note ? ` (${target.note})` : ''}`,
+            target.wallet_id || null,
+            nowIso,
+          ]
+        );
+      }
+
+      const targetExcessMode =
+        excess > 0.009 ? (options?.recordExcessAsCredit ? 'credit' : 'tip') : 'none';
+      if (appliedToTarget > 0 || excess > 0.009) {
+        db.runSync(
+          `INSERT INTO debt_settlements (id, transaction_id, debt_id, debt_type, person_name, applied_amount, excess_amount, excess_mode, created_debt_id, currency, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            `settle-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            txId,
+            target.id,
+            target.type,
+            target.person_name.trim(),
+            appliedToTarget,
+            excess > 0.009 ? excess : 0,
+            targetExcessMode,
+            createdCreditId,
+            target.currency || settings.base_currency,
+            nowIso,
+          ]
+        );
+      }
+
+      for (const sp of spilloverRows) {
+        db.runSync(
+          `INSERT INTO debt_settlements (id, transaction_id, debt_id, debt_type, person_name, applied_amount, excess_amount, excess_mode, created_debt_id, currency, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, 0, 'none', NULL, ?, ?)`,
+          [
+            `settle-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            txId,
+            sp.debt.id,
+            sp.debt.type,
+            sp.debt.person_name.trim(),
+            sp.applied,
+            sp.debt.currency || settings.base_currency,
+            nowIso,
+          ]
+        );
       }
     });
 
@@ -2124,6 +2218,9 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         updateDebt,
         recordDebtPayment,
         deleteDebt,
+        debtSettlements,
+        undoTransactionDebtSettlements,
+        getLastCreatedTransactionId,
         updateBudgetCycle,
         updateCurrentCycleTarget,
         deleteBudgetCycle,

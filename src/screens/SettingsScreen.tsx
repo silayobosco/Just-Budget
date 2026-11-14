@@ -1264,6 +1264,7 @@ export const SettingsScreen: React.FC = () => {
           initialIsPaid={editingTransaction?.is_paid}
           initialTaxAmount={editingTransaction?.tax_amount || 0}
           initialCurrency={editingTransaction?.currency}
+          initialTransactionId={editingTransaction?.id}
           isEditing={true}
           initialRepeatEnabled={Boolean(editingLinkedBill)}
           initialRepeatFrequency={editingLinkedBill?.frequency || 'monthly'}

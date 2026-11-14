@@ -45,6 +45,7 @@ interface TransactionDetailsModalProps {
   initialIsPaid?: boolean;
   initialTaxAmount?: number;
   initialCurrency?: string;
+  initialTransactionId?: string;
   isEditing?: boolean;
   initialRepeatEnabled?: boolean;
   initialRepeatFrequency?: BillFrequency;
@@ -100,6 +101,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   initialIsPaid,
   initialTaxAmount,
   initialCurrency,
+  initialTransactionId,
   isEditing,
   initialRepeatEnabled,
   initialRepeatFrequency,
@@ -117,7 +119,14 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   onManageCategories,
   onAddSubcategory,
 }) => {
-  const { debts, addDebt, recordDebtPayment } = useBudget();
+  const {
+    debts,
+    addDebt,
+    recordDebtPayment,
+    debtSettlements,
+    undoTransactionDebtSettlements,
+    getLastCreatedTransactionId,
+  } = useBudget();
   const insets = useSafeAreaInsets();
   const insetsRef = useRef(insets);
   insetsRef.current = insets;
@@ -516,6 +525,11 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
     [debts]
   );
 
+  const existingTxSettlements = useMemo(() => {
+    if (!isEditing || !initialTransactionId) return [];
+    return debtSettlements.filter((s) => s.transaction_id === initialTransactionId);
+  }, [isEditing, initialTransactionId, debtSettlements]);
+
   const existingLinkedDebts = useMemo(() => {
     if (!isEditing) return [];
     return debts.filter((d) => {
@@ -634,7 +648,14 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
     }
 
     if (currentType === 'income' && settleIouEnabled && selectedDebtId) {
-      await recordDebtPayment(selectedDebtId, parsed, { recordExcessAsCredit: true });
+      const txId =
+        isEditing && initialTransactionId
+          ? initialTransactionId
+          : getLastCreatedTransactionId() || undefined;
+      await recordDebtPayment(selectedDebtId, parsed, {
+        recordExcessAsCredit: true,
+        transactionId: txId,
+      });
     }
     onClose();
   };
@@ -1503,6 +1524,61 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
                   thumbColor={settleIouEnabled ? theme.success : '#f4f3f4'}
                 />
               </View>
+
+              {isEditing && existingTxSettlements.length > 0 && (
+                <View
+                  style={{
+                    marginTop: 10,
+                    padding: 10,
+                    borderRadius: M3Shape.small,
+                    backgroundColor: theme.successContainer,
+                    gap: 6,
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Text style={{ fontSize: 11.5, fontWeight: '800', color: theme.onSuccessContainer }}>
+                      SETTLED IOU(S) LINKED TO THIS TRANSACTION
+                    </Text>
+                    <TouchableOpacity
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 4,
+                        borderRadius: 12,
+                        backgroundColor: theme.errorContainer,
+                      }}
+                      onPress={() => {
+                        if (!initialTransactionId) return;
+                        Alert.alert(
+                          'Undo IOU Settlement?',
+                          'This will restore the settled debt balance back to open and remove any overpayment credit created from this transaction.',
+                          [
+                            { text: 'Cancel', style: 'cancel' },
+                            {
+                              text: 'Undo',
+                              style: 'destructive',
+                              onPress: () => undoTransactionDebtSettlements(initialTransactionId),
+                            },
+                          ]
+                        );
+                      }}
+                    >
+                      <Text style={{ fontSize: 11.5, fontWeight: '800', color: theme.onErrorContainer }}>
+                        Undo
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  {existingTxSettlements.map((s) => (
+                    <Text key={s.id} style={{ fontSize: 12.5, fontWeight: '700', color: theme.onSuccessContainer }}>
+                      • Settled {s.person_name}'s {formatCurrency(s.applied_amount, s.currency || currency)} debt
+                      {s.excess_amount > 0.009
+                        ? ` (exceeded ${formatCurrency(s.excess_amount, s.currency || currency)} • ${
+                            s.excess_mode === 'credit' ? 'Credit' : 'Tip'
+                          })`
+                        : ''}
+                    </Text>
+                  ))}
+                </View>
+              )}
 
               {settleIouEnabled && (
                 openLentDebts.length === 0 ? (

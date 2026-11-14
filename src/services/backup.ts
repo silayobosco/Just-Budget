@@ -2,7 +2,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
 import { getDB } from './db';
-import { Wallet, Category, Subcategory, Transaction, BudgetCycle, RecurringBill, BudgetLimit, DebtItem } from '../types';
+import { Wallet, Category, Subcategory, Transaction, BudgetCycle, RecurringBill, BudgetLimit, DebtItem, DebtSettlement } from '../types';
 import { encryptBackupPayload, decryptBackupPayload } from './security';
 
 export interface BackupData {
@@ -18,6 +18,7 @@ export interface BackupData {
   recurring_bills?: RecurringBill[];
   budgets?: BudgetLimit[];
   debts?: DebtItem[];
+  debt_settlements?: DebtSettlement[];
 }
 
 export const exportBackupData = async (passphrase?: string): Promise<boolean> => {
@@ -38,6 +39,7 @@ export const exportBackupData = async (passphrase?: string): Promise<boolean> =>
   const recurring_bills = db.getAllSync<RecurringBill>(`SELECT * FROM recurring_bills`);
   const budgets = db.getAllSync<BudgetLimit>(`SELECT * FROM budgets`);
   const debts = db.getAllSync<DebtItem>(`SELECT * FROM debts`);
+  const debt_settlements = db.getAllSync<DebtSettlement>(`SELECT * FROM debt_settlements`);
 
   const backup: BackupData = {
     app: 'just budget',
@@ -52,6 +54,7 @@ export const exportBackupData = async (passphrase?: string): Promise<boolean> =>
     recurring_bills,
     budgets,
     debts,
+    debt_settlements,
   };
 
   let fileData = JSON.stringify(backup, null, 2);
@@ -174,6 +177,7 @@ export const restoreFromBackupContentAsync = async (
       db.runSync(`DELETE FROM transactions`);
       db.runSync(`DELETE FROM budgets`);
       db.runSync(`DELETE FROM recurring_bills`);
+      db.runSync(`DELETE FROM debt_settlements`);
       db.runSync(`DELETE FROM debts`);
       db.runSync(`DELETE FROM subcategories`);
       db.runSync(`DELETE FROM categories`);
@@ -321,6 +325,29 @@ export const restoreFromBackupContentAsync = async (
               d.status || 'open',
               d.created_at || new Date().toISOString(),
               d.updated_at || null,
+            ]
+          );
+        }
+      }
+
+      // Restore debt settlements
+      if (parsed.debt_settlements) {
+        for (const s of parsed.debt_settlements) {
+          db.runSync(
+            `INSERT OR REPLACE INTO debt_settlements (id, transaction_id, debt_id, debt_type, person_name, applied_amount, excess_amount, excess_mode, created_debt_id, currency, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              s.id,
+              s.transaction_id || null,
+              s.debt_id,
+              s.debt_type,
+              s.person_name,
+              s.applied_amount,
+              s.excess_amount ?? 0,
+              s.excess_mode || null,
+              s.created_debt_id || null,
+              s.currency,
+              s.created_at || new Date().toISOString(),
             ]
           );
         }

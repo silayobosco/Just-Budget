@@ -37,6 +37,7 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
     recordDebtPayment,
     deleteDebt,
     addTransaction,
+    getLastCreatedTransactionId,
   } = useBudget();
   const theme = settings.theme_mode === 'dark' ? darkTheme : lightTheme;
   const insets = useSafeAreaInsets();
@@ -313,8 +314,15 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
         {
           text: payingDebt.type === 'lent' ? 'Claim as Tip' : 'Treat as Tip',
           onPress: async () => {
-            await recordDebtPayment(activeDebt.id, parsed, { recordExcessAsCredit: false });
-            if (shouldLog) await logPaymentToWallet(activeDebt, parsed, chosenWallet, unabsorbedExcess);
+            let txId: string | undefined;
+            if (shouldLog) {
+              await logPaymentToWallet(activeDebt, parsed, chosenWallet, unabsorbedExcess);
+              txId = getLastCreatedTransactionId() || undefined;
+            }
+            await recordDebtPayment(activeDebt.id, parsed, {
+              recordExcessAsCredit: false,
+              transactionId: txId,
+            });
             setPayingDebt(null);
             setPaymentStr('');
           },
@@ -322,8 +330,15 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
         {
           text: 'Record as Credit',
           onPress: async () => {
-            await recordDebtPayment(activeDebt.id, parsed, { recordExcessAsCredit: true });
-            if (shouldLog) await logPaymentToWallet(activeDebt, parsed, chosenWallet);
+            let txId: string | undefined;
+            if (shouldLog) {
+              await logPaymentToWallet(activeDebt, parsed, chosenWallet);
+              txId = getLastCreatedTransactionId() || undefined;
+            }
+            await recordDebtPayment(activeDebt.id, parsed, {
+              recordExcessAsCredit: true,
+              transactionId: txId,
+            });
             setPayingDebt(null);
             setPaymentStr('');
           },
@@ -332,8 +347,12 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
       return;
     }
 
-    await recordDebtPayment(activeDebt.id, parsed);
-    if (shouldLog) await logPaymentToWallet(activeDebt, parsed, chosenWallet);
+    let txId: string | undefined;
+    if (shouldLog) {
+      await logPaymentToWallet(activeDebt, parsed, chosenWallet);
+      txId = getLastCreatedTransactionId() || undefined;
+    }
+    await recordDebtPayment(activeDebt.id, parsed, { transactionId: txId });
     setPayingDebt(null);
     setPaymentStr('');
   };
@@ -355,8 +374,9 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
           {
             text: `Settle & Log (${defaultWallet.name})`,
             onPress: async () => {
-              await recordDebtPayment(item.id, remaining);
               await logPaymentToWallet(item, remaining, defaultWallet.id);
+              const txId = getLastCreatedTransactionId() || undefined;
+              await recordDebtPayment(item.id, remaining, { transactionId: txId });
             },
           },
         ]

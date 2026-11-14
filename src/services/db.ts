@@ -131,6 +131,20 @@ export const initDatabase = async () => {
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS debt_settlements (
+      id TEXT PRIMARY KEY NOT NULL,
+      transaction_id TEXT,
+      debt_id TEXT NOT NULL,
+      debt_type TEXT NOT NULL,
+      person_name TEXT NOT NULL,
+      applied_amount REAL NOT NULL,
+      excess_amount REAL NOT NULL DEFAULT 0,
+      excess_mode TEXT,
+      created_debt_id TEXT,
+      currency TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   // Safe migrations for table changes
