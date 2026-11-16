@@ -142,6 +142,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
     updateBudgetCycle,
     updateCurrentCycleTarget,
     deleteTransaction,
+    getEffectiveAmount,
     setAnalyticsFocus,
     setSelectedCalendarDate,
     setSelectedTransactionIdForCalendar,
@@ -1823,21 +1824,36 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
                           </View>
 
                           <View style={styles.txItemRight}>
-                            <Text
-                              style={[
-                                styles.txItemAmount,
-                                {
-                                  color: isExp
-                                    ? theme.error
-                                    : isTransfer
-                                      ? theme.tertiary
-                                      : theme.success,
-                                },
-                              ]}
-                            >
-                              {isExp ? '-' : isTransfer ? '' : '+'}
-                              {formatCurrency(tx.amount, tx.currency)}
-                            </Text>
+                            <View style={{ alignItems: 'flex-end' }}>
+                              {(() => {
+                                const effectiveAmt = isExp ? getEffectiveAmount(tx) : tx.amount;
+                                const isSplit = isExp && effectiveAmt < tx.amount - 0.01;
+                                return (
+                                  <>
+                                    <Text
+                                      style={[
+                                        styles.txItemAmount,
+                                        {
+                                          color: isExp
+                                            ? theme.error
+                                            : isTransfer
+                                              ? theme.tertiary
+                                              : theme.success,
+                                        },
+                                      ]}
+                                    >
+                                      {isExp ? '-' : isTransfer ? '' : '+'}
+                                      {formatCurrency(isSplit ? effectiveAmt : tx.amount, tx.currency)}
+                                    </Text>
+                                    {isSplit && (
+                                      <Text style={{ fontSize: 10.5, fontWeight: '600', color: theme.onSurfaceVariant }}>
+                                        Total: {formatCurrency(tx.amount, tx.currency)}
+                                      </Text>
+                                    )}
+                                  </>
+                                );
+                              })()}
+                            </View>
                             <TouchableOpacity
                               onPress={(e) => {
                                 e?.stopPropagation?.();

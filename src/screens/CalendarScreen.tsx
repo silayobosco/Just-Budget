@@ -62,6 +62,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     overallBudgetLimit,
     updateTransaction,
     deleteTransaction,
+    getEffectiveAmount,
     addTransaction,
     incomeInCycle,
     addSubcategory,
@@ -95,6 +96,16 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
 
   // Daily Allowance Breakdown Modal State (Triggered on Tap of Available for Today Amount)
   const [allowanceDetailVisible, setAllowanceDetailVisible] = useState<boolean>(false);
+
+  // Unified History Search & Filter States
+  const [filtersExpanded, setFiltersExpanded] = useState<boolean>(false);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [filterType, setFilterType] = useState<'all' | TransactionType>('all');
+  const [filterPaid, setFilterPaid] = useState<'all' | 'paid' | 'unpaid'>('all');
+  const [filterModifiedOnly, setFilterModifiedOnly] = useState<boolean>(false);
+  const [filterWalletId, setFilterWalletId] = useState<string | null>(null);
+  const [filterCategoryId, setFilterCategoryId] = useState<string | null>(null);
+  const [filterPickerMode, setFilterPickerMode] = useState<'wallet' | 'category' | null>(null);
 
   useEffect(() => {
     Animated.spring(fabAnim, {
@@ -712,10 +723,65 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     return '';
   };
 
+  const hasActiveFilters =
+    searchQuery.trim().length > 0 ||
+    filterType !== 'all' ||
+    filterPaid !== 'all' ||
+    filterModifiedOnly ||
+    filterWalletId !== null ||
+    filterCategoryId !== null;
+
+  const clearAllFilters = () => {
+    setSearchQuery('');
+    setFilterType('all');
+    setFilterPaid('all');
+    setFilterModifiedOnly(false);
+    setFilterWalletId(null);
+    setFilterCategoryId(null);
+  };
+
+  const filteredTransactions = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return transactions.filter((tx) => {
+      if (filterType !== 'all' && tx.type !== filterType) return false;
+      if (filterPaid === 'paid' && tx.is_paid === false) return false;
+      if (filterPaid === 'unpaid' && tx.is_paid !== false) return false;
+      if (filterModifiedOnly && (!tx.updated_at || tx.updated_at === tx.created_at)) return false;
+      if (filterWalletId && tx.wallet_id !== filterWalletId && tx.to_wallet_id !== filterWalletId) return false;
+      if (filterCategoryId && tx.category_id !== filterCategoryId) return false;
+      if (q) {
+        const cat = categories.find((c) => c.id === tx.category_id);
+        const sub = cat?.subcategories?.find((s) => s.id === tx.subcategory_id);
+        const wallet = wallets.find((w) => w.id === tx.wallet_id);
+        const haystack = [
+          tx.note || '',
+          cat?.name || '',
+          sub?.name || '',
+          wallet?.name || '',
+          String(tx.amount),
+        ]
+          .join(' ')
+          .toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [
+    transactions,
+    searchQuery,
+    filterType,
+    filterPaid,
+    filterModifiedOnly,
+    filterWalletId,
+    filterCategoryId,
+    categories,
+    wallets,
+  ]);
+
   // Group transactions by date, arranged with latest transaction last
   const transactionsByDate = useMemo(() => {
     const map: Record<string, Transaction[]> = {};
-    transactions.forEach((tx) => {
+    filteredTransactions.forEach((tx) => {
       if (!map[tx.date]) {
         map[tx.date] = [];
       }
@@ -748,18 +814,18 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     });
 
     return map;
-  }, [transactions]);
+  }, [filteredTransactions]);
 
   // Aggregate spending per day
   const dailySpendMap = useMemo(() => {
     const map: Record<string, number> = {};
-    transactions
+    filteredTransactions
       .filter((t) => t.type === 'expense')
       .forEach((t) => {
         map[t.date] = (map[t.date] || 0) + t.base_amount;
       });
     return map;
-  }, [transactions]);
+  }, [filteredTransactions]);
 
   // Group continuous feed by cycles (with title before each cycle list)
   // Only shows cycles that have transactions registered (or current cycle if no transactions exist yet)
@@ -1083,48 +1149,310 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
               </Text>
             </TouchableOpacity>
 
-            {/* Days Left chip - Tap to open Cycle Type picker */}
-            <TouchableOpacity
-              style={[
-                styles.walletSumPill,
-                {
-                  backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.16)' : theme.pillBg,
-                  borderColor: isDarkMode ? 'rgba(129, 140, 248, 0.32)' : 'rgba(0, 0, 0, 0.08)',
-                },
-              ]}
-              onPress={() => setModeSwitcherVisible(true)}
-              activeOpacity={0.7}
-              accessibilityRole="button"
-              accessibilityLabel="Switch Cycle Type"
-            >
-              <MaterialCommunityIcons
-                name="calendar-clock-outline"
-                size={14}
-                color={isDarkMode ? '#A5B4FC' : theme.primary}
-              />
-              <Text
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              {/* Days Left chip - Tap to open Cycle Type picker */}
+              <TouchableOpacity
                 style={[
-                  styles.walletSumText,
+                  styles.walletSumPill,
                   {
-                    color: isDarkMode ? '#E0E7FF' : theme.onSurface,
-                    fontWeight: '700',
+                    backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.16)' : theme.pillBg,
+                    borderColor: isDarkMode ? 'rgba(129, 140, 248, 0.32)' : 'rgba(0, 0, 0, 0.08)',
                   },
                 ]}
+                onPress={() => setModeSwitcherVisible(true)}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Switch Cycle Type"
               >
-                {focusedValues.isPast
-                  ? focusedValues.daysRemaining === 0
-                    ? 'Ended'
-                    : `${focusedValues.daysRemaining} days left`
-                  : dailyAllowanceStats.isEnded
-                    ? 'Ended'
-                    : dailyAllowanceStats.daysRemaining === 0
-                      ? 'Ends today'
-                      : dailyAllowanceStats.daysRemaining === 1
-                        ? '1 day left'
-                        : `${dailyAllowanceStats.daysRemaining} days left`}
-              </Text>
-            </TouchableOpacity>
+                <MaterialCommunityIcons
+                  name="calendar-clock-outline"
+                  size={14}
+                  color={isDarkMode ? '#A5B4FC' : theme.primary}
+                />
+                <Text
+                  style={[
+                    styles.walletSumText,
+                    {
+                      color: isDarkMode ? '#E0E7FF' : theme.onSurface,
+                      fontWeight: '700',
+                    },
+                  ]}
+                >
+                  {focusedValues.isPast
+                    ? focusedValues.daysRemaining === 0
+                      ? 'Ended'
+                      : `${focusedValues.daysRemaining} days left`
+                    : dailyAllowanceStats.isEnded
+                      ? 'Ended'
+                      : dailyAllowanceStats.daysRemaining === 0
+                        ? 'Ends today'
+                        : dailyAllowanceStats.daysRemaining === 1
+                          ? '1 day left'
+                          : `${dailyAllowanceStats.daysRemaining} days left`}
+                </Text>
+              </TouchableOpacity>
+
+              {/* Single Filter & Search Toggle Icon */}
+              <TouchableOpacity
+                style={[
+                  styles.walletSumPill,
+                  {
+                    paddingHorizontal: 9,
+                    backgroundColor:
+                      filtersExpanded || hasActiveFilters
+                        ? theme.primaryContainer
+                        : isDarkMode
+                          ? 'rgba(99, 102, 241, 0.16)'
+                          : theme.pillBg,
+                    borderColor:
+                      filtersExpanded || hasActiveFilters
+                        ? theme.primary
+                        : isDarkMode
+                          ? 'rgba(129, 140, 248, 0.32)'
+                          : 'rgba(0, 0, 0, 0.08)',
+                  },
+                ]}
+                onPress={() => setFiltersExpanded((prev) => !prev)}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Toggle search and filters"
+              >
+                <MaterialCommunityIcons
+                  name={hasActiveFilters ? 'filter-check-outline' : 'tune-variant'}
+                  size={15}
+                  color={
+                    filtersExpanded || hasActiveFilters
+                      ? theme.onPrimaryContainer
+                      : isDarkMode
+                        ? '#A5B4FC'
+                        : theme.primary
+                  }
+                />
+                {hasActiveFilters && (
+                  <View
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: 3,
+                      backgroundColor: theme.primary,
+                      marginLeft: 2,
+                    }}
+                  />
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
+
+          {/* Collapsible Search & Filter Bar */}
+          {filtersExpanded && (
+            <View style={{ gap: 8, marginTop: 8 }}>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: isDarkMode ? 'rgba(255,255,255,0.08)' : theme.pillBg,
+                  borderRadius: M3Shape.full,
+                  paddingHorizontal: 12,
+                  paddingVertical: 7,
+                  borderWidth: 1,
+                  borderColor: searchQuery ? theme.primary : theme.divider,
+                  gap: 6,
+                }}
+              >
+                <MaterialCommunityIcons name="magnify" size={16} color={theme.onSurfaceVariant} />
+                <TextInput
+                  style={{
+                    flex: 1,
+                    fontSize: 13,
+                    color: theme.onSurface,
+                    paddingVertical: 0,
+                  }}
+                  placeholder="Search notes, categories, wallets..."
+                  placeholderTextColor={theme.onSurfaceVariant}
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  returnKeyType="search"
+                />
+                {searchQuery.length > 0 && (
+                  <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={6}>
+                    <MaterialCommunityIcons name="close-circle" size={16} color={theme.onSurfaceVariant} />
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ gap: 6, paddingRight: 4 }}
+              >
+                {hasActiveFilters && (
+                  <TouchableOpacity
+                    onPress={clearAllFilters}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 4,
+                      paddingHorizontal: 10,
+                      paddingVertical: 5,
+                      borderRadius: M3Shape.full,
+                      backgroundColor: theme.errorContainer,
+                    }}
+                  >
+                    <MaterialCommunityIcons name="filter-remove-outline" size={13} color={theme.onErrorContainer} />
+                    <Text style={{ fontSize: 11.5, fontWeight: '700', color: theme.onErrorContainer }}>
+                      Clear ({filteredTransactions.length})
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                {(
+                  [
+                    { key: 'expense', label: 'Expense' },
+                    { key: 'income', label: 'Income' },
+                    { key: 'transfer', label: 'Transfer' },
+                  ] as const
+                ).map((t) => {
+                  const active = filterType === t.key;
+                  return (
+                    <TouchableOpacity
+                      key={t.key}
+                      onPress={() => setFilterType(active ? 'all' : t.key)}
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 5,
+                        borderRadius: M3Shape.full,
+                        backgroundColor: active ? theme.primaryContainer : theme.pillBg,
+                        borderWidth: 1,
+                        borderColor: active ? theme.primary : theme.divider,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 11.5,
+                          fontWeight: '700',
+                          color: active ? theme.onPrimaryContainer : theme.onSurfaceVariant,
+                        }}
+                      >
+                        {t.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+
+                <TouchableOpacity
+                  onPress={() => setFilterPickerMode('wallet')}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 4,
+                    paddingHorizontal: 10,
+                    paddingVertical: 5,
+                    borderRadius: M3Shape.full,
+                    backgroundColor: filterWalletId ? theme.primaryContainer : theme.pillBg,
+                    borderWidth: 1,
+                    borderColor: filterWalletId ? theme.primary : theme.divider,
+                  }}
+                >
+                  <MaterialCommunityIcons
+                    name="wallet-outline"
+                    size={13}
+                    color={filterWalletId ? theme.onPrimaryContainer : theme.onSurfaceVariant}
+                  />
+                  <Text
+                    style={{
+                      fontSize: 11.5,
+                      fontWeight: '700',
+                      color: filterWalletId ? theme.onPrimaryContainer : theme.onSurfaceVariant,
+                    }}
+                  >
+                    {filterWalletId
+                      ? wallets.find((w) => w.id === filterWalletId)?.name || 'Wallet'
+                      : 'Wallet'}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => setFilterPickerMode('category')}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 4,
+                    paddingHorizontal: 10,
+                    paddingVertical: 5,
+                    borderRadius: M3Shape.full,
+                    backgroundColor: filterCategoryId ? theme.primaryContainer : theme.pillBg,
+                    borderWidth: 1,
+                    borderColor: filterCategoryId ? theme.primary : theme.divider,
+                  }}
+                >
+                  <MaterialCommunityIcons
+                    name="shape-outline"
+                    size={13}
+                    color={filterCategoryId ? theme.onPrimaryContainer : theme.onSurfaceVariant}
+                  />
+                  <Text
+                    style={{
+                      fontSize: 11.5,
+                      fontWeight: '700',
+                      color: filterCategoryId ? theme.onPrimaryContainer : theme.onSurfaceVariant,
+                    }}
+                  >
+                    {filterCategoryId
+                      ? categories.find((c) => c.id === filterCategoryId)?.name || 'Category'
+                      : 'Category'}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() =>
+                    setFilterPaid((prev) =>
+                      prev === 'all' ? 'unpaid' : prev === 'unpaid' ? 'paid' : 'all'
+                    )
+                  }
+                  style={{
+                    paddingHorizontal: 10,
+                    paddingVertical: 5,
+                    borderRadius: M3Shape.full,
+                    backgroundColor: filterPaid !== 'all' ? theme.primaryContainer : theme.pillBg,
+                    borderWidth: 1,
+                    borderColor: filterPaid !== 'all' ? theme.primary : theme.divider,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 11.5,
+                      fontWeight: '700',
+                      color: filterPaid !== 'all' ? theme.onPrimaryContainer : theme.onSurfaceVariant,
+                    }}
+                  >
+                    {filterPaid === 'unpaid' ? 'Unpaid' : filterPaid === 'paid' ? 'Paid' : 'Paid/Unpaid'}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => setFilterModifiedOnly((prev) => !prev)}
+                  style={{
+                    paddingHorizontal: 10,
+                    paddingVertical: 5,
+                    borderRadius: M3Shape.full,
+                    backgroundColor: filterModifiedOnly ? theme.primaryContainer : theme.pillBg,
+                    borderWidth: 1,
+                    borderColor: filterModifiedOnly ? theme.primary : theme.divider,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 11.5,
+                      fontWeight: '700',
+                      color: filterModifiedOnly ? theme.onPrimaryContainer : theme.onSurfaceVariant,
+                    }}
+                  >
+                    Modified
+                  </Text>
+                </TouchableOpacity>
+              </ScrollView>
+            </View>
+          )}
         </View>
 
         {/* DUAL DISPLAY TARGET CARDS: INCOME GOAL (LEFT) & BUDGET CAP (RIGHT) FROM HOMESCREEN */}
@@ -1507,6 +1835,9 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
               const isSelected = dateStr === selectedDate;
               const isToday = dateStr === new Date().toISOString().slice(0, 10);
 
+              if (hasActiveFilters && dayTxs.length === 0) {
+                return null;
+              }
               if (dayTxs.length === 0 && dayBills.length === 0 && !isToday && !isSelected) {
                 return null;
               }
@@ -1804,21 +2135,37 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                                 {subMeta}
                               </Text>
                             </View>
-                            <Text
-                              style={[
-                                styles.dayTxAmount,
-                                {
-                                  color: isExpense
-                                    ? theme.error
-                                    : isTransfer
-                                      ? theme.tertiary
-                                      : theme.success,
-                                },
-                              ]}
-                            >
-                              {isExpense ? '-' : isTransfer ? '' : '+'}
-                              {formatCurrency(tx.amount, tx.currency || settings.base_currency)}
-                            </Text>
+                            <View style={{ alignItems: 'flex-end' }}>
+                              {(() => {
+                                const effectiveAmt = isExpense ? getEffectiveAmount(tx) : tx.amount;
+                                const isSplit = isExpense && effectiveAmt < tx.amount - 0.01;
+                                const txCurr = tx.currency || settings.base_currency;
+                                return (
+                                  <>
+                                    <Text
+                                      style={[
+                                        styles.dayTxAmount,
+                                        {
+                                          color: isExpense
+                                            ? theme.error
+                                            : isTransfer
+                                              ? theme.tertiary
+                                              : theme.success,
+                                        },
+                                      ]}
+                                    >
+                                      {isExpense ? '-' : isTransfer ? '' : '+'}
+                                      {formatCurrency(isSplit ? effectiveAmt : tx.amount, txCurr)}
+                                    </Text>
+                                    {isSplit && (
+                                      <Text style={{ fontSize: 10.5, fontWeight: '600', color: theme.onSurfaceVariant }}>
+                                        Total: {formatCurrency(tx.amount, txCurr)}
+                                      </Text>
+                                    )}
+                                  </>
+                                );
+                              })()}
+                            </View>
                             <MaterialCommunityIcons
                               name="chevron-right"
                               size={18}
@@ -2438,6 +2785,148 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
             </View>
           </View>
         </View>
+      </Modal>
+
+      {/* UNIFIED FILTER PICKER MODAL (WALLET / CATEGORY) */}
+      <Modal
+        visible={filterPickerMode !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setFilterPickerMode(null)}
+      >
+        <Pressable
+          style={styles.quickTargetOverlay}
+          onPress={() => setFilterPickerMode(null)}
+        >
+          <View
+            style={[
+              styles.quickTargetBox,
+              {
+                backgroundColor: theme.surface,
+                maxHeight: '65%',
+              },
+              M3Elevation.level3,
+            ]}
+            onStartShouldSetResponder={() => true}
+          >
+            <Text style={[styles.quickTargetTitle, { color: theme.onSurface, marginBottom: 10 }]}>
+              {filterPickerMode === 'wallet' ? 'Filter by Wallet' : 'Filter by Category'}
+            </Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <TouchableOpacity
+                style={{
+                  paddingVertical: 11,
+                  paddingHorizontal: 12,
+                  borderRadius: M3Shape.small,
+                  backgroundColor:
+                    (filterPickerMode === 'wallet' ? !filterWalletId : !filterCategoryId)
+                      ? theme.primaryContainer
+                      : theme.pillBg,
+                  marginBottom: 6,
+                }}
+                onPress={() => {
+                  if (filterPickerMode === 'wallet') setFilterWalletId(null);
+                  else setFilterCategoryId(null);
+                  setFilterPickerMode(null);
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 13.5,
+                    fontWeight: '700',
+                    color:
+                      (filterPickerMode === 'wallet' ? !filterWalletId : !filterCategoryId)
+                        ? theme.onPrimaryContainer
+                        : theme.onSurface,
+                  }}
+                >
+                  {filterPickerMode === 'wallet' ? 'All Wallets' : 'All Categories'}
+                </Text>
+              </TouchableOpacity>
+
+              {filterPickerMode === 'wallet'
+                ? wallets.map((w) => {
+                    const active = filterWalletId === w.id;
+                    return (
+                      <TouchableOpacity
+                        key={w.id}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 10,
+                          paddingVertical: 10,
+                          paddingHorizontal: 12,
+                          borderRadius: M3Shape.small,
+                          backgroundColor: active ? theme.primaryContainer : theme.pillBg,
+                          marginBottom: 6,
+                        }}
+                        onPress={() => {
+                          setFilterWalletId(w.id);
+                          setFilterPickerMode(null);
+                        }}
+                      >
+                        <MaterialCommunityIcons
+                          name={(w.icon as any) || 'wallet-outline'}
+                          size={18}
+                          color={active ? theme.onPrimaryContainer : w.color || theme.primary}
+                        />
+                        <Text
+                          style={{
+                            flex: 1,
+                            fontSize: 13.5,
+                            fontWeight: active ? '800' : '600',
+                            color: active ? theme.onPrimaryContainer : theme.onSurface,
+                          }}
+                        >
+                          {w.name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })
+                : categories.map((c) => {
+                    const active = filterCategoryId === c.id;
+                    return (
+                      <TouchableOpacity
+                        key={c.id}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 10,
+                          paddingVertical: 10,
+                          paddingHorizontal: 12,
+                          borderRadius: M3Shape.small,
+                          backgroundColor: active ? theme.primaryContainer : theme.pillBg,
+                          marginBottom: 6,
+                        }}
+                        onPress={() => {
+                          setFilterCategoryId(c.id);
+                          setFilterPickerMode(null);
+                        }}
+                      >
+                        <MaterialCommunityIcons
+                          name={(c.icon as any) || 'tag-outline'}
+                          size={18}
+                          color={active ? theme.onPrimaryContainer : c.color || theme.primary}
+                        />
+                        <Text
+                          style={{
+                            flex: 1,
+                            fontSize: 13.5,
+                            fontWeight: active ? '800' : '600',
+                            color: active ? theme.onPrimaryContainer : theme.onSurface,
+                          }}
+                        >
+                          {c.name}
+                        </Text>
+                        <Text style={{ fontSize: 11, color: theme.onSurfaceVariant }}>
+                          {c.type}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+            </ScrollView>
+          </View>
+        </Pressable>
       </Modal>
     </View>
   );

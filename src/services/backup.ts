@@ -204,8 +204,8 @@ export const restoreFromBackupContentAsync = async (
       // Restore categories
       for (const c of parsed.categories) {
         db.runSync(
-          `INSERT INTO categories (id, name, type, icon, color, is_default) VALUES (?, ?, ?, ?, ?, ?)`,
-          [c.id, c.name, c.type, c.icon, c.color, c.is_default ? 1 : 0]
+          `INSERT INTO categories (id, name, type, icon, color, is_default, exclude_from_analytics) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [c.id, c.name, c.type, c.icon, c.color, c.is_default ? 1 : 0, c.exclude_from_analytics ? 1 : 0]
         );
       }
 

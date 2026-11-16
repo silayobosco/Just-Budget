@@ -20,6 +20,7 @@ import { formatCurrency, formatTypingNumber, parseCleanNumber } from '../utils/f
 import { TransactionDetailModal } from '../components/TransactionDetailModal';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
 import { DebtsModal } from '../components/DebtsModal';
+import { RecurringBillsModal } from '../components/RecurringBillsModal';
 
 export const WalletsScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
@@ -44,10 +45,14 @@ export const WalletsScreen: React.FC = () => {
 
   const theme = settings.theme_mode === 'dark' ? darkTheme : lightTheme;
 
+  // Sub-tab
+  const [moneyTab, setMoneyTab] = useState<'wallets' | 'loans' | 'bills'>('wallets');
+
   // Modals
   const [walletModalVisible, setWalletModalVisible] = useState(false);
   const [transferModalVisible, setTransferModalVisible] = useState(false);
   const [debtsModalVisible, setDebtsModalVisible] = useState(false);
+  const [recurringBillsModalVisible, setRecurringBillsModalVisible] = useState(false);
   const [editingWallet, setEditingWallet] = useState<Wallet | null>(null);
 
   // Selected Wallet Detail & Transaction Viewer States
@@ -380,164 +385,398 @@ export const WalletsScreen: React.FC = () => {
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        {/* TOTAL NET WORTH HERO CARD */}
-        <View style={[styles.totalCard, { backgroundColor: theme.primaryContainer }, M3Elevation.level2]}>
-          <Text style={[styles.totalLabel, { color: theme.onPrimaryContainer }]}>TOTAL NET WORTH</Text>
-          <Text style={[styles.totalAmount, { color: theme.onPrimaryContainer }]}>
-            {formatCurrency(totalConvertedBalance, settings.base_currency)}
-          </Text>
-          <Text style={[styles.totalSub, { color: theme.onPrimaryContainer }]}>
-            Combined balance across {wallets.length} active wallets
-          </Text>
+        {/* MONEY SEGMENTED TABS */}
+        <View style={[styles.segmentedBar, { backgroundColor: theme.surfaceVariant || theme.cardBg, borderColor: theme.divider }]}>
+          {([
+            { key: 'wallets', label: 'Wallets', icon: 'wallet-outline' },
+            { key: 'loans', label: 'Loans & Splits', icon: 'handshake-outline' },
+            { key: 'bills', label: 'Bills', icon: 'calendar-clock' },
+          ] as const).map((tab) => {
+            const active = moneyTab === tab.key;
+            return (
+              <TouchableOpacity
+                key={tab.key}
+                style={[
+                  styles.segmentedPill,
+                  active && { backgroundColor: theme.primary },
+                ]}
+                onPress={() => setMoneyTab(tab.key)}
+                activeOpacity={0.8}
+              >
+                <MaterialCommunityIcons
+                  name={tab.icon}
+                  size={15}
+                  color={active ? theme.onPrimary : theme.onSurfaceVariant}
+                />
+                <Text
+                  style={[
+                    styles.segmentedLabel,
+                    { color: active ? theme.onPrimary : theme.onSurfaceVariant },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
-        {/* WALLET ACTIONS BAR */}
-        <View style={styles.actionRow}>
-          <TouchableOpacity
-            style={[styles.actionBtn, { backgroundColor: theme.primary }]}
-            onPress={handleOpenAddWallet}
-          >
-            <MaterialCommunityIcons name="wallet-plus" size={18} color={theme.onPrimary} />
-            <Text style={[styles.actionBtnText, { color: theme.onPrimary }]}>New Wallet</Text>
-          </TouchableOpacity>
+        {moneyTab === 'wallets' && (
+          <>
+            {/* TOTAL NET WORTH HERO CARD */}
+            <View style={[styles.totalCard, { backgroundColor: theme.primaryContainer }, M3Elevation.level2]}>
+              <Text style={[styles.totalLabel, { color: theme.onPrimaryContainer }]}>TOTAL NET WORTH</Text>
+              <Text style={[styles.totalAmount, { color: theme.onPrimaryContainer }]}>
+                {formatCurrency(totalConvertedBalance, settings.base_currency)}
+              </Text>
+              <Text style={[styles.totalSub, { color: theme.onPrimaryContainer }]}>
+                Combined balance across {wallets.length} active wallets
+              </Text>
+            </View>
 
-          <TouchableOpacity
-            style={[styles.actionBtn, { backgroundColor: theme.cardBg, borderColor: theme.primary, borderWidth: 1 }]}
-            onPress={() => handleOpenTransfer()}
-          >
-            <MaterialCommunityIcons name="swap-horizontal" size={18} color={theme.primary} />
-            <Text style={[styles.actionBtnText, { color: theme.primary }]}>Transfer Funds</Text>
-          </TouchableOpacity>
-        </View>
+            {/* WALLET ACTIONS BAR */}
+            <View style={styles.actionRow}>
+              <TouchableOpacity
+                style={[styles.actionBtn, { backgroundColor: theme.primary }]}
+                onPress={handleOpenAddWallet}
+              >
+                <MaterialCommunityIcons name="wallet-plus" size={18} color={theme.onPrimary} />
+                <Text style={[styles.actionBtnText, { color: theme.onPrimary }]}>New Wallet</Text>
+              </TouchableOpacity>
 
-        {/* DEBTS & IOUS QUICK CARD */}
-        {(() => {
-          const openDebts = debts.filter((d) => d.status === 'open');
-          const owedToYou = openDebts
+              <TouchableOpacity
+                style={[styles.actionBtn, { backgroundColor: theme.cardBg, borderColor: theme.primary, borderWidth: 1 }]}
+                onPress={() => handleOpenTransfer()}
+              >
+                <MaterialCommunityIcons name="swap-horizontal" size={18} color={theme.primary} />
+                <Text style={[styles.actionBtnText, { color: theme.primary }]}>Transfer Funds</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* WALLETS LIST */}
+            <Text style={[styles.sectionTitle, { color: theme.onSurface }]}>My Wallets & Accounts</Text>
+
+            {wallets.length === 0 ? (
+              <View style={[styles.emptyWalletCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
+                <View style={[styles.emptyWalletIconCircle, { backgroundColor: theme.primaryContainer }]}>
+                  <MaterialCommunityIcons name="wallet-plus" size={32} color={theme.primary} />
+                </View>
+                <Text style={[styles.emptyWalletTitle, { color: theme.onSurface }]}>No Wallets Registered Yet</Text>
+                <Text style={[styles.emptyWalletSub, { color: theme.onSurfaceVariant }]}>
+                  Register your first wallet (like Cash, Bank Account, or Mobile Money) to start tracking balances and recording transactions.
+                </Text>
+                <TouchableOpacity
+                  style={[styles.emptyAddBtn, { backgroundColor: theme.primary }]}
+                  onPress={handleOpenAddWallet}
+                  activeOpacity={0.8}
+                >
+                  <MaterialCommunityIcons name="plus" size={18} color={theme.onPrimary} />
+                  <Text style={[styles.emptyAddBtnText, { color: theme.onPrimary }]}>Register Your First Wallet</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              wallets.map((w) => {
+                return (
+                  <TouchableOpacity
+                    key={w.id}
+                    style={[styles.walletCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}
+                    onPress={() => setSelectedWallet(w)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.walletCardTop}>
+                      <View style={[styles.walletIconCircle, { backgroundColor: w.color }]}>
+                        <MaterialCommunityIcons name={w.icon as any} size={22} color="#FFFFFF" />
+                      </View>
+
+                      <View style={styles.walletDetails}>
+                        <Text style={[styles.walletName, { color: theme.onSurface }]}>{w.name}</Text>
+                        <Text style={[styles.walletCurrencyBadge, { color: theme.onSurfaceVariant }]}>
+                          {settings.base_currency} Account
+                        </Text>
+                      </View>
+
+                      <View style={styles.cardChevronWrap}>
+                        <MaterialCommunityIcons name="chevron-right" size={24} color={theme.onSurfaceVariant} />
+                      </View>
+                    </View>
+
+                    <View style={[styles.dividerLine, { backgroundColor: theme.divider }]} />
+
+                    <View style={styles.balanceGrid}>
+                      <View style={styles.balCol}>
+                        <Text style={[styles.balLabel, { color: theme.onSurfaceVariant }]}>STARTING</Text>
+                        <Text style={[styles.balValue, { color: theme.onSurfaceVariant }]}>
+                          {formatCurrency(w.starting_balance, w.currency)}
+                        </Text>
+                      </View>
+
+                      <View style={styles.balCol}>
+                        <Text style={[styles.balLabel, { color: theme.primary }]}>REMAINING BALANCE</Text>
+                        <Text
+                          style={[
+                            styles.balCurrent,
+                            { color: w.current_balance < 0 ? theme.error : theme.onSurface },
+                          ]}
+                        >
+                          {formatCurrency(w.current_balance, settings.base_currency)}
+                        </Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })
+            )}
+          </>
+        )}
+
+        {moneyTab === 'loans' && (() => {
+          const openLoans = debts.filter((d) => d.status === 'open');
+          const settledCount = debts.filter((d) => d.status === 'settled').length;
+          const owedToYou = openLoans
             .filter((d) => d.type === 'lent')
             .reduce((sum, d) => sum + Math.max(0, d.amount - (d.paid_amount || 0)), 0);
-          const youOwe = openDebts
+          const youOwe = openLoans
             .filter((d) => d.type === 'borrowed')
             .reduce((sum, d) => sum + Math.max(0, d.amount - (d.paid_amount || 0)), 0);
+          const netLoans = owedToYou - youOwe;
+
           return (
-            <TouchableOpacity
-              style={[
-                {
-                  backgroundColor: theme.cardBg,
-                  borderColor: theme.divider,
-                  borderWidth: 1,
-                  borderRadius: M3Shape.large,
-                  padding: 14,
-                  marginBottom: 18,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 12,
-                },
-                M3Elevation.level1,
-              ]}
-              onPress={() => setDebtsModalVisible(true)}
-              activeOpacity={0.75}
-            >
-              <View
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 12,
-                  backgroundColor: theme.primaryContainer,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <MaterialCommunityIcons name="handshake-outline" size={22} color={theme.primary} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 14.5, fontWeight: '800', color: theme.onSurface }}>
-                  Debts, Loans & Splits
+            <>
+              <View style={[styles.totalCard, { backgroundColor: theme.primaryContainer }, M3Elevation.level2]}>
+                <Text style={[styles.totalLabel, { color: theme.onPrimaryContainer }]}>NET LOAN POSITION</Text>
+                <Text style={[styles.totalAmount, { color: theme.onPrimaryContainer }]}>
+                  {netLoans >= 0 ? '+' : '-'}{formatCurrency(Math.abs(netLoans), settings.base_currency)}
                 </Text>
-                <Text style={{ fontSize: 12, color: theme.onSurfaceVariant, marginTop: 2 }}>
-                  {openDebts.length === 0
-                    ? 'Track money lent, borrowed, or split bills'
-                    : `Owed to you: ${formatCurrency(owedToYou, settings.base_currency)} • You owe: ${formatCurrency(youOwe, settings.base_currency)}`}
-                </Text>
+                <View style={styles.summarySplitRow}>
+                  <Text style={[styles.summarySplitText, { color: theme.onPrimaryContainer }]}>
+                    Owed to you: {formatCurrency(owedToYou, settings.base_currency)}
+                  </Text>
+                  <Text style={[styles.summarySplitText, { color: theme.onPrimaryContainer }]}>
+                    You owe: {formatCurrency(youOwe, settings.base_currency)}
+                  </Text>
+                </View>
               </View>
-              <MaterialCommunityIcons name="chevron-right" size={20} color={theme.onSurfaceVariant} />
-            </TouchableOpacity>
+
+              <View style={styles.actionRow}>
+                <TouchableOpacity
+                  style={[styles.actionBtn, { backgroundColor: theme.primary }]}
+                  onPress={() => setDebtsModalVisible(true)}
+                >
+                  <MaterialCommunityIcons name="handshake-outline" size={18} color={theme.onPrimary} />
+                  <Text style={[styles.actionBtnText, { color: theme.onPrimary }]}>Manage Loans & Splits</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.sectionHeaderRow}>
+                <Text style={[styles.sectionTitle, { color: theme.onSurface, marginBottom: 0 }]}>
+                  Open Loans ({openLoans.length})
+                </Text>
+                {settledCount > 0 && (
+                  <TouchableOpacity onPress={() => setDebtsModalVisible(true)}>
+                    <Text style={{ fontSize: 12.5, fontWeight: '700', color: theme.primary }}>
+                      {settledCount} settled →
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {openLoans.length === 0 ? (
+                <View style={[styles.emptyWalletCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
+                  <View style={[styles.emptyWalletIconCircle, { backgroundColor: theme.primaryContainer }]}>
+                    <MaterialCommunityIcons name="handshake-outline" size={32} color={theme.primary} />
+                  </View>
+                  <Text style={[styles.emptyWalletTitle, { color: theme.onSurface }]}>No Open Loans</Text>
+                  <Text style={[styles.emptyWalletSub, { color: theme.onSurfaceVariant }]}>
+                    Track money lent, borrowed, or split bills by person and settle balances anytime.
+                  </Text>
+                  <TouchableOpacity
+                    style={[styles.emptyAddBtn, { backgroundColor: theme.primary }]}
+                    onPress={() => setDebtsModalVisible(true)}
+                    activeOpacity={0.8}
+                  >
+                    <MaterialCommunityIcons name="plus" size={18} color={theme.onPrimary} />
+                    <Text style={[styles.emptyAddBtnText, { color: theme.onPrimary }]}>Add Loan or Split</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                openLoans.map((loan) => {
+                  const remaining = Math.max(0, loan.amount - (loan.paid_amount || 0));
+                  const isLent = loan.type === 'lent';
+                  return (
+                    <TouchableOpacity
+                      key={loan.id}
+                      style={[styles.walletCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}
+                      onPress={() => setDebtsModalVisible(true)}
+                      activeOpacity={0.75}
+                    >
+                      <View style={styles.walletCardTop}>
+                        <View
+                          style={[
+                            styles.walletIconCircle,
+                            { backgroundColor: isLent ? '#DCFCE7' : '#FEE2E2' },
+                          ]}
+                        >
+                          <MaterialCommunityIcons
+                            name={isLent ? 'arrow-top-right' : 'arrow-bottom-left'}
+                            size={20}
+                            color={isLent ? '#15803D' : '#DC2626'}
+                          />
+                        </View>
+                        <View style={styles.walletDetails}>
+                          <Text style={[styles.walletName, { color: theme.onSurface }]}>{loan.person_name}</Text>
+                          <Text style={[styles.walletCurrencyBadge, { color: theme.onSurfaceVariant }]}>
+                            {isLent ? 'Owed to you' : 'You owe'}
+                            {loan.due_date ? ` • Due ${loan.due_date}` : ''}
+                            {loan.note ? ` • ${loan.note}` : ''}
+                          </Text>
+                        </View>
+                        <View style={{ alignItems: 'flex-end' }}>
+                          <Text
+                            style={{
+                              fontSize: 15,
+                              fontWeight: '800',
+                              color: isLent ? '#15803D' : '#DC2626',
+                            }}
+                          >
+                            {formatCurrency(remaining, loan.currency || settings.base_currency)}
+                          </Text>
+                          {loan.paid_amount > 0 && (
+                            <Text style={{ fontSize: 11, color: theme.onSurfaceVariant }}>
+                              of {formatCurrency(loan.amount, loan.currency || settings.base_currency)}
+                            </Text>
+                          )}
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </>
           );
         })()}
 
-        {/* WALLETS LIST */}
-        <Text style={[styles.sectionTitle, { color: theme.onSurface }]}>My Wallets & Accounts</Text>
+        {moneyTab === 'bills' && (() => {
+          const activeBills = recurringBills.filter((b) => b.is_active);
+          const monthlyTotal = activeBills
+            .filter((b) => (b.type || 'expense') === 'expense')
+            .reduce((sum, b) => {
+              if (b.frequency === 'weekly') return sum + b.amount * 4.33;
+              if (b.frequency === 'yearly') return sum + b.amount / 12;
+              return sum + b.amount;
+            }, 0);
 
-        {wallets.length === 0 ? (
-          <View style={[styles.emptyWalletCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
-            <View style={[styles.emptyWalletIconCircle, { backgroundColor: theme.primaryContainer }]}>
-              <MaterialCommunityIcons name="wallet-plus" size={32} color={theme.primary} />
-            </View>
-            <Text style={[styles.emptyWalletTitle, { color: theme.onSurface }]}>No Wallets Registered Yet</Text>
-            <Text style={[styles.emptyWalletSub, { color: theme.onSurfaceVariant }]}>
-              Register your first wallet (like Cash, Bank Account, or Mobile Money) to start tracking balances and recording transactions.
-            </Text>
-            <TouchableOpacity
-              style={[styles.emptyAddBtn, { backgroundColor: theme.primary }]}
-              onPress={handleOpenAddWallet}
-              activeOpacity={0.8}
-            >
-              <MaterialCommunityIcons name="plus" size={18} color={theme.onPrimary} />
-              <Text style={[styles.emptyAddBtnText, { color: theme.onPrimary }]}>Register Your First Wallet</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          wallets.map((w) => {
-            return (
-              <TouchableOpacity
-                key={w.id}
-                style={[styles.walletCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}
-                onPress={() => setSelectedWallet(w)}
-                activeOpacity={0.7}
-              >
-                <View style={styles.walletCardTop}>
-                  <View style={[styles.walletIconCircle, { backgroundColor: w.color }]}>
-                    <MaterialCommunityIcons name={w.icon as any} size={22} color="#FFFFFF" />
-                  </View>
+          return (
+            <>
+              <View style={[styles.totalCard, { backgroundColor: theme.primaryContainer }, M3Elevation.level2]}>
+                <Text style={[styles.totalLabel, { color: theme.onPrimaryContainer }]}>ESTIMATED MONTHLY BILLS</Text>
+                <Text style={[styles.totalAmount, { color: theme.onPrimaryContainer }]}>
+                  {formatCurrency(monthlyTotal, settings.base_currency)}
+                </Text>
+                <Text style={[styles.totalSub, { color: theme.onPrimaryContainer }]}>
+                  {activeBills.length} active recurring {activeBills.length === 1 ? 'bill' : 'bills'} • {recurringBills.length - activeBills.length} paused
+                </Text>
+              </View>
 
-                  <View style={styles.walletDetails}>
-                    <Text style={[styles.walletName, { color: theme.onSurface }]}>{w.name}</Text>
-                    <Text style={[styles.walletCurrencyBadge, { color: theme.onSurfaceVariant }]}>
-                      {settings.base_currency} Account
-                    </Text>
-                  </View>
+              <View style={styles.actionRow}>
+                <TouchableOpacity
+                  style={[styles.actionBtn, { backgroundColor: theme.primary }]}
+                  onPress={() => setRecurringBillsModalVisible(true)}
+                >
+                  <MaterialCommunityIcons name="calendar-clock" size={18} color={theme.onPrimary} />
+                  <Text style={[styles.actionBtnText, { color: theme.onPrimary }]}>Manage Bills & Reminders</Text>
+                </TouchableOpacity>
+              </View>
 
-                  <View style={styles.cardChevronWrap}>
-                    <MaterialCommunityIcons name="chevron-right" size={24} color={theme.onSurfaceVariant} />
+              <Text style={[styles.sectionTitle, { color: theme.onSurface }]}>
+                Recurring Bills ({recurringBills.length})
+              </Text>
+
+              {recurringBills.length === 0 ? (
+                <View style={[styles.emptyWalletCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
+                  <View style={[styles.emptyWalletIconCircle, { backgroundColor: theme.primaryContainer }]}>
+                    <MaterialCommunityIcons name="calendar-clock" size={32} color={theme.primary} />
                   </View>
+                  <Text style={[styles.emptyWalletTitle, { color: theme.onSurface }]}>No Recurring Bills</Text>
+                  <Text style={[styles.emptyWalletSub, { color: theme.onSurfaceVariant }]}>
+                    Add subscriptions, rent, utilities, or recurring income to get reminders before due dates.
+                  </Text>
+                  <TouchableOpacity
+                    style={[styles.emptyAddBtn, { backgroundColor: theme.primary }]}
+                    onPress={() => setRecurringBillsModalVisible(true)}
+                    activeOpacity={0.8}
+                  >
+                    <MaterialCommunityIcons name="plus" size={18} color={theme.onPrimary} />
+                    <Text style={[styles.emptyAddBtnText, { color: theme.onPrimary }]}>Add Recurring Bill</Text>
+                  </TouchableOpacity>
                 </View>
-
-                <View style={[styles.dividerLine, { backgroundColor: theme.divider }]} />
-
-                <View style={styles.balanceGrid}>
-                  <View style={styles.balCol}>
-                    <Text style={[styles.balLabel, { color: theme.onSurfaceVariant }]}>STARTING</Text>
-                    <Text style={[styles.balValue, { color: theme.onSurfaceVariant }]}>
-                      {formatCurrency(w.starting_balance, w.currency)}
-                    </Text>
-                  </View>
-
-                  <View style={styles.balCol}>
-                    <Text style={[styles.balLabel, { color: theme.primary }]}>REMAINING BALANCE</Text>
-                    <Text
+              ) : (
+                recurringBills.map((bill) => {
+                  const billWallet = wallets.find((w) => w.id === bill.wallet_id);
+                  const isIncomeBill = bill.type === 'income';
+                  return (
+                    <TouchableOpacity
+                      key={bill.id}
                       style={[
-                        styles.balCurrent,
-                        { color: w.current_balance < 0 ? theme.error : theme.onSurface },
+                        styles.walletCard,
+                        {
+                          backgroundColor: theme.cardBg,
+                          borderColor: theme.divider,
+                          opacity: bill.is_active ? 1 : 0.65,
+                        },
+                        M3Elevation.level1,
                       ]}
+                      onPress={() => setRecurringBillsModalVisible(true)}
+                      activeOpacity={0.75}
                     >
-                      {formatCurrency(w.current_balance, settings.base_currency)}
-                    </Text>
-                  </View>
-                </View>
-              </TouchableOpacity>
-            );
-          })
-        )}
+                      <View style={styles.walletCardTop}>
+                        <View
+                          style={[
+                            styles.walletIconCircle,
+                            { backgroundColor: isIncomeBill ? '#DCFCE7' : theme.primaryContainer },
+                          ]}
+                        >
+                          <MaterialCommunityIcons
+                            name={isIncomeBill ? 'cash-plus' : 'calendar-clock'}
+                            size={20}
+                            color={isIncomeBill ? '#15803D' : theme.primary}
+                          />
+                        </View>
+                        <View style={styles.walletDetails}>
+                          <Text style={[styles.walletName, { color: theme.onSurface }]}>{bill.name}</Text>
+                          <Text style={[styles.walletCurrencyBadge, { color: theme.onSurfaceVariant }]}>
+                            {bill.frequency.charAt(0).toUpperCase() + bill.frequency.slice(1)} • Next: {bill.next_due_date}
+                            {billWallet ? ` • ${billWallet.name}` : ''}
+                          </Text>
+                        </View>
+                        <View style={{ alignItems: 'flex-end' }}>
+                          <Text
+                            style={{
+                              fontSize: 15,
+                              fontWeight: '800',
+                              color: isIncomeBill ? '#15803D' : theme.onSurface,
+                            }}
+                          >
+                            {isIncomeBill ? '+' : ''}{formatCurrency(bill.amount, bill.currency || settings.base_currency)}
+                          </Text>
+                          <Text
+                            style={{
+                              fontSize: 11,
+                              fontWeight: '700',
+                              color: bill.is_active ? theme.primary : theme.onSurfaceVariant,
+                            }}
+                          >
+                            {bill.is_active ? 'Active' : 'Paused'}
+                          </Text>
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </>
+          );
+        })()}
       </ScrollView>
 
       {/* ADD / EDIT WALLET MODAL */}
@@ -1159,6 +1398,11 @@ export const WalletsScreen: React.FC = () => {
         visible={debtsModalVisible}
         onClose={() => setDebtsModalVisible(false)}
       />
+
+      <RecurringBillsModal
+        visible={recurringBillsModalVisible}
+        onClose={() => setRecurringBillsModalVisible(false)}
+      />
     </View>
   );
 };
@@ -1170,6 +1414,44 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 16,
     paddingBottom: 40,
+  },
+  segmentedBar: {
+    flexDirection: 'row',
+    borderRadius: M3Shape.full,
+    borderWidth: 1,
+    padding: 4,
+    marginBottom: 16,
+    gap: 4,
+  },
+  segmentedPill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 9,
+    paddingHorizontal: 8,
+    borderRadius: M3Shape.full,
+  },
+  segmentedLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  summarySplitRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 8,
+    gap: 12,
+  },
+  summarySplitText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
   },
   totalCard: {
     borderRadius: M3Shape.extraLarge,

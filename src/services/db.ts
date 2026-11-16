@@ -35,7 +35,8 @@ export const initDatabase = async () => {
       type TEXT NOT NULL, -- 'expense' | 'income'
       icon TEXT NOT NULL,
       color TEXT NOT NULL,
-      is_default INTEGER NOT NULL DEFAULT 0
+      is_default INTEGER NOT NULL DEFAULT 0,
+      exclude_from_analytics INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS subcategories (
@@ -192,6 +193,9 @@ export const initDatabase = async () => {
   } catch {}
   try {
     db.runSync(`ALTER TABLE recurring_bills ADD COLUMN subcategory_id TEXT`);
+  } catch {}
+  try {
+    db.runSync(`ALTER TABLE categories ADD COLUMN exclude_from_analytics INTEGER DEFAULT 0`);
   } catch {}
 
   // Run migrations & ensure defaults

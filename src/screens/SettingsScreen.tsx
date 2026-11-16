@@ -20,8 +20,6 @@ import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
 import { formatCurrency } from '../utils/format';
 import { Transaction, BillFrequency, RecurrenceEndType } from '../types';
 import { CategoryManagerModal } from '../components/CategoryManagerModal';
-import { RecurringBillsModal } from '../components/RecurringBillsModal';
-import { DebtsModal } from '../components/DebtsModal';
 import { SecuritySetupModal } from '../components/SecuritySetupModal';
 import { ModifiedTransactionsModal } from '../components/ModifiedTransactionsModal';
 import { TransactionDetailModal } from '../components/TransactionDetailModal';
@@ -92,7 +90,6 @@ export const SettingsScreen: React.FC = () => {
     wallets,
     categories,
     recurringBills,
-    debts,
     currentCycle,
     allCycles,
     openCycleModal,
@@ -103,8 +100,6 @@ export const SettingsScreen: React.FC = () => {
   const isDark = settings.theme_mode === 'dark';
 
   const [categoriesModalVisible, setCategoriesModalVisible] = useState(false);
-  const [recurringBillsModalVisible, setRecurringBillsModalVisible] = useState(false);
-  const [debtsModalVisible, setDebtsModalVisible] = useState(false);
   const [modifiedModalVisible, setModifiedModalVisible] = useState(false);
   const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
@@ -517,46 +512,6 @@ export const SettingsScreen: React.FC = () => {
                 {settings.cycle_mode === 'custom'
                   ? `Custom Periods (${allCycles.length} total) • Active: ${currentCycle?.name || 'Custom'}`
                   : `Monthly Calendar (${currentCycle?.name || 'Active'}) • Start day & targets`}
-              </Text>
-            </View>
-            <MaterialCommunityIcons name="chevron-right" size={20} color={theme.onSurfaceVariant} />
-          </TouchableOpacity>
-
-          <View style={[styles.itemDivider, { backgroundColor: theme.divider }]} />
-
-          {/* Recurring Bills & Reminders */}
-          <TouchableOpacity
-            style={styles.listItemRow}
-            onPress={() => setRecurringBillsModalVisible(true)}
-            activeOpacity={0.7}
-          >
-            <View style={[styles.itemIconCircle, { backgroundColor: '#DCFCE7' }]}>
-              <MaterialCommunityIcons name="calendar-clock" size={20} color="#15803D" />
-            </View>
-            <View style={styles.itemTextWrap}>
-              <Text style={[styles.itemTitle, { color: theme.onSurface }]}>Recurring Bills & Reminders</Text>
-              <Text style={[styles.itemSubtitle, { color: theme.onSurfaceVariant }]}>
-                Subscriptions, fixed costs & upcoming bills ({recurringBills.length} active)
-              </Text>
-            </View>
-            <MaterialCommunityIcons name="chevron-right" size={20} color={theme.onSurfaceVariant} />
-          </TouchableOpacity>
-
-          <View style={[styles.itemDivider, { backgroundColor: theme.divider }]} />
-
-          {/* Debts, IOUs & Splits */}
-          <TouchableOpacity
-            style={styles.listItemRow}
-            onPress={() => setDebtsModalVisible(true)}
-            activeOpacity={0.7}
-          >
-            <View style={[styles.itemIconCircle, { backgroundColor: '#E0E7FF' }]}>
-              <MaterialCommunityIcons name="handshake-outline" size={20} color="#4338CA" />
-            </View>
-            <View style={styles.itemTextWrap}>
-              <Text style={[styles.itemTitle, { color: theme.onSurface }]}>Debts, Loans & Splits</Text>
-              <Text style={[styles.itemSubtitle, { color: theme.onSurfaceVariant }]}>
-                Money lent, borrowed & bill splits ({debts.filter((d) => d.status === 'open').length} open)
               </Text>
             </View>
             <MaterialCommunityIcons name="chevron-right" size={20} color={theme.onSurfaceVariant} />
@@ -1102,18 +1057,6 @@ export const SettingsScreen: React.FC = () => {
       <CategoryManagerModal
         visible={categoriesModalVisible}
         onClose={() => setCategoriesModalVisible(false)}
-      />
-
-      {/* Recurring Bills & Reminders Modal */}
-      <RecurringBillsModal
-        visible={recurringBillsModalVisible}
-        onClose={() => setRecurringBillsModalVisible(false)}
-      />
-
-      {/* Debts, IOUs & Splits Modal */}
-      <DebtsModal
-        visible={debtsModalVisible}
-        onClose={() => setDebtsModalVisible(false)}
       />
 
       {/* Security Setup Modal (PIN & Biometrics) */}

@@ -9,6 +9,7 @@ import {
   TextInput,
   Alert,
   Platform,
+  Switch,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -60,6 +61,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
   const [newCatIcon, setNewCatIcon] = useState('tag-outline');
   const [newCatColor, setNewCatColor] = useState('#3B82F6');
   const [newCatLimitStr, setNewCatLimitStr] = useState('');
+  const [newCatExcludeAnalytics, setNewCatExcludeAnalytics] = useState(false);
 
   // Subcategory form states
   const [newSubName, setNewSubName] = useState('');
@@ -113,6 +115,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
     setNewCatIcon('tag-outline');
     setNewCatColor(colors[Math.floor(Math.random() * colors.length)]);
     setNewCatLimitStr('');
+    setNewCatExcludeAnalytics(false);
     setIsAddingNew(true);
   };
 
@@ -121,6 +124,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
     setNewCatName(cat.name);
     setNewCatIcon(cat.icon);
     setNewCatColor(cat.color);
+    setNewCatExcludeAnalytics(Boolean(cat.exclude_from_analytics));
 
     // Look up current limit
     const catProgress = categoryBudgetProgressList.find((c) => c.id === cat.id);
@@ -158,6 +162,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
         name: newCatName.trim(),
         icon: newCatIcon,
         color: newCatColor,
+        exclude_from_analytics: newCatExcludeAnalytics,
       });
 
       await setBudgetLimit({
@@ -175,6 +180,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
         icon: newCatIcon,
         color: newCatColor,
         initial_limit: limitVal > 0 ? limitVal : undefined,
+        exclude_from_analytics: newCatExcludeAnalytics,
       });
 
       setIsAddingNew(false);
@@ -182,6 +188,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
 
     setNewCatName('');
     setNewCatLimitStr('');
+    setNewCatExcludeAnalytics(false);
   };
 
   const handleAddSub = async (catId: string) => {
@@ -627,6 +634,36 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
                 ))}
               </ScrollView>
 
+              {/* Exclude from Budget & Analytics Toggle */}
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginTop: 10,
+                  marginBottom: 8,
+                  paddingVertical: 8,
+                  paddingHorizontal: 10,
+                  borderRadius: M3Shape.small,
+                  backgroundColor: theme.pillBg,
+                }}
+              >
+                <View style={{ flex: 1, marginRight: 10 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: theme.onSurface }}>
+                    Exclude from Budget & Analytics
+                  </Text>
+                  <Text style={{ fontSize: 11.5, color: theme.onSurfaceVariant, marginTop: 2 }}>
+                    For fundraising, pass-through funds, or money held for others
+                  </Text>
+                </View>
+                <Switch
+                  value={newCatExcludeAnalytics}
+                  onValueChange={setNewCatExcludeAnalytics}
+                  trackColor={{ false: theme.outlineVariant, true: theme.primaryContainer }}
+                  thumbColor={newCatExcludeAnalytics ? theme.primary : '#f4f3f4'}
+                />
+              </View>
+
               <View style={styles.editorActionRow}>
                 {editingCategory && (
                   <TouchableOpacity
@@ -727,7 +764,14 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
 
                     <View style={styles.catDetails}>
                       <View style={styles.catNameRow}>
-                        <Text style={[styles.catName, { color: theme.onSurface }]}>{cat.name}</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                          <Text style={[styles.catName, { color: theme.onSurface }]}>{cat.name}</Text>
+                          {cat.exclude_from_analytics && (
+                            <View style={{ backgroundColor: theme.pillBg, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 }}>
+                              <Text style={{ fontSize: 10, fontWeight: '700', color: theme.onSurfaceVariant }}>Excluded</Text>
+                            </View>
+                          )}
+                        </View>
                         <Text style={[styles.catStatusText, { color: statusColor }]}>{statusText}</Text>
                       </View>
 

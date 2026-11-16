@@ -364,7 +364,8 @@ export interface CategorySpendingItem {
 
 export interface AnalyticsFilterModalProps {
   visible: boolean;
-  filterMode: 'cycle' | 'all' | 'day';
+  filterMode: 'cycle' | 'week' | 'all' | 'day';
+  weekPreset: 'this_week' | 'last_week';
   selectedCycleId: string | null;
   selectedDay: string;
   paymentStatus: 'all' | 'paid' | 'unpaid';
@@ -375,7 +376,8 @@ export interface AnalyticsFilterModalProps {
   insets: any;
   onClose: () => void;
   onApply: (params: {
-    filterMode: 'cycle' | 'all' | 'day';
+    filterMode: 'cycle' | 'week' | 'all' | 'day';
+    weekPreset: 'this_week' | 'last_week';
     selectedCycleId: string | null;
     selectedDay: string;
     paymentStatus: 'all' | 'paid' | 'unpaid';
@@ -386,6 +388,7 @@ export interface AnalyticsFilterModalProps {
 export const AnalyticsFilterModal: React.FC<AnalyticsFilterModalProps> = ({
   visible,
   filterMode,
+  weekPreset,
   selectedCycleId,
   selectedDay,
   paymentStatus,
@@ -398,7 +401,8 @@ export const AnalyticsFilterModal: React.FC<AnalyticsFilterModalProps> = ({
   onApply,
   onOpenCalendar,
 }) => {
-  const [tempMode, setTempMode] = useState<'cycle' | 'all' | 'day'>(filterMode);
+  const [tempMode, setTempMode] = useState<'cycle' | 'week' | 'all' | 'day'>(filterMode);
+  const [tempWeekPreset, setTempWeekPreset] = useState<'this_week' | 'last_week'>(weekPreset);
   const [tempCycleId, setTempCycleId] = useState<string | null>(selectedCycleId);
   const [tempDay, setTempDay] = useState<string>(selectedDay);
   const [tempPaymentStatus, setTempPaymentStatus] = useState<'all' | 'paid' | 'unpaid'>(paymentStatus);
@@ -406,15 +410,17 @@ export const AnalyticsFilterModal: React.FC<AnalyticsFilterModalProps> = ({
   useEffect(() => {
     if (visible) {
       setTempMode(filterMode);
+      setTempWeekPreset(weekPreset);
       setTempCycleId(selectedCycleId);
       setTempDay(selectedDay);
       setTempPaymentStatus(paymentStatus);
     }
-  }, [visible, filterMode, selectedCycleId, selectedDay, paymentStatus]);
+  }, [visible, filterMode, weekPreset, selectedCycleId, selectedDay, paymentStatus]);
 
   const handleApply = () => {
     onApply({
       filterMode: tempMode,
+      weekPreset: tempWeekPreset,
       selectedCycleId: tempCycleId,
       selectedDay: tempDay,
       paymentStatus: tempPaymentStatus,
@@ -424,6 +430,7 @@ export const AnalyticsFilterModal: React.FC<AnalyticsFilterModalProps> = ({
 
   const handleReset = () => {
     setTempMode('cycle');
+    setTempWeekPreset('this_week');
     setTempCycleId(null);
     setTempDay(new Date().toISOString().slice(0, 10));
     setTempPaymentStatus('all');
@@ -502,6 +509,28 @@ export const AnalyticsFilterModal: React.FC<AnalyticsFilterModalProps> = ({
               </TouchableOpacity>
 
               <TouchableOpacity
+                style={[styles.filterModeTab, tempMode === 'week' && { backgroundColor: theme.primaryContainer }]}
+                onPress={() => setTempMode('week')}
+              >
+                <MaterialCommunityIcons
+                  name="calendar-week"
+                  size={14}
+                  color={tempMode === 'week' ? theme.onPrimaryContainer : theme.onSurfaceVariant}
+                />
+                <Text
+                  style={[
+                    styles.filterModeTabText,
+                    {
+                      color: tempMode === 'week' ? theme.onPrimaryContainer : theme.onSurfaceVariant,
+                      fontWeight: tempMode === 'week' ? '700' : '500',
+                    },
+                  ]}
+                >
+                  Weekly
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
                 style={[styles.filterModeTab, tempMode === 'all' && { backgroundColor: theme.primaryContainer }]}
                 onPress={() => setTempMode('all')}
               >
@@ -547,6 +576,45 @@ export const AnalyticsFilterModal: React.FC<AnalyticsFilterModalProps> = ({
             </View>
 
             {/* Timeframe sub-selection */}
+            {tempMode === 'week' && (
+              <View style={styles.filterSubSection}>
+                <Text style={[styles.filterSubLabel, { color: theme.onSurfaceVariant }]}>SELECT WEEK</Text>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  {(
+                    [
+                      { key: 'this_week', label: 'This Week (Mon–Sun)' },
+                      { key: 'last_week', label: 'Last Week' },
+                    ] as const
+                  ).map((wk) => {
+                    const active = tempWeekPreset === wk.key;
+                    return (
+                      <TouchableOpacity
+                        key={wk.key}
+                        onPress={() => setTempWeekPreset(wk.key)}
+                        style={[
+                          styles.cycleSelectItem,
+                          {
+                            flex: 1,
+                            backgroundColor: active ? theme.primaryContainer : theme.cardBg,
+                            borderColor: active ? theme.primary : theme.divider,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.cycleSelectName,
+                            { color: active ? theme.onPrimaryContainer : theme.onSurface, fontSize: 12.5 },
+                          ]}
+                        >
+                          {wk.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+
             {tempMode === 'cycle' && (
               <View style={styles.filterSubSection}>
                 <Text style={[styles.filterSubLabel, { color: theme.onSurfaceVariant }]}>SELECT BUDGET CYCLE</Text>
@@ -825,8 +893,9 @@ export const AnalyticsScreen: React.FC = () => {
   const curr = settings.base_currency;
   const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
-  // Filter states (Cycles picker, All Time, Specific Day, Paid/Unpaid)
-  const [filterMode, setFilterMode] = useState<'cycle' | 'all' | 'day'>('cycle');
+  // Filter states (Cycles picker, Weekly, All Time, Specific Day, Paid/Unpaid)
+  const [filterMode, setFilterMode] = useState<'cycle' | 'week' | 'all' | 'day'>('cycle');
+  const [weekPreset, setWeekPreset] = useState<'this_week' | 'last_week'>('this_week');
   const [selectedCycleId, setSelectedCycleId] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [paymentStatus, setPaymentStatus] = useState<'all' | 'paid' | 'unpaid'>('all');
@@ -848,6 +917,18 @@ export const AnalyticsScreen: React.FC = () => {
   };
 
   // Floating Action Button (FAB) Speed-Dial & Add Transaction Modal states
+  const [reportTab, setReportTab] = useState<'cashflow' | 'spending' | 'loans' | 'transfers' | 'exports'>(
+    analyticsFocus === 'expense' ? 'spending' : 'cashflow'
+  );
+  const [moduleMenuVisible, setModuleMenuVisible] = useState(false);
+  useEffect(() => {
+    if (analyticsFocus === 'expense') {
+      setReportTab('spending');
+    } else if (analyticsFocus === 'income' || analyticsFocus === 'overview') {
+      setReportTab((prev) => (prev === 'exports' ? prev : 'cashflow'));
+    }
+  }, [analyticsFocus]);
+
   const [isFabOpen, setIsFabOpen] = useState(false);
   const [debtsModalVisible, setDebtsModalVisible] = useState(false);
   const [exportModalVisible, setExportModalVisible] = useState(false);
@@ -1006,12 +1087,22 @@ export const AnalyticsScreen: React.FC = () => {
   // Effective cycle being analyzed
   const effectiveCycle = activeCycleFilter;
 
-  // Filtered transactions by Timeframe (Day, Cycle, All Time) & Payment Status (Paid, Unpaid)
+  // Filtered transactions by Timeframe (Day, Week, Cycle, All Time) & Payment Status (Paid, Unpaid)
   const activeTransactions = useMemo(() => {
     let result = transactions;
 
     if (filterMode === 'day' && selectedDay) {
       result = result.filter((t) => t.date === selectedDay);
+    } else if (filterMode === 'week') {
+      const now = new Date();
+      const dayOfWeek = (now.getDay() + 6) % 7; // Monday = 0
+      const monday = new Date(now);
+      monday.setDate(now.getDate() - dayOfWeek + (weekPreset === 'last_week' ? -7 : 0));
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      const startStr = monday.toISOString().slice(0, 10);
+      const endStr = sunday.toISOString().slice(0, 10);
+      result = result.filter((t) => t.date >= startStr && t.date <= endStr);
     } else if (filterMode === 'cycle' && activeCycleFilter?.start_date && activeCycleFilter?.end_date) {
       result = result.filter(
         (t) => t.date >= activeCycleFilter.start_date && t.date <= activeCycleFilter.end_date
@@ -1025,7 +1116,7 @@ export const AnalyticsScreen: React.FC = () => {
     }
 
     return result;
-  }, [transactions, filterMode, selectedDay, activeCycleFilter, paymentStatus]);
+  }, [transactions, filterMode, weekPreset, selectedDay, activeCycleFilter, paymentStatus]);
 
   const filterButtonLabel = useMemo(() => {
     let timeframeLabel = '';
@@ -1034,6 +1125,8 @@ export const AnalyticsScreen: React.FC = () => {
       timeframeLabel = !isNaN(dObj.getTime())
         ? dObj.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
         : selectedDay;
+    } else if (filterMode === 'week') {
+      timeframeLabel = weekPreset === 'last_week' ? 'Last Week' : 'This Week';
     } else if (filterMode === 'all') {
       timeframeLabel = 'All Time';
     } else {
@@ -1047,52 +1140,17 @@ export const AnalyticsScreen: React.FC = () => {
       return `${timeframeLabel} • Unpaid`;
     }
     return timeframeLabel;
-  }, [filterMode, selectedDay, activeCycleFilter, paymentStatus]);
+  }, [filterMode, weekPreset, selectedDay, activeCycleFilter, paymentStatus]);
 
   const hasActiveCustomFilter = useMemo(() => {
     return filterMode !== 'cycle' || Boolean(selectedCycleId) || paymentStatus !== 'all';
   }, [filterMode, selectedCycleId, paymentStatus]);
 
-  // Universal inside-card top bar with Filter on left, custom center, Export on right
+  // Universal inside-card top bar with custom badge on left and Export on right
   const renderCardTopBar = (centerElement?: React.ReactNode) => (
     <View style={styles.pieCardTopBar}>
-      {/* Top Left: Filter Button */}
-      <TouchableOpacity
-        style={[
-          styles.cardHeaderFilterBtn,
-          {
-            backgroundColor: hasActiveCustomFilter
-              ? (isDarkMode ? 'rgba(99, 102, 241, 0.22)' : 'rgba(99, 102, 241, 0.12)')
-              : theme.pillBg,
-            borderColor: hasActiveCustomFilter ? theme.primary : theme.outlineVariant,
-          },
-        ]}
-        onPress={() => setFilterModalVisible(true)}
-        activeOpacity={0.7}
-      >
-        <MaterialCommunityIcons
-          name="filter-variant"
-          size={14}
-          color={hasActiveCustomFilter ? theme.primary : theme.onSurfaceVariant}
-        />
-        <Text
-          style={[
-            styles.cardHeaderFilterText,
-            { color: hasActiveCustomFilter ? theme.primary : theme.onSurface },
-          ]}
-          numberOfLines={1}
-        >
-          {filterButtonLabel}
-        </Text>
-        <MaterialCommunityIcons
-          name="chevron-down"
-          size={13}
-          color={hasActiveCustomFilter ? theme.primary : theme.onSurfaceVariant}
-        />
-      </TouchableOpacity>
-
-      {/* Top Center: Custom Badge / Title */}
-      {centerElement}
+      {/* Top Left: Custom Badge / Title */}
+      {centerElement || <View />}
 
       {/* Top Right: Export Button */}
       <TouchableOpacity
@@ -1125,6 +1183,38 @@ export const AnalyticsScreen: React.FC = () => {
 
   const netSavings = totalIncome - totalExpense;
   const savingsRate = totalIncome > 0 ? Math.max(0, Math.round((netSavings / totalIncome) * 100)) : 0;
+
+  const previousPeriodComparison = useMemo(() => {
+    const activeCycle = selectedAnalyticsCycle || currentCycle;
+    if (!activeCycle || !allCycles || allCycles.length < 2) return null;
+    const sorted = [...allCycles].sort((a, b) => b.start_date.localeCompare(a.start_date));
+    const idx = sorted.findIndex((c) => c.id === activeCycle.id);
+    const prevCycle = idx >= 0 ? sorted[idx + 1] : sorted.find((c) => c.end_date < activeCycle.start_date);
+    if (!prevCycle) return null;
+
+    const prevTxs = transactions.filter(
+      (t) => t.date >= prevCycle.start_date && t.date <= prevCycle.end_date && t.is_paid !== false
+    );
+    const prevIncome = prevTxs
+      .filter((t) => t.type === 'income')
+      .reduce((sum, t) => sum + getEffectiveAmount(t), 0);
+    const prevExpense = prevTxs
+      .filter((t) => t.type === 'expense')
+      .reduce((sum, t) => sum + getEffectiveAmount(t), 0);
+    const prevNet = prevIncome - prevExpense;
+    const prevSavingsRate = prevIncome > 0 ? Math.max(0, Math.round((prevNet / prevIncome) * 100)) : 0;
+
+    return {
+      prevCycle,
+      prevIncome,
+      prevExpense,
+      prevNet,
+      prevSavingsRate,
+      incomeDelta: totalIncome - prevIncome,
+      expenseDelta: totalExpense - prevExpense,
+      netDelta: netSavings - prevNet,
+    };
+  }, [selectedAnalyticsCycle, currentCycle, allCycles, transactions, getEffectiveAmount, totalIncome, totalExpense, netSavings]);
 
   // Category spending breakdown (Expense) with itemized Subcategories & Savings Insights
   const categorySpending = useMemo<CategorySpendingItem[]>(() => {
@@ -1633,69 +1723,137 @@ export const AnalyticsScreen: React.FC = () => {
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        {/* TOP ANALYZER SWITCHER BAR */}
-        <View style={[styles.focusTabBar, { backgroundColor: theme.surfaceVariant }]}>
+        {/* TOP 2-PILL HEADER: MODULE DROPDOWN (LEFT) & FILTER PILL (RIGHT) */}
+        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
           <TouchableOpacity
-            style={[styles.focusTabBtn, analyticsFocus === 'overview' && { backgroundColor: theme.primaryContainer }]}
-            onPress={() => setAnalyticsFocus('overview')}
+            onPress={() => setModuleMenuVisible(true)}
             activeOpacity={0.8}
+            style={{
+              flex: 1,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              paddingHorizontal: 12,
+              paddingVertical: 9,
+              borderRadius: M3Shape.full,
+              backgroundColor:
+                reportTab === 'spending'
+                  ? theme.errorContainer
+                  : reportTab === 'cashflow' && analyticsFocus === 'income'
+                    ? theme.successContainer
+                    : theme.primaryContainer,
+              borderWidth: 1,
+              borderColor:
+                reportTab === 'spending'
+                  ? theme.error
+                  : reportTab === 'cashflow' && analyticsFocus === 'income'
+                    ? theme.success
+                    : theme.primary,
+            }}
           >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+              <MaterialCommunityIcons
+                name={
+                  reportTab === 'spending'
+                    ? 'arrow-top-right'
+                    : reportTab === 'loans'
+                      ? 'handshake-outline'
+                      : reportTab === 'transfers'
+                        ? 'swap-horizontal'
+                        : reportTab === 'exports'
+                          ? 'file-export-outline'
+                          : analyticsFocus === 'income'
+                            ? 'arrow-bottom-left'
+                            : 'chart-timeline-variant-shimmer'
+                }
+                size={15}
+                color={
+                  reportTab === 'spending'
+                    ? theme.error
+                    : reportTab === 'cashflow' && analyticsFocus === 'income'
+                      ? theme.success
+                      : theme.onPrimaryContainer
+                }
+              />
+              <Text
+                style={{
+                  fontSize: 12.5,
+                  fontWeight: '800',
+                  color:
+                    reportTab === 'spending'
+                      ? theme.error
+                      : reportTab === 'cashflow' && analyticsFocus === 'income'
+                        ? theme.success
+                        : theme.onPrimaryContainer,
+                }}
+                numberOfLines={1}
+              >
+                {reportTab === 'spending'
+                  ? 'Spending'
+                  : reportTab === 'loans'
+                    ? 'Loans'
+                    : reportTab === 'transfers'
+                      ? 'Transfers'
+                      : reportTab === 'exports'
+                        ? 'Exports & Compare'
+                        : analyticsFocus === 'income'
+                          ? 'Income Sources'
+                          : 'Income vs Expense'}
+              </Text>
+            </View>
             <MaterialCommunityIcons
-              name="chart-timeline-variant-shimmer"
-              size={15}
-              color={analyticsFocus === 'overview' ? theme.onPrimaryContainer : theme.onSurfaceVariant}
+              name="chevron-down"
+              size={16}
+              color={
+                reportTab === 'spending'
+                  ? theme.error
+                  : reportTab === 'cashflow' && analyticsFocus === 'income'
+                    ? theme.success
+                    : theme.onPrimaryContainer
+              }
             />
-            <Text
-              style={[
-                styles.focusTabBtnText,
-                { color: analyticsFocus === 'overview' ? theme.onPrimaryContainer : theme.onSurfaceVariant },
-                analyticsFocus === 'overview' && { fontWeight: '700' },
-              ]}
-            >
-              Cash Flow
-            </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.focusTabBtn, analyticsFocus === 'expense' && { backgroundColor: theme.errorContainer }]}
-            onPress={() => setAnalyticsFocus('expense')}
+            onPress={() => setFilterModalVisible(true)}
             activeOpacity={0.8}
+            style={{
+              flex: 1,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              paddingHorizontal: 12,
+              paddingVertical: 9,
+              borderRadius: M3Shape.full,
+              backgroundColor: hasActiveCustomFilter
+                ? (isDarkMode ? 'rgba(99, 102, 241, 0.22)' : 'rgba(99, 102, 241, 0.12)')
+                : theme.pillBg,
+              borderWidth: 1,
+              borderColor: hasActiveCustomFilter ? theme.primary : theme.outlineVariant,
+            }}
           >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+              <MaterialCommunityIcons
+                name="filter-variant"
+                size={15}
+                color={hasActiveCustomFilter ? theme.primary : theme.onSurfaceVariant}
+              />
+              <Text
+                style={{
+                  fontSize: 12.5,
+                  fontWeight: '700',
+                  color: hasActiveCustomFilter ? theme.primary : theme.onSurface,
+                }}
+                numberOfLines={1}
+              >
+                {filterButtonLabel}
+              </Text>
+            </View>
             <MaterialCommunityIcons
-              name="arrow-top-right"
+              name="chevron-down"
               size={15}
-              color={analyticsFocus === 'expense' ? theme.error : theme.onSurfaceVariant}
+              color={hasActiveCustomFilter ? theme.primary : theme.onSurfaceVariant}
             />
-            <Text
-              style={[
-                styles.focusTabBtnText,
-                { color: analyticsFocus === 'expense' ? theme.error : theme.onSurfaceVariant },
-                analyticsFocus === 'expense' && { fontWeight: '700' },
-              ]}
-            >
-              Expense Analyzer
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.focusTabBtn, analyticsFocus === 'income' && { backgroundColor: theme.successContainer }]}
-            onPress={() => setAnalyticsFocus('income')}
-            activeOpacity={0.8}
-          >
-            <MaterialCommunityIcons
-              name="arrow-bottom-left"
-              size={15}
-              color={analyticsFocus === 'income' ? theme.success : theme.onSurfaceVariant}
-            />
-            <Text
-              style={[
-                styles.focusTabBtnText,
-                { color: analyticsFocus === 'income' ? theme.success : theme.onSurfaceVariant },
-                analyticsFocus === 'income' && { fontWeight: '700' },
-              ]}
-            >
-              Income Analyzer
-            </Text>
           </TouchableOpacity>
         </View>
 
@@ -1727,8 +1885,8 @@ export const AnalyticsScreen: React.FC = () => {
           </View>
         )}
 
-        {/* 1. EXPENSE ANALYZER FOCUS VIEW */}
-        {analyticsFocus === 'expense' && (
+        {/* 1. SPENDING SUB-TAB */}
+        {reportTab === 'spending' && (
           <View style={styles.focusContainer}>
             {/* EXPENSE DONUT PIE CARD WITH ADVANCED LEADER LINES & ZOOMABLE SUBCATEGORIES */}
             <View style={[styles.analyzerCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
@@ -1874,6 +2032,51 @@ export const AnalyticsScreen: React.FC = () => {
                   {formatCurrency(dailyAllowanceStats.availableForDay, settings.base_currency)}
                 </Text>
               </View>
+            </View>
+
+            {/* TAXES & FEES CARD */}
+            <View
+              style={[
+                styles.miniStatCard,
+                {
+                  backgroundColor: theme.cardBg,
+                  borderColor: theme.divider,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: 12,
+                  paddingVertical: 12,
+                  paddingHorizontal: 14,
+                },
+              ]}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <View
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: 18,
+                    backgroundColor: theme.pillBg,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <MaterialCommunityIcons name="receipt-text-outline" size={18} color={theme.tertiary} />
+                </View>
+                <View>
+                  <Text style={{ fontSize: 13.5, fontWeight: '700', color: theme.onSurface }}>
+                    Taxes & Fees Included
+                  </Text>
+                  <Text style={{ fontSize: 11.5, color: theme.onSurfaceVariant }}>
+                    {totalExpense > 0
+                      ? `${((totalTaxInPeriod / totalExpense) * 100).toFixed(1)}% of total spending`
+                      : 'No spending recorded in this period'}
+                  </Text>
+                </View>
+              </View>
+              <Text style={{ fontSize: 15, fontWeight: '800', color: theme.onSurface }}>
+                {formatCurrency(totalTaxInPeriod, settings.base_currency)}
+              </Text>
             </View>
 
             {/* 1B. DAILY SPENDING VELOCITY SPARKLINE CARD */}
@@ -2257,8 +2460,8 @@ export const AnalyticsScreen: React.FC = () => {
           </View>
         )}
 
-        {/* 2. INCOME ANALYZER FOCUS VIEW */}
-        {analyticsFocus === 'income' && (
+        {/* 2. CASHFLOW SUB-TAB: INCOME SOURCES VIEW */}
+        {reportTab === 'cashflow' && analyticsFocus === 'income' && (
           <View style={styles.focusContainer}>
             {/* INCOME DONUT PIE CARD WITH ADVANCED LEADER LINES */}
             <View style={[styles.analyzerCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
@@ -2414,8 +2617,8 @@ export const AnalyticsScreen: React.FC = () => {
           </View>
         )}
 
-        {/* 3. CASH FLOW OVERVIEW VIEW */}
-        {analyticsFocus === 'overview' && (
+        {/* 3. CASHFLOW SUB-TAB: OVERVIEW VIEW */}
+        {reportTab === 'cashflow' && analyticsFocus !== 'income' && (
           <View style={styles.focusContainer}>
             {/* CASH FLOW INTERACTION HERO CARD (INFLOW VS OUTFLOW DYNAMICS) */}
             <View
@@ -2573,7 +2776,13 @@ export const AnalyticsScreen: React.FC = () => {
             {/* Top Categories Summary with Distribution Bar */}
             <View style={styles.sectionHeader}>
               <Text style={[styles.sectionTitle, { color: theme.onSurface }]}>Top Expense Categories</Text>
-              <TouchableOpacity onPress={() => setAnalyticsFocus('expense')} activeOpacity={0.7}>
+              <TouchableOpacity
+                onPress={() => {
+                  setReportTab('spending');
+                  setAnalyticsFocus('expense');
+                }}
+                activeOpacity={0.7}
+              >
                 <Text style={{ fontSize: 12, fontWeight: '700', color: theme.primary }}>See All & Subcategories →</Text>
               </TouchableOpacity>
             </View>
@@ -2758,6 +2967,417 @@ export const AnalyticsScreen: React.FC = () => {
                 </View>
               );
             })}
+          </View>
+        )}
+
+        {/* 4. LOANS MODULE */}
+        {reportTab === 'loans' && (
+          <View style={styles.focusContainer}>
+            {(() => {
+              const openDebts = debts.filter((d) => d.status === 'open');
+              const settledCount = debts.filter((d) => d.status === 'settled').length;
+              const owedToYou = openDebts
+                .filter((d) => d.type === 'lent')
+                .reduce((s, d) => s + Math.max(0, d.amount - (d.paid_amount || 0)), 0);
+              const youOwe = openDebts
+                .filter((d) => d.type === 'borrowed')
+                .reduce((s, d) => s + Math.max(0, d.amount - (d.paid_amount || 0)), 0);
+              const netLoans = owedToYou - youOwe;
+
+              const byPersonMap: Record<string, { name: string; lent: number; borrowed: number }> = {};
+              openDebts.forEach((d) => {
+                const key = d.person_name.trim().toLowerCase();
+                if (!byPersonMap[key]) {
+                  byPersonMap[key] = { name: d.person_name.trim(), lent: 0, borrowed: 0 };
+                }
+                const rem = Math.max(0, d.amount - (d.paid_amount || 0));
+                if (d.type === 'lent') byPersonMap[key].lent += rem;
+                else byPersonMap[key].borrowed += rem;
+              });
+              const peopleRows = Object.values(byPersonMap).sort(
+                (a, b) => Math.abs(b.lent - b.borrowed) - Math.abs(a.lent - a.borrowed)
+              );
+
+              return (
+                <>
+                  <View
+                    style={[
+                      styles.analyzerCard,
+                      { backgroundColor: theme.cardBg, borderColor: theme.divider },
+                      M3Elevation.level1,
+                    ]}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <MaterialCommunityIcons name="handshake-outline" size={18} color={theme.primary} />
+                        <Text style={{ fontSize: 15, fontWeight: '800', color: theme.onSurface }}>
+                          Loans Position
+                        </Text>
+                      </View>
+                      <TouchableOpacity onPress={() => setDebtsModalVisible(true)}>
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: theme.primary }}>
+                          Manage →
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
+                      <View style={{ flex: 1, padding: 10, borderRadius: M3Shape.small, backgroundColor: theme.successContainer }}>
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: theme.success }}>Owed to You</Text>
+                        <Text style={{ fontSize: 14, fontWeight: '800', color: theme.onSurface, marginTop: 2 }}>
+                          {formatCurrency(owedToYou, curr)}
+                        </Text>
+                      </View>
+                      <View style={{ flex: 1, padding: 10, borderRadius: M3Shape.small, backgroundColor: theme.errorContainer }}>
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: theme.error }}>You Owe</Text>
+                        <Text style={{ fontSize: 14, fontWeight: '800', color: theme.onSurface, marginTop: 2 }}>
+                          {formatCurrency(youOwe, curr)}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: 10,
+                        borderRadius: M3Shape.small,
+                        backgroundColor: theme.pillBg,
+                      }}
+                    >
+                      <Text style={{ fontSize: 12.5, fontWeight: '700', color: theme.onSurfaceVariant }}>
+                        Net Position ({openDebts.length} open • {settledCount} settled)
+                      </Text>
+                      <Text
+                        style={{
+                          fontSize: 13.5,
+                          fontWeight: '800',
+                          color: netLoans >= 0 ? theme.success : theme.error,
+                        }}
+                      >
+                        {netLoans >= 0 ? '+' : ''}
+                        {formatCurrency(netLoans, curr)}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View
+                    style={[
+                      styles.analyzerCard,
+                      { backgroundColor: theme.cardBg, borderColor: theme.divider },
+                      M3Elevation.level1,
+                    ]}
+                  >
+                    <Text style={{ fontSize: 14.5, fontWeight: '800', color: theme.onSurface, marginBottom: 10 }}>
+                      Open Balances by Person
+                    </Text>
+                    {peopleRows.length === 0 ? (
+                      <Text style={{ fontSize: 12.5, color: theme.onSurfaceVariant }}>
+                        No open loans right now.
+                      </Text>
+                    ) : (
+                      <View style={{ gap: 8 }}>
+                        {peopleRows.map((p) => {
+                          const net = p.lent - p.borrowed;
+                          return (
+                            <View
+                              key={p.name}
+                              style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                paddingVertical: 8,
+                                paddingHorizontal: 10,
+                                borderRadius: M3Shape.small,
+                                backgroundColor: theme.pillBg,
+                              }}
+                            >
+                              <View>
+                                <Text style={{ fontSize: 13, fontWeight: '700', color: theme.onSurface }}>
+                                  {p.name}
+                                </Text>
+                                <Text style={{ fontSize: 11, color: theme.onSurfaceVariant }}>
+                                  {net >= 0 ? 'Owes you' : 'You owe'}
+                                </Text>
+                              </View>
+                              <Text
+                                style={{
+                                  fontSize: 13.5,
+                                  fontWeight: '800',
+                                  color: net >= 0 ? theme.success : theme.error,
+                                }}
+                              >
+                                {formatCurrency(Math.abs(net), curr)}
+                              </Text>
+                            </View>
+                          );
+                        })}
+                      </View>
+                    )}
+                  </View>
+                </>
+              );
+            })()}
+          </View>
+        )}
+
+        {/* 5. TRANSFERS MODULE */}
+        {reportTab === 'transfers' && (
+          <View style={styles.focusContainer}>
+            {(() => {
+              const transferTxs = activeTransactions.filter((t) => t.type === 'transfer');
+              const totalMoved = transferTxs.reduce((s, t) => s + (t.base_amount || t.amount || 0), 0);
+              return (
+                <View
+                  style={[
+                    styles.analyzerCard,
+                    { backgroundColor: theme.cardBg, borderColor: theme.divider },
+                    M3Elevation.level1,
+                  ]}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <MaterialCommunityIcons name="swap-horizontal" size={18} color={theme.tertiary} />
+                      <Text style={{ fontSize: 15, fontWeight: '800', color: theme.onSurface }}>
+                        Wallet Transfers
+                      </Text>
+                    </View>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: theme.onSurfaceVariant }}>
+                      {transferTxs.length} transfers
+                    </Text>
+                  </View>
+
+                  <View
+                    style={{
+                      padding: 12,
+                      borderRadius: M3Shape.small,
+                      backgroundColor: theme.pillBg,
+                      marginBottom: 12,
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Text style={{ fontSize: 12.5, fontWeight: '700', color: theme.onSurfaceVariant }}>
+                      Total Moved
+                    </Text>
+                    <Text style={{ fontSize: 15, fontWeight: '800', color: theme.tertiary }}>
+                      {formatCurrency(totalMoved, curr)}
+                    </Text>
+                  </View>
+
+                  {transferTxs.length === 0 ? (
+                    <Text style={{ fontSize: 12.5, color: theme.onSurfaceVariant }}>
+                      No transfers recorded in this timeframe.
+                    </Text>
+                  ) : (
+                    <View style={{ gap: 8 }}>
+                      {transferTxs.map((tx) => {
+                        const fromW = wallets.find((w) => w.id === tx.wallet_id)?.name || 'Wallet';
+                        const toW = wallets.find((w) => w.id === tx.to_wallet_id)?.name || 'Wallet';
+                        return (
+                          <View
+                            key={tx.id}
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              paddingVertical: 8,
+                              paddingHorizontal: 10,
+                              borderRadius: M3Shape.small,
+                              backgroundColor: theme.pillBg,
+                            }}
+                          >
+                            <View style={{ flex: 1, marginRight: 8 }}>
+                              <Text style={{ fontSize: 13, fontWeight: '700', color: theme.onSurface }} numberOfLines={1}>
+                                {fromW} → {toW}
+                              </Text>
+                              <Text style={{ fontSize: 11, color: theme.onSurfaceVariant }} numberOfLines={1}>
+                                {tx.date}{tx.note ? ` • ${tx.note}` : ''}
+                              </Text>
+                            </View>
+                            <Text style={{ fontSize: 13.5, fontWeight: '800', color: theme.tertiary }}>
+                              {formatCurrency(tx.amount, tx.currency || curr)}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  )}
+                </View>
+              );
+            })()}
+          </View>
+        )}
+
+        {/* 6. EXPORTS & PERIOD COMPARISON SUB-TAB */}
+        {reportTab === 'exports' && (
+          <View style={styles.focusContainer}>
+            {/* Period Comparison Card */}
+            <View
+              style={[
+                styles.analyzerCard,
+                { backgroundColor: theme.cardBg, borderColor: theme.divider },
+                M3Elevation.level1,
+              ]}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <MaterialCommunityIcons name="compare-horizontal" size={18} color={theme.primary} />
+                  <Text style={{ fontSize: 15, fontWeight: '800', color: theme.onSurface }}>
+                    Period Comparison
+                  </Text>
+                </View>
+                <Text style={{ fontSize: 11.5, fontWeight: '700', color: theme.onSurfaceVariant }}>
+                  {previousPeriodComparison ? `vs ${previousPeriodComparison.prevCycle.name}` : 'Current Period'}
+                </Text>
+              </View>
+
+              {previousPeriodComparison ? (
+                <View style={{ gap: 8 }}>
+                  {(
+                    [
+                      {
+                        label: 'Income',
+                        cur: totalIncome,
+                        prev: previousPeriodComparison.prevIncome,
+                        delta: previousPeriodComparison.incomeDelta,
+                        positiveGood: true,
+                      },
+                      {
+                        label: 'Expense',
+                        cur: totalExpense,
+                        prev: previousPeriodComparison.prevExpense,
+                        delta: previousPeriodComparison.expenseDelta,
+                        positiveGood: false,
+                      },
+                      {
+                        label: 'Net Cashflow',
+                        cur: netSavings,
+                        prev: previousPeriodComparison.prevNet,
+                        delta: previousPeriodComparison.netDelta,
+                        positiveGood: true,
+                      },
+                    ] as const
+                  ).map((row) => {
+                    const isGood = row.positiveGood ? row.delta >= 0 : row.delta <= 0;
+                    const deltaColor = row.delta === 0 ? theme.onSurfaceVariant : isGood ? theme.success : theme.error;
+                    return (
+                      <View
+                        key={row.label}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          paddingVertical: 8,
+                          paddingHorizontal: 10,
+                          borderRadius: M3Shape.small,
+                          backgroundColor: theme.pillBg,
+                        }}
+                      >
+                        <View>
+                          <Text style={{ fontSize: 12.5, fontWeight: '700', color: theme.onSurface }}>
+                            {row.label}
+                          </Text>
+                          <Text style={{ fontSize: 11, color: theme.onSurfaceVariant }}>
+                            Prev: {formatCurrency(row.prev, settings.base_currency)}
+                          </Text>
+                        </View>
+                        <View style={{ alignItems: 'flex-end' }}>
+                          <Text style={{ fontSize: 13.5, fontWeight: '800', color: theme.onSurface }}>
+                            {formatCurrency(row.cur, settings.base_currency)}
+                          </Text>
+                          <Text style={{ fontSize: 11, fontWeight: '700', color: deltaColor }}>
+                            {row.delta >= 0 ? '+' : ''}
+                            {formatCurrency(row.delta, settings.base_currency)}
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              ) : (
+                <Text style={{ fontSize: 12.5, color: theme.onSurfaceVariant }}>
+                  Need at least two budget cycles to compare periods. Current net: {formatCurrency(netSavings, settings.base_currency)} ({savingsRate}% saved).
+                </Text>
+              )}
+            </View>
+
+            {/* Export & Share Reports */}
+            <View
+              style={[
+                styles.analyzerCard,
+                { backgroundColor: theme.cardBg, borderColor: theme.divider },
+                M3Elevation.level1,
+              ]}
+            >
+              <Text style={{ fontSize: 15, fontWeight: '800', color: theme.onSurface, marginBottom: 4 }}>
+                Export Reports
+              </Text>
+              <Text style={[styles.exportModalSubtitle, { color: theme.onSurfaceVariant, marginBottom: 12 }]}>
+                {exportPayload.timeframe} • {exportPayload.transactions.length} transactions
+              </Text>
+
+              <View style={styles.exportOptionsList}>
+                <TouchableOpacity
+                  style={[styles.exportOptionCard, { backgroundColor: theme.pillBg, borderColor: theme.divider }]}
+                  onPress={handleExportReportTxt}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.exportOptionIconCircle, { backgroundColor: theme.primaryContainer }]}>
+                    <MaterialCommunityIcons name="file-document-outline" size={22} color={theme.primary} />
+                  </View>
+                  <View style={styles.exportOptionTextWrap}>
+                    <Text style={[styles.exportOptionTitle, { color: theme.onSurface }]}>
+                      Financial Summary Report (.txt)
+                    </Text>
+                    <Text style={[styles.exportOptionDesc, { color: theme.onSurfaceVariant }]}>
+                      Cash flow, savings rate, budget targets & category breakdown
+                    </Text>
+                  </View>
+                  <MaterialCommunityIcons name="share-variant-outline" size={18} color={theme.primary} />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.exportOptionCard, { backgroundColor: theme.pillBg, borderColor: theme.divider }]}
+                  onPress={handleExportCSV}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.exportOptionIconCircle, { backgroundColor: '#DCFCE7' }]}>
+                    <MaterialCommunityIcons name="file-delimited-outline" size={22} color="#15803D" />
+                  </View>
+                  <View style={styles.exportOptionTextWrap}>
+                    <Text style={[styles.exportOptionTitle, { color: theme.onSurface }]}>
+                      Transactions Spreadsheet (.csv)
+                    </Text>
+                    <Text style={[styles.exportOptionDesc, { color: theme.onSurfaceVariant }]}>
+                      Full transactions list ready for Excel, Google Sheets, or Numbers
+                    </Text>
+                  </View>
+                  <MaterialCommunityIcons name="share-variant-outline" size={18} color="#15803D" />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.exportOptionCard, { backgroundColor: theme.pillBg, borderColor: theme.divider }]}
+                  onPress={handleCopySummary}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.exportOptionIconCircle, { backgroundColor: '#EDE9FE' }]}>
+                    <MaterialCommunityIcons name="content-copy" size={22} color="#7C3AED" />
+                  </View>
+                  <View style={styles.exportOptionTextWrap}>
+                    <Text style={[styles.exportOptionTitle, { color: theme.onSurface }]}>
+                      Copy Summary to Clipboard
+                    </Text>
+                    <Text style={[styles.exportOptionDesc, { color: theme.onSurfaceVariant }]}>
+                      Fast copy to paste into personal notes, messages, or emails
+                    </Text>
+                  </View>
+                  <MaterialCommunityIcons name="chevron-right" size={18} color="#7C3AED" />
+                </TouchableOpacity>
+              </View>
+            </View>
           </View>
         )}
       </ScrollView>
@@ -3154,6 +3774,7 @@ export const AnalyticsScreen: React.FC = () => {
       <AnalyticsFilterModal
         visible={filterModalVisible}
         filterMode={filterMode}
+        weekPreset={weekPreset}
         selectedCycleId={selectedCycleId}
         selectedDay={selectedDay}
         paymentStatus={paymentStatus}
@@ -3165,6 +3786,7 @@ export const AnalyticsScreen: React.FC = () => {
         onClose={() => setFilterModalVisible(false)}
         onApply={(params) => {
           setFilterMode(params.filterMode);
+          setWeekPreset(params.weekPreset);
           setSelectedCycleId(params.selectedCycleId);
           setSelectedDay(params.selectedDay);
           setPaymentStatus(params.paymentStatus);
@@ -3184,6 +3806,159 @@ export const AnalyticsScreen: React.FC = () => {
           setCalendarPickerVisible(false);
         }}
       />
+
+      {/* REPORT MODULE DROPDOWN MODAL */}
+      <Modal
+        visible={moduleMenuVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setModuleMenuVisible(false)}
+      >
+        <Pressable
+          style={{
+            flex: 1,
+            backgroundColor: 'rgba(0,0,0,0.45)',
+            justifyContent: 'center',
+            paddingHorizontal: 24,
+          }}
+          onPress={() => setModuleMenuVisible(false)}
+        >
+          <View
+            style={[
+              {
+                backgroundColor: theme.surface,
+                borderRadius: M3Shape.large,
+                padding: 16,
+                borderWidth: 1,
+                borderColor: theme.divider,
+                gap: 8,
+              },
+              M3Elevation.level3,
+            ]}
+            onStartShouldSetResponder={() => true}
+          >
+            <Text style={{ fontSize: 14, fontWeight: '800', color: theme.onSurface, marginBottom: 4 }}>
+              Select Report Module
+            </Text>
+            {(
+              [
+                {
+                  key: 'cashflow',
+                  label: 'Income vs Expense',
+                  desc: 'Net cashflow, retention & burn rate',
+                  icon: 'chart-timeline-variant-shimmer',
+                  color: theme.primary,
+                  active: reportTab === 'cashflow' && analyticsFocus !== 'income',
+                  onSelect: () => {
+                    setReportTab('cashflow');
+                    setAnalyticsFocus('overview');
+                  },
+                },
+                {
+                  key: 'spending',
+                  label: 'Spending',
+                  desc: 'Categories, budget caps, velocity & taxes',
+                  icon: 'arrow-top-right',
+                  color: theme.error,
+                  active: reportTab === 'spending',
+                  onSelect: () => {
+                    setReportTab('spending');
+                    setAnalyticsFocus('expense');
+                  },
+                },
+                {
+                  key: 'income',
+                  label: 'Income Sources',
+                  desc: 'Income donut, sources & goal progress',
+                  icon: 'arrow-bottom-left',
+                  color: theme.success,
+                  active: reportTab === 'cashflow' && analyticsFocus === 'income',
+                  onSelect: () => {
+                    setReportTab('cashflow');
+                    setAnalyticsFocus('income');
+                  },
+                },
+                {
+                  key: 'loans',
+                  label: 'Loans',
+                  desc: 'Owed to you, you owe & net loan position',
+                  icon: 'handshake-outline',
+                  color: theme.primary,
+                  active: reportTab === 'loans',
+                  onSelect: () => {
+                    setReportTab('loans');
+                  },
+                },
+                {
+                  key: 'transfers',
+                  label: 'Transfers',
+                  desc: 'Wallet-to-wallet movements in period',
+                  icon: 'swap-horizontal',
+                  color: theme.tertiary,
+                  active: reportTab === 'transfers',
+                  onSelect: () => {
+                    setReportTab('transfers');
+                  },
+                },
+                {
+                  key: 'exports',
+                  label: 'Exports & Compare',
+                  desc: 'Period comparison, CSV, TXT & clipboard',
+                  icon: 'file-export-outline',
+                  color: theme.tertiary,
+                  active: reportTab === 'exports',
+                  onSelect: () => {
+                    setReportTab('exports');
+                  },
+                },
+              ] as const
+            ).map((mod) => (
+              <TouchableOpacity
+                key={mod.key}
+                onPress={() => {
+                  mod.onSelect();
+                  setModuleMenuVisible(false);
+                }}
+                activeOpacity={0.75}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: 12,
+                  borderRadius: M3Shape.medium,
+                  backgroundColor: mod.active ? theme.primaryContainer : theme.pillBg,
+                  borderWidth: 1,
+                  borderColor: mod.active ? theme.primary : 'transparent',
+                }}
+              >
+                <MaterialCommunityIcons name={mod.icon as any} size={20} color={mod.color} />
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={{
+                      fontSize: 13.5,
+                      fontWeight: '800',
+                      color: mod.active ? theme.onPrimaryContainer : theme.onSurface,
+                    }}
+                  >
+                    {mod.label}
+                  </Text>
+                  <Text
+                    style={{
+                      fontSize: 11.5,
+                      color: mod.active ? theme.onPrimaryContainer : theme.onSurfaceVariant,
+                    }}
+                  >
+                    {mod.desc}
+                  </Text>
+                </View>
+                {mod.active && (
+                  <MaterialCommunityIcons name="check" size={18} color={theme.primary} />
+                )}
+              </TouchableOpacity>
+            ))}
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 };

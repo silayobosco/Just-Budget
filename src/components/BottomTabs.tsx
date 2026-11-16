@@ -22,7 +22,7 @@ export const BottomTabs: React.FC<BottomTabsProps> = ({ currentTab, onSelectTab 
     { key: 'home', label: 'Home', icon: 'view-dashboard-outline' },
     { key: 'calendar', label: 'History', icon: 'history' },
     { key: 'analytics', label: 'Analytics', icon: 'chart-box-outline' },
-    { key: 'wallets', label: 'Wallets', icon: 'wallet-outline' },
+    { key: 'wallets', label: 'Money', icon: 'wallet-outline' },
     { key: 'settings', label: 'Settings', icon: 'cog-outline' },
   ];
 

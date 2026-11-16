@@ -24,6 +24,7 @@ export interface Category {
   icon: string;
   color: string;
   is_default: boolean;
+  exclude_from_analytics?: boolean;
   subcategories?: Subcategory[];
 }
 

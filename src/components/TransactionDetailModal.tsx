@@ -63,7 +63,7 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
     );
   }, [transaction, recurringBills]);
 
-  const { debts, debtSettlements } = useBudget();
+  const { debts, debtSettlements, getEffectiveAmount } = useBudget();
   const linkedSettlements = useMemo(() => {
     if (!transaction) return [];
     return debtSettlements.filter((s) => s.transaction_id === transaction.id);
@@ -71,14 +71,18 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
   const linkedDebts = useMemo(() => {
     if (!transaction) return [];
     return debts.filter((d) => {
+      if (d.origin_transaction_id) {
+        return d.origin_transaction_id === transaction.id;
+      }
       if (d.date !== transaction.date) return false;
       if (d.wallet_id && d.wallet_id !== transaction.wallet_id) return false;
       if (transaction.type === 'expense') {
         const dNote = d.note || '';
-        const isSplit = dNote.includes('(Split)') || dNote === 'Split expense';
+        const isSplit = dNote.includes('(Split)') || dNote === 'Split expense' || dNote === 'Split bill';
         if (!isSplit) return false;
-        if (transaction.note && dNote !== 'Split expense') {
-          return dNote.startsWith(transaction.note);
+        if (transaction.note && dNote !== 'Split expense' && dNote !== 'Split bill') {
+          const cleanTxNote = transaction.note.replace(/\s*\(Split with .*\)$/, '').trim();
+          return dNote.startsWith(transaction.note) || (cleanTxNote.length > 0 && dNote.startsWith(cleanTxNote));
         }
         return true;
       }
@@ -432,6 +436,11 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                       </Text>
                     );
                   })}
+                  {transaction.type === 'expense' && getEffectiveAmount(transaction) < transaction.amount - 0.01 && (
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: theme.primary, marginTop: 4 }}>
+                      Your net share (Budget & Analytics): {formatCurrency(getEffectiveAmount(transaction), transaction.currency || baseCurrency)}
+                    </Text>
+                  )}
                 </View>
               </View>
             )}

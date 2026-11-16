@@ -156,7 +156,7 @@ interface BudgetContextType {
     note?: string;
   }) => Promise<void>;
 
-  addCategory: (params: { name: string; type: 'expense' | 'income'; icon: string; color: string; initial_limit?: number }) => Promise<string>;
+  addCategory: (params: { name: string; type: 'expense' | 'income'; icon: string; color: string; initial_limit?: number; exclude_from_analytics?: boolean }) => Promise<string>;
   updateCategory: (category: Category) => Promise<void>;
   deleteCategory: (id: string) => Promise<void>;
   addSubcategory: (category_id: string, name: string, initial_limit?: number) => Promise<string>;
@@ -370,6 +370,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const categoriesWithSubs = catRows.map((c) => ({
         ...c,
         is_default: Boolean(c.is_default),
+        exclude_from_analytics: Boolean(c.exclude_from_analytics),
         subcategories: subRows.filter((s) => s.category_id === c.id),
       }));
       setCategories(categoriesWithSubs);
@@ -584,9 +585,13 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     );
   }, [transactions, currentCycle]);
 
-  // Effective net amount for analytics & budgets (excludes split lent IOUs from expenses and IOU repayments from income)
+  // Effective net amount for analytics & budgets (excludes split lent IOUs from expenses, IOU repayments from income, and excluded categories)
   const getEffectiveAmount = useCallback(
     (tx: Transaction): number => {
+      if (tx.category_id) {
+        const cat = categories.find((c) => c.id === tx.category_id);
+        if (cat?.exclude_from_analytics) return 0;
+      }
       const raw = tx.amount || tx.base_amount || 0;
       if (tx.type === 'expense') {
         const lentTotal = debts
@@ -602,7 +607,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
       return raw;
     },
-    [debts, debtSettlements]
+    [categories, debts, debtSettlements]
   );
 
   // Total spent in cycle
@@ -1417,12 +1422,13 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     icon: string;
     color: string;
     initial_limit?: number;
+    exclude_from_analytics?: boolean;
   }): Promise<string> => {
     const db = getDB();
     const id = `cat-${Date.now()}`;
     db.runSync(
-      `INSERT INTO categories (id, name, type, icon, color, is_default) VALUES (?, ?, ?, ?, ?, 0)`,
-      [id, params.name, params.type, params.icon, params.color]
+      `INSERT INTO categories (id, name, type, icon, color, is_default, exclude_from_analytics) VALUES (?, ?, ?, ?, ?, 0, ?)`,
+      [id, params.name, params.type, params.icon, params.color, params.exclude_from_analytics ? 1 : 0]
     );
 
     if (params.initial_limit && params.initial_limit > 0) {
@@ -1440,8 +1446,8 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const updateCategory = async (category: Category) => {
     const db = getDB();
     db.runSync(
-      `UPDATE categories SET name = ?, type = ?, icon = ?, color = ? WHERE id = ?`,
-      [category.name, category.type, category.icon, category.color, category.id]
+      `UPDATE categories SET name = ?, type = ?, icon = ?, color = ?, exclude_from_analytics = ? WHERE id = ?`,
+      [category.name, category.type, category.icon, category.color, category.exclude_from_analytics ? 1 : 0, category.id]
     );
     await loadData();
   };

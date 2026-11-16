@@ -966,6 +966,10 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       });
 
       if (currentType === 'expense' && splitEnabled && splitSummary.resolved.length > 0) {
+        const originTxId =
+          isEditing && initialTransactionId
+            ? initialTransactionId
+            : getLastCreatedTransactionId() || undefined;
         const splitNote = note.trim() ? `${note.trim()} (Split)` : 'Split expense';
         for (const participant of splitSummary.resolved) {
           if (participant.share > 0) {
@@ -976,6 +980,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
               currency,
               date: dateStr,
               wallet_id: selectedWalletId || wallets[0]?.id,
+              origin_transaction_id: originTxId,
               note: splitNote,
             });
           }
