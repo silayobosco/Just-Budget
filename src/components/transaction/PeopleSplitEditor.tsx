@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  Keyboard,
   Platform,
   ScrollView,
   StyleSheet,
@@ -150,7 +151,7 @@ export const PeopleSplitEditor: React.FC<PeopleSplitEditorProps> = ({
                 </Text>
               </View>
               <View style={styles.walletSheetRight}>
-                {!forExpense && splitPeople.length <= 1 ? (
+                {splitPeople.length <= 1 ? (
                   <TextInput
                     style={[
                       styles.taxInput,
@@ -158,16 +159,46 @@ export const PeopleSplitEditor: React.FC<PeopleSplitEditorProps> = ({
                         color: theme.onSurface,
                         backgroundColor: theme.surface,
                         borderColor: theme.divider,
-                        minWidth: 82,
-                        paddingVertical: 4,
+                        minWidth: 96,
+                        paddingVertical: 6,
                         fontSize: 12.5,
                       },
                     ]}
-                    placeholder={autoSingleMyShare > 0 ? autoSingleMyShare.toString() : 'Auto'}
+                    placeholder={
+                      autoSingleMyShare > 0
+                        ? formatTypingNumber(autoSingleMyShare.toString())
+                        : 'Auto'
+                    }
                     placeholderTextColor={theme.onSurfaceVariant}
                     keyboardType={Platform.OS === 'android' ? 'numeric' : 'decimal-pad'}
-                    value={iouMyShareStr}
-                    onChangeText={(t) => setIouMyShareStr(formatTypingNumber(t))}
+                    editable={true}
+                    value={
+                      forExpense
+                        ? splitPeople.length === 1 && splitPeople[0].customAmount?.trim()
+                          ? formatTypingNumber(singleMyShareVal.toString())
+                          : ''
+                        : iouMyShareStr
+                    }
+                    onChangeText={(t) => {
+                      const formatted = formatTypingNumber(t);
+                      if (forExpense && splitPeople.length === 1) {
+                        const myVal = formatted.trim() ? parseCleanNumber(formatted) : NaN;
+                        if (!isNaN(myVal) && totalAmt > 0) {
+                          const otherVal = Math.max(0, Math.round((totalAmt - myVal) * 100) / 100);
+                          setSplitPeople((prev) =>
+                            prev.map((item, i) =>
+                              i === 0 ? { ...item, customAmount: formatTypingNumber(otherVal.toString()) } : item
+                            )
+                          );
+                        } else {
+                          setSplitPeople((prev) =>
+                            prev.map((item, i) => (i === 0 ? { ...item, customAmount: '' } : item))
+                          );
+                        }
+                      } else {
+                        setIouMyShareStr(formatted);
+                      }
+                    }}
                   />
                 ) : (
                   <View
@@ -247,14 +278,19 @@ export const PeopleSplitEditor: React.FC<PeopleSplitEditorProps> = ({
                         color: theme.onSurface,
                         backgroundColor: theme.surface,
                         borderColor: theme.divider,
-                        minWidth: 82,
-                        paddingVertical: 4,
+                        minWidth: 96,
+                        paddingVertical: 6,
                         fontSize: 12.5,
                       },
                     ]}
-                    placeholder={resolvedShare > 0 ? resolvedShare.toString() : '0'}
+                    placeholder={
+                      resolvedShare > 0
+                        ? formatTypingNumber(resolvedShare.toString())
+                        : '0'
+                    }
                     placeholderTextColor={theme.onSurfaceVariant}
                     keyboardType={Platform.OS === 'android' ? 'numeric' : 'decimal-pad'}
+                    editable={true}
                     value={p.customAmount || ''}
                     onChangeText={(txt) => {
                       const val = formatTypingNumber(txt);
@@ -398,45 +434,48 @@ export const PeopleSplitEditor: React.FC<PeopleSplitEditorProps> = ({
             + Add
           </Text>
         </TouchableOpacity>
-        {!forExpense && (
-          <TouchableOpacity
-            style={[
-              styles.iouPersonNextBtn,
-              {
-                backgroundColor:
-                  splitPeople.length > 0 || splitPersonInput.trim()
-                    ? accent
-                    : theme.pillBg,
-              },
-            ]}
-            disabled={splitPeople.length === 0 && !splitPersonInput.trim()}
-            onPress={() => {
-              if (splitPersonInput.trim()) {
-                handleAddSplitPerson();
-              }
-              animateLayout();
-              const nextSheet =
-                iouIncludeMyShare && !selectedCategoryId ? 'category' : null;
-              setActiveSheet(nextSheet);
-              if (!nextSheet) {
-                setTimeout(focusAmountInput, 140);
-              }
+        <TouchableOpacity
+          style={[
+            styles.iouPersonNextBtn,
+            {
+              backgroundColor:
+                splitPeople.length > 0 || splitPersonInput.trim()
+                  ? accent
+                  : theme.pillBg,
+            },
+          ]}
+          disabled={splitPeople.length === 0 && !splitPersonInput.trim()}
+          onPress={() => {
+            if (splitPersonInput.trim()) {
+              handleAddSplitPerson();
+            }
+            animateLayout();
+            const needsWallet = forExpense
+              ? form.expenseSource === 'borrowed_partial' && !form.selectedWalletId
+              : form.iouUseWallet && !form.selectedWalletId;
+            const needsCategory = forExpense
+              ? !selectedCategoryId
+              : iouIncludeMyShare && !selectedCategoryId;
+            const nextSheet = needsWallet ? 'wallet' : needsCategory ? 'category' : null;
+            setActiveSheet(nextSheet);
+            if (!nextSheet) {
+              Keyboard.dismiss();
+            }
+          }}
+        >
+          <Text
+            style={{
+              color:
+                splitPeople.length > 0 || splitPersonInput.trim()
+                  ? '#FFFFFF'
+                  : theme.onSurfaceVariant,
+              fontWeight: '700',
+              fontSize: 12.5,
             }}
           >
-            <Text
-              style={{
-                color:
-                  splitPeople.length > 0 || splitPersonInput.trim()
-                    ? '#FFFFFF'
-                    : theme.onSurfaceVariant,
-                fontWeight: '700',
-                fontSize: 12.5,
-              }}
-            >
-              Next
-            </Text>
-          </TouchableOpacity>
-        )}
+            Next
+          </Text>
+        </TouchableOpacity>
       </View>
     </View>
   );

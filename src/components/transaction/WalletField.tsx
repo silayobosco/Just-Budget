@@ -186,7 +186,6 @@ export const WalletField: React.FC<WalletFieldProps> = ({
                         animateLayout();
                         setSelectedToWalletId(w.id);
                         setActiveSheet(null);
-                        setTimeout(focusAmountInput, 140);
                       }}
                       activeOpacity={0.7}
                     >
@@ -278,8 +277,11 @@ export const WalletField: React.FC<WalletFieldProps> = ({
                       animateLayout();
                       setIouUseWallet(true);
                       setSelectedWalletId(w.id);
-                      setActiveSheet(null);
-                      setTimeout(focusAmountInput, 140);
+                      const needsCategory =
+                        formKind === 'expense' || formKind === 'income'
+                          ? !form.selectedCategoryId
+                          : formKind === 'loan' && form.iouAction !== 'settle' && form.iouIncludeMyShare && !form.selectedCategoryId;
+                      setActiveSheet(needsCategory ? 'category' : null);
                     }}
                     activeOpacity={0.7}
                   >

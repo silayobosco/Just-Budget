@@ -91,6 +91,7 @@ export const WhoField: React.FC<WhoFieldProps> = ({
                   } else {
                     setSplitEnabled(false);
                     setSplitIncludeMe(opt.key === 'borrowed_partial');
+                    setActiveSheet('iou');
                   }
                 }}
                 activeOpacity={0.75}
@@ -134,6 +135,8 @@ export const WhoField: React.FC<WhoFieldProps> = ({
                 onValueChange={(val) => {
                   animateLayout();
                   setSplitEnabled(val);
+                  if (val) setActiveSheet('iou');
+                  else if (activeSheet === 'iou') setActiveSheet(null);
                 }}
                 trackColor={{ false: theme.outlineVariant, true: theme.primaryContainer }}
                 thumbColor={splitEnabled ? theme.primary : '#f4f3f4'}
@@ -162,17 +165,65 @@ export const WhoField: React.FC<WhoFieldProps> = ({
             )}
 
             {splitEnabled && (
-              <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: theme.divider }}>
-                <PeopleSplitEditor form={form} theme={theme} forExpense={true} />
+              <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: theme.divider, gap: 8 }}>
+                <TouchableOpacity
+                  style={styles.accordionHeader}
+                  onPress={() => {
+                    animateLayout();
+                    const next = activeSheet === 'iou' ? null : 'iou';
+                    if (next) Keyboard.dismiss();
+                    setActiveSheet(next);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant }]}>
+                    {splitPeople.length > 0
+                      ? `SPLIT WITH: ${splitPeople.map((p) => p.name).join(', ')}`
+                      : 'PEOPLE / SPLIT'}
+                  </Text>
+                  <MaterialCommunityIcons
+                    name={activeSheet === 'iou' ? 'chevron-up' : 'chevron-down'}
+                    size={20}
+                    color={theme.onSurfaceVariant}
+                  />
+                </TouchableOpacity>
+                {activeSheet === 'iou' && (
+                  <PeopleSplitEditor form={form} theme={theme} forExpense={true} />
+                )}
               </View>
             )}
           </View>
         ) : (
           <View style={{ marginTop: 4, paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.divider, gap: 8 }}>
-            <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant }]}>
-              WHO DO YOU OWE?
-            </Text>
-            <PeopleSplitEditor form={form} theme={theme} forExpense={true} />
+            <TouchableOpacity
+              style={styles.accordionHeader}
+              onPress={() => {
+                animateLayout();
+                const next = activeSheet === 'iou' ? null : 'iou';
+                if (next) Keyboard.dismiss();
+                setActiveSheet(next);
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={styles.accordionTitleCol}>
+                <Text style={[styles.fieldLabel, { color: theme.onSurfaceVariant }]}>
+                  WHO DO YOU OWE?
+                </Text>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: splitPeople.length > 0 ? theme.onSurface : theme.onSurfaceVariant }} numberOfLines={1}>
+                  {splitPeople.length > 0
+                    ? `${splitPeople.map((p) => p.name).join(', ')}${splitSummary.totalOwedByOthers > 0 ? `  •  ${formatCurrency(splitSummary.totalOwedByOthers, currency)}` : ''}`
+                    : 'Tap to add person(s)'}
+                </Text>
+              </View>
+              <MaterialCommunityIcons
+                name={activeSheet === 'iou' ? 'chevron-up' : 'chevron-down'}
+                size={20}
+                color={theme.onSurfaceVariant}
+              />
+            </TouchableOpacity>
+            {activeSheet === 'iou' && (
+              <PeopleSplitEditor form={form} theme={theme} forExpense={true} />
+            )}
           </View>
         )}
       </View>
@@ -438,8 +489,7 @@ export const WhoField: React.FC<WhoFieldProps> = ({
                         if (isNaN(cur) || cur <= 0) {
                           setAmountStr(formatTypingNumber(rem.toString()));
                         }
-                        setActiveSheet(null);
-                        setTimeout(focusAmountInput, 140);
+                        setActiveSheet(form.iouUseWallet && !form.selectedWalletId ? 'wallet' : null);
                       }}
                     >
                       <View style={styles.walletSheetLeft}>

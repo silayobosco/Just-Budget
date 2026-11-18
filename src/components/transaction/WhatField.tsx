@@ -150,7 +150,6 @@ export const WhatField: React.FC<WhatFieldProps> = ({
                           setExpandedCategoryId(cat.id);
                         } else {
                           setActiveSheet(null);
-                          setTimeout(focusAmountInput, 140);
                         }
                       }}
                       activeOpacity={0.7}
@@ -229,7 +228,6 @@ export const WhatField: React.FC<WhatFieldProps> = ({
                                 setLastIncomeSubId(nextSubId);
                               }
                               setActiveSheet(null);
-                              setTimeout(focusAmountInput, 140);
                             }}
                             activeOpacity={0.7}
                           >

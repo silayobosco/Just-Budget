@@ -349,7 +349,12 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={[styles.container, { backgroundColor: theme.background, paddingTop: topInset }]}>
+      <View
+        style={[
+          styles.container,
+          { backgroundColor: theme.background, paddingTop: topInset, paddingBottom: keyboardHeight },
+        ]}
+      >
         {/* TOP BAR WITH TYPE DROPDOWN */}
         <View style={[styles.topBar, { borderBottomColor: theme.divider, backgroundColor: theme.surface }]}>
           <TouchableOpacity onPress={onClose} style={styles.backBtn} accessibilityLabel="Close">
