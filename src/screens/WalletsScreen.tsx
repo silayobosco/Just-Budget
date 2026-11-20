@@ -37,7 +37,6 @@ export const WalletsScreen: React.FC = () => {
     transactions,
     recurringBills,
     categories,
-    debts,
     deleteTransaction,
     updateTransaction,
     addSubcategory,
@@ -51,7 +50,6 @@ export const WalletsScreen: React.FC = () => {
   // Modals
   const [walletModalVisible, setWalletModalVisible] = useState(false);
   const [transferModalVisible, setTransferModalVisible] = useState(false);
-  const [debtsModalVisible, setDebtsModalVisible] = useState(false);
   const [recurringBillsModalVisible, setRecurringBillsModalVisible] = useState(false);
   const [editingWallet, setEditingWallet] = useState<Wallet | null>(null);
 
@@ -384,9 +382,9 @@ export const WalletsScreen: React.FC = () => {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        {/* MONEY SEGMENTED TABS */}
-        <View style={[styles.segmentedBar, { backgroundColor: theme.surfaceVariant || theme.cardBg, borderColor: theme.divider }]}>
+      {/* MONEY SEGMENTED TABS */}
+      <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+        <View style={[styles.segmentedBar, { backgroundColor: theme.surfaceVariant || theme.cardBg, borderColor: theme.divider, marginBottom: 4 }]}>
           {([
             { key: 'wallets', label: 'Wallets', icon: 'wallet-outline' },
             { key: 'loans', label: 'Loans & Splits', icon: 'handshake-outline' },
@@ -421,6 +419,12 @@ export const WalletsScreen: React.FC = () => {
             );
           })}
         </View>
+      </View>
+
+      {moneyTab === 'loans' ? (
+        <DebtsModal visible embedded />
+      ) : (
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
 
         {moneyTab === 'wallets' && (
           <>
@@ -529,132 +533,6 @@ export const WalletsScreen: React.FC = () => {
             )}
           </>
         )}
-
-        {moneyTab === 'loans' && (() => {
-          const openLoans = debts.filter((d) => d.status === 'open');
-          const settledCount = debts.filter((d) => d.status === 'settled').length;
-          const owedToYou = openLoans
-            .filter((d) => d.type === 'lent')
-            .reduce((sum, d) => sum + Math.max(0, d.amount - (d.paid_amount || 0)), 0);
-          const youOwe = openLoans
-            .filter((d) => d.type === 'borrowed')
-            .reduce((sum, d) => sum + Math.max(0, d.amount - (d.paid_amount || 0)), 0);
-          const netLoans = owedToYou - youOwe;
-
-          return (
-            <>
-              <View style={[styles.totalCard, { backgroundColor: theme.primaryContainer }, M3Elevation.level2]}>
-                <Text style={[styles.totalLabel, { color: theme.onPrimaryContainer }]}>NET LOAN POSITION</Text>
-                <Text style={[styles.totalAmount, { color: theme.onPrimaryContainer }]}>
-                  {netLoans >= 0 ? '+' : '-'}{formatCurrency(Math.abs(netLoans), settings.base_currency)}
-                </Text>
-                <View style={styles.summarySplitRow}>
-                  <Text style={[styles.summarySplitText, { color: theme.onPrimaryContainer }]}>
-                    Owed to you: {formatCurrency(owedToYou, settings.base_currency)}
-                  </Text>
-                  <Text style={[styles.summarySplitText, { color: theme.onPrimaryContainer }]}>
-                    You owe: {formatCurrency(youOwe, settings.base_currency)}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.actionRow}>
-                <TouchableOpacity
-                  style={[styles.actionBtn, { backgroundColor: theme.primary }]}
-                  onPress={() => setDebtsModalVisible(true)}
-                >
-                  <MaterialCommunityIcons name="handshake-outline" size={18} color={theme.onPrimary} />
-                  <Text style={[styles.actionBtnText, { color: theme.onPrimary }]}>Manage Loans & Splits</Text>
-                </TouchableOpacity>
-              </View>
-
-              <View style={styles.sectionHeaderRow}>
-                <Text style={[styles.sectionTitle, { color: theme.onSurface, marginBottom: 0 }]}>
-                  Open Loans ({openLoans.length})
-                </Text>
-                {settledCount > 0 && (
-                  <TouchableOpacity onPress={() => setDebtsModalVisible(true)}>
-                    <Text style={{ fontSize: 12.5, fontWeight: '700', color: theme.primary }}>
-                      {settledCount} settled →
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-
-              {openLoans.length === 0 ? (
-                <View style={[styles.emptyWalletCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}>
-                  <View style={[styles.emptyWalletIconCircle, { backgroundColor: theme.primaryContainer }]}>
-                    <MaterialCommunityIcons name="handshake-outline" size={32} color={theme.primary} />
-                  </View>
-                  <Text style={[styles.emptyWalletTitle, { color: theme.onSurface }]}>No Open Loans</Text>
-                  <Text style={[styles.emptyWalletSub, { color: theme.onSurfaceVariant }]}>
-                    Track money lent, borrowed, or split bills by person and settle balances anytime.
-                  </Text>
-                  <TouchableOpacity
-                    style={[styles.emptyAddBtn, { backgroundColor: theme.primary }]}
-                    onPress={() => setDebtsModalVisible(true)}
-                    activeOpacity={0.8}
-                  >
-                    <MaterialCommunityIcons name="plus" size={18} color={theme.onPrimary} />
-                    <Text style={[styles.emptyAddBtnText, { color: theme.onPrimary }]}>Add Loan or Split</Text>
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                openLoans.map((loan) => {
-                  const remaining = Math.max(0, loan.amount - (loan.paid_amount || 0));
-                  const isLent = loan.type === 'lent';
-                  return (
-                    <TouchableOpacity
-                      key={loan.id}
-                      style={[styles.walletCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}
-                      onPress={() => setDebtsModalVisible(true)}
-                      activeOpacity={0.75}
-                    >
-                      <View style={styles.walletCardTop}>
-                        <View
-                          style={[
-                            styles.walletIconCircle,
-                            { backgroundColor: isLent ? '#DCFCE7' : '#FEE2E2' },
-                          ]}
-                        >
-                          <MaterialCommunityIcons
-                            name={isLent ? 'arrow-top-right' : 'arrow-bottom-left'}
-                            size={20}
-                            color={isLent ? '#15803D' : '#DC2626'}
-                          />
-                        </View>
-                        <View style={styles.walletDetails}>
-                          <Text style={[styles.walletName, { color: theme.onSurface }]}>{loan.person_name}</Text>
-                          <Text style={[styles.walletCurrencyBadge, { color: theme.onSurfaceVariant }]}>
-                            {isLent ? 'Owed to you' : 'You owe'}
-                            {loan.due_date ? ` • Due ${loan.due_date}` : ''}
-                            {loan.note ? ` • ${loan.note}` : ''}
-                          </Text>
-                        </View>
-                        <View style={{ alignItems: 'flex-end' }}>
-                          <Text
-                            style={{
-                              fontSize: 15,
-                              fontWeight: '800',
-                              color: isLent ? '#15803D' : '#DC2626',
-                            }}
-                          >
-                            {formatCurrency(remaining, loan.currency || settings.base_currency)}
-                          </Text>
-                          {loan.paid_amount > 0 && (
-                            <Text style={{ fontSize: 11, color: theme.onSurfaceVariant }}>
-                              of {formatCurrency(loan.amount, loan.currency || settings.base_currency)}
-                            </Text>
-                          )}
-                        </View>
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })
-              )}
-            </>
-          );
-        })()}
 
         {moneyTab === 'bills' && (() => {
           const activeBills = recurringBills.filter((b) => b.is_active);
@@ -777,7 +655,8 @@ export const WalletsScreen: React.FC = () => {
             </>
           );
         })()}
-      </ScrollView>
+        </ScrollView>
+      )}
 
       {/* ADD / EDIT WALLET MODAL */}
       <Modal visible={walletModalVisible} transparent animationType="slide" onRequestClose={() => setWalletModalVisible(false)}>
@@ -1393,11 +1272,6 @@ export const WalletsScreen: React.FC = () => {
           onAddSubcategory={addSubcategory}
         />
       )}
-
-      <DebtsModal
-        visible={debtsModalVisible}
-        onClose={() => setDebtsModalVisible(false)}
-      />
 
       <RecurringBillsModal
         visible={recurringBillsModalVisible}

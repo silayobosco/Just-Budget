@@ -494,7 +494,7 @@ export const WhoField: React.FC<WhoFieldProps> = ({
                     >
                       <View style={styles.walletSheetLeft}>
                         <MaterialCommunityIcons
-                          name={debt.type === 'lent' ? 'arrow-bottom-left' : 'arrow-top-right'}
+                          name={debt.type === 'lent' ? 'arrow-top-right' : 'arrow-bottom-left'}
                           size={18}
                           color={debt.type === 'lent' ? theme.success : theme.error}
                         />

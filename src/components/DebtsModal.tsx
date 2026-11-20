@@ -18,25 +18,31 @@ import { DebtItem, DebtType } from '../types';
 import { formatCurrency, formatTypingNumber, parseCleanNumber } from '../utils/format';
 import { M3Elevation, M3Shape, lightTheme, darkTheme } from '../theme';
 import { CalendarPickerModal } from './CalendarPickerModal';
+import { TransactionDetailModal } from './TransactionDetailModal';
+import { TransactionDetailsModal } from './TransactionDetailsModal';
+import { IouAction } from './transaction/formConfig';
 
 interface DebtsModalProps {
   visible: boolean;
-  onClose: () => void;
+  onClose?: () => void;
+  embedded?: boolean;
 }
 
 type FilterTab = 'open' | 'lent' | 'borrowed' | 'settled';
 type ViewMode = 'by_person' | 'all_items';
 
-export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
+export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose, embedded = false }) => {
   const {
     settings,
     wallets,
+    categories,
     debts,
     addDebt,
     updateDebt,
     recordDebtPayment,
     deleteDebt,
     addTransaction,
+    addSubcategory,
     getLastCreatedTransactionId,
   } = useBudget();
   const theme = settings.theme_mode === 'dark' ? darkTheme : lightTheme;
@@ -50,6 +56,14 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
   const [filter, setFilter] = useState<FilterTab>('open');
   const [viewMode, setViewMode] = useState<ViewMode>('by_person');
   const [expandedPersonKey, setExpandedPersonKey] = useState<string | null>(null);
+  const [viewingDebt, setViewingDebt] = useState<DebtItem | null>(null);
+  const [loanFormState, setLoanFormState] = useState<{
+    visible: boolean;
+    action?: IouAction;
+    debt?: DebtItem | null;
+    debtId?: string;
+    personName?: string;
+  }>({ visible: false });
   const [formVisible, setFormVisible] = useState(false);
   const [editingDebt, setEditingDebt] = useState<DebtItem | null>(null);
 
@@ -154,9 +168,13 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
   };
 
   const openAddForm = (type: DebtType = 'lent', prefillPerson?: string) => {
-    resetForm(type);
-    if (prefillPerson) setPersonName(prefillPerson);
-    setFormVisible(true);
+    setLoanFormState({
+      visible: true,
+      action: type,
+      debt: null,
+      debtId: undefined,
+      personName: prefillPerson,
+    });
   };
 
   const handleSettleAllForPerson = (displayName: string, items: DebtItem[]) => {
@@ -181,15 +199,23 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
   };
 
   const openEditForm = (item: DebtItem) => {
-    setEditingDebt(item);
-    setDebtType(item.type);
-    setPersonName(item.person_name);
-    setAmountStr(formatTypingNumber(item.amount.toString()));
-    setDateStr(item.date);
-    setDueDateStr(item.due_date || '');
-    setWalletId(item.wallet_id || '');
-    setNote(item.note || '');
-    setFormVisible(true);
+    setLoanFormState({
+      visible: true,
+      action: item.type,
+      debt: item,
+      debtId: undefined,
+      personName: undefined,
+    });
+  };
+
+  const openSettleForm = (item: DebtItem) => {
+    setLoanFormState({
+      visible: true,
+      action: 'settle',
+      debt: null,
+      debtId: item.id,
+      personName: undefined,
+    });
   };
 
   const applySplitHelper = (divisor: number) => {
@@ -407,34 +433,35 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
     );
   };
 
-  if (!visible) return null;
+  if (!visible && !embedded) return null;
 
-  return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={[styles.container, { backgroundColor: theme.background, paddingTop: topInset }]}>
-        {/* Header */}
-        <View style={[styles.header, { borderBottomColor: theme.divider }]}>
-          <TouchableOpacity onPress={onClose} style={styles.iconBtn} hitSlop={8}>
-            <MaterialCommunityIcons name="arrow-left" size={24} color={theme.onSurface} />
-          </TouchableOpacity>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.headerTitle, { color: theme.onSurface }]}>Debts, Loans & Splits</Text>
-            <Text style={[styles.headerSubtitle, { color: theme.onSurfaceVariant }]}>
-              Track money lent, borrowed, or split bills
-            </Text>
+  const content = (
+      <View style={[styles.container, { backgroundColor: theme.background, paddingTop: embedded ? 0 : topInset }]}>
+        {/* Header (Modal mode only) */}
+        {!embedded && (
+          <View style={[styles.header, { borderBottomColor: theme.divider }]}>
+            <TouchableOpacity onPress={onClose} style={styles.iconBtn} hitSlop={8}>
+              <MaterialCommunityIcons name="arrow-left" size={24} color={theme.onSurface} />
+            </TouchableOpacity>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.headerTitle, { color: theme.onSurface }]}>Debts, Loans & Splits</Text>
+              <Text style={[styles.headerSubtitle, { color: theme.onSurfaceVariant }]}>
+                Track money lent, borrowed, or split bills
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.addBtn, { backgroundColor: theme.primary }]}
+              onPress={() => openAddForm('lent')}
+              activeOpacity={0.8}
+            >
+              <MaterialCommunityIcons name="plus" size={18} color={theme.onPrimary} />
+              <Text style={[styles.addBtnText, { color: theme.onPrimary }]}>New</Text>
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity
-            style={[styles.addBtn, { backgroundColor: theme.primary }]}
-            onPress={() => openAddForm('lent')}
-            activeOpacity={0.8}
-          >
-            <MaterialCommunityIcons name="plus" size={18} color={theme.onPrimary} />
-            <Text style={[styles.addBtnText, { color: theme.onPrimary }]}>New</Text>
-          </TouchableOpacity>
-        </View>
+        )}
 
         <ScrollView
-          contentContainerStyle={{ padding: 16, paddingBottom: bottomInset + 32 }}
+          contentContainerStyle={{ padding: 16, paddingTop: embedded ? 8 : 16, paddingBottom: embedded ? 96 : bottomInset + 32 }}
           showsVerticalScrollIndicator={false}
         >
           {/* Summary Cards */}
@@ -679,25 +706,39 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
                         const remaining = Math.max(0, item.amount - paid);
                         const curr = item.currency || baseCurr;
                         return (
-                          <View
+                          <TouchableOpacity
                             key={item.id}
                             style={{
                               backgroundColor: theme.pillBg,
                               borderRadius: M3Shape.medium,
-                              padding: 10,
+                              padding: 12,
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: 10,
                             }}
+                            onPress={() => setViewingDebt(item)}
+                            activeOpacity={0.7}
                           >
-                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                              <View style={{ flex: 1 }}>
+                            <View style={{ flex: 1 }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                                 <Text style={{ fontSize: 12.5, fontWeight: '800', color: theme.onSurface }}>
                                   {isLent ? 'Lent' : 'Borrowed'} • {item.date}
                                 </Text>
-                                {Boolean(item.note) && (
-                                  <Text style={{ fontSize: 11.5, color: theme.onSurfaceVariant, marginTop: 2 }}>
-                                    {item.note}
-                                  </Text>
+                                {item.status === 'settled' && (
+                                  <View style={[styles.settledBadge, { backgroundColor: theme.successContainer }]}>
+                                    <MaterialCommunityIcons name="check" size={11} color={theme.success} />
+                                    <Text style={[styles.settledBadgeText, { color: theme.onSuccessContainer, fontSize: 10 }]}>Settled</Text>
+                                  </View>
                                 )}
                               </View>
+                              {Boolean(item.note) && (
+                                <Text style={{ fontSize: 11.5, color: theme.onSurfaceVariant, marginTop: 2 }} numberOfLines={1}>
+                                  {item.note}
+                                </Text>
+                              )}
+                            </View>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                               <Text
                                 style={{
                                   fontSize: 13.5,
@@ -712,41 +753,9 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
                               >
                                 {formatCurrency(item.status === 'settled' ? item.amount : remaining, curr)}
                               </Text>
+                              <MaterialCommunityIcons name="chevron-right" size={16} color={theme.onSurfaceVariant} />
                             </View>
-
-                            <View style={[styles.cardActionsRow, { marginTop: 8 }]}>
-                              {item.status === 'open' ? (
-                                <>
-                                  <TouchableOpacity
-                                    style={[styles.cardActionBtn, { backgroundColor: theme.primaryContainer }]}
-                                    onPress={() => handleOpenPayment(item)}
-                                  >
-                                    <MaterialCommunityIcons name="cash-plus" size={14} color={theme.onPrimaryContainer} />
-                                    <Text style={[styles.cardActionText, { color: theme.onPrimaryContainer }]}>Pay</Text>
-                                  </TouchableOpacity>
-                                  <TouchableOpacity
-                                    style={[styles.cardActionBtn, { backgroundColor: theme.successContainer }]}
-                                    onPress={() => handleSettleFull(item)}
-                                  >
-                                    <MaterialCommunityIcons name="check-circle-outline" size={14} color={theme.onSuccessContainer} />
-                                    <Text style={[styles.cardActionText, { color: theme.onSuccessContainer }]}>Settle</Text>
-                                  </TouchableOpacity>
-                                </>
-                              ) : (
-                                <View style={[styles.settledBadge, { backgroundColor: theme.successContainer }]}>
-                                  <MaterialCommunityIcons name="check" size={13} color={theme.success} />
-                                  <Text style={[styles.settledBadgeText, { color: theme.onSuccessContainer }]}>Settled</Text>
-                                </View>
-                              )}
-                              <View style={{ flex: 1 }} />
-                              <TouchableOpacity onPress={() => openEditForm(item)} style={styles.iconAction}>
-                                <MaterialCommunityIcons name="pencil-outline" size={16} color={theme.onSurfaceVariant} />
-                              </TouchableOpacity>
-                              <TouchableOpacity onPress={() => handleDelete(item)} style={styles.iconAction}>
-                                <MaterialCommunityIcons name="trash-can-outline" size={16} color={theme.error} />
-                              </TouchableOpacity>
-                            </View>
-                          </View>
+                          </TouchableOpacity>
                         );
                       })}
 
@@ -787,13 +796,15 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
               const linkedWallet = wallets.find((w) => w.id === item.wallet_id);
 
               return (
-                <View
+                <TouchableOpacity
                   key={item.id}
                   style={[
                     styles.debtCard,
                     { backgroundColor: theme.surface, borderColor: theme.divider },
                     M3Elevation.level1,
                   ]}
+                  onPress={() => setViewingDebt(item)}
+                  activeOpacity={0.75}
                 >
                   <View style={styles.debtTopRow}>
                     <View
@@ -878,82 +889,30 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
                     </Text>
                   )}
 
-                  {/* Progress bar */}
-                  <View style={[styles.progressTrack, { backgroundColor: theme.pillBg }]}>
-                    <View
-                      style={[
-                        styles.progressFill,
-                        {
-                          width: `${Math.round(progress * 100)}%`,
-                          backgroundColor:
-                            item.status === 'settled'
-                              ? theme.success
-                              : isLent
-                              ? theme.primary
-                              : theme.error,
-                        },
-                      ]}
-                    />
-                  </View>
-
-                  {/* Actions */}
-                  <View style={styles.cardActionsRow}>
-                    {item.status === 'open' ? (
-                      <>
-                        <TouchableOpacity
-                          style={[styles.cardActionBtn, { backgroundColor: theme.primaryContainer }]}
-                          onPress={() => handleOpenPayment(item)}
-                        >
-                          <MaterialCommunityIcons
-                            name="cash-plus"
-                            size={15}
-                            color={theme.onPrimaryContainer}
-                          />
-                          <Text style={[styles.cardActionText, { color: theme.onPrimaryContainer }]}>
-                            Pay
-                          </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[styles.cardActionBtn, { backgroundColor: theme.successContainer }]}
-                          onPress={() => handleSettleFull(item)}
-                        >
-                          <MaterialCommunityIcons
-                            name="check-circle-outline"
-                            size={15}
-                            color={theme.onSuccessContainer}
-                          />
-                          <Text style={[styles.cardActionText, { color: theme.onSuccessContainer }]}>
-                            Settle
-                          </Text>
-                        </TouchableOpacity>
-                      </>
-                    ) : (
-                      <View style={[styles.settledBadge, { backgroundColor: theme.successContainer }]}>
-                        <MaterialCommunityIcons name="check" size={14} color={theme.success} />
-                        <Text style={[styles.settledBadgeText, { color: theme.onSuccessContainer }]}>
-                          Settled
-                        </Text>
-                      </View>
-                    )}
-
-                    <View style={{ flex: 1 }} />
-
-                    <TouchableOpacity onPress={() => openEditForm(item)} style={styles.iconAction}>
-                      <MaterialCommunityIcons
-                        name="pencil-outline"
-                        size={18}
-                        color={theme.onSurfaceVariant}
+                  {/* Progress bar (partially paid open loans only) */}
+                  {paid > 0 && item.status === 'open' && (
+                    <View style={[styles.progressTrack, { backgroundColor: theme.pillBg, marginBottom: 0 }]}>
+                      <View
+                        style={[
+                          styles.progressFill,
+                          {
+                            width: `${Math.round(progress * 100)}%`,
+                            backgroundColor: isLent ? theme.primary : theme.error,
+                          },
+                        ]}
                       />
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => handleDelete(item)} style={styles.iconAction}>
-                      <MaterialCommunityIcons
-                        name="trash-can-outline"
-                        size={18}
-                        color={theme.error}
-                      />
-                    </TouchableOpacity>
-                  </View>
-                </View>
+                    </View>
+                  )}
+
+                  {item.status === 'settled' && (
+                    <View style={[styles.settledBadge, { backgroundColor: theme.successContainer, alignSelf: 'flex-start' }]}>
+                      <MaterialCommunityIcons name="check" size={13} color={theme.success} />
+                      <Text style={[styles.settledBadgeText, { color: theme.onSuccessContainer }]}>
+                        Settled
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
               );
             })
           )}
@@ -1317,7 +1276,68 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose }) => {
             setPickerTarget(null);
           }}
         />
+        {embedded && (
+          <TouchableOpacity
+            style={[
+              styles.fab,
+              { backgroundColor: theme.primary },
+              M3Elevation.level3,
+            ]}
+            onPress={() => openAddForm('lent')}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel="New Loan or Split"
+          >
+            <MaterialCommunityIcons name="plus" size={26} color={theme.onPrimary} />
+          </TouchableOpacity>
+        )}
+
+        {/* Unified Loan Inspector */}
+        <TransactionDetailModal
+          visible={Boolean(viewingDebt)}
+          transaction={null}
+          debt={viewingDebt}
+          categories={categories}
+          wallets={wallets}
+          theme={theme}
+          baseCurrency={baseCurr}
+          onClose={() => setViewingDebt(null)}
+          onEdit={() => {}}
+          onDelete={() => {}}
+          onEditDebt={(d) => openEditForm(d)}
+          onSettleDebt={(d) => openSettleForm(d)}
+          onDeleteDebt={(id) => deleteDebt(id)}
+        />
+
+        {/* Unified Loan Create / Edit / Settle Form */}
+        <TransactionDetailsModal
+          visible={loanFormState.visible}
+          txType="expense"
+          initialIouMode={true}
+          initialIouAction={loanFormState.action}
+          initialDebt={loanFormState.debt}
+          initialDebtId={loanFormState.debtId}
+          initialIouPersonName={loanFormState.personName}
+          initialAmount={0}
+          initialWalletId={wallets[0]?.id || ''}
+          wallets={wallets}
+          categories={categories}
+          theme={theme}
+          baseCurrency={baseCurr}
+          onClose={() => setLoanFormState({ visible: false })}
+          onSave={async (tx) => {
+            await addTransaction(tx);
+          }}
+          onAddSubcategory={addSubcategory}
+        />
       </View>
+  );
+
+  if (embedded) return content;
+
+  return (
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+      {content}
     </Modal>
   );
 };
@@ -1535,5 +1555,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     borderRadius: M3Shape.full,
+  },
+  fab: {
+    position: 'absolute',
+    right: 20,
+    bottom: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

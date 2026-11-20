@@ -13,6 +13,7 @@ import * as ImagePicker from 'expo-image-picker';
 import {
   BillFrequency,
   Category,
+  DebtItem,
   RecurrenceEndType,
   Subcategory,
   TransactionType,
@@ -55,6 +56,10 @@ export interface UseTransactionFormParams {
   visible: boolean;
   defaultTxType: TransactionType;
   initialIouMode?: boolean;
+  initialIouAction?: IouAction;
+  initialDebt?: DebtItem | null;
+  initialDebtId?: string;
+  initialIouPersonName?: string;
   initialAmount: number;
   initialWalletId: string;
   initialToWalletId?: string;
@@ -88,6 +93,10 @@ export function useTransactionForm({
   visible,
   defaultTxType,
   initialIouMode = false,
+  initialIouAction,
+  initialDebt,
+  initialDebtId,
+  initialIouPersonName,
   initialAmount,
   initialWalletId,
   initialToWalletId,
@@ -119,6 +128,7 @@ export function useTransactionForm({
   const {
     debts,
     addDebt,
+    updateDebt,
     recordDebtPayment,
     debtSettlements,
     undoTransactionDebtSettlements,
@@ -295,8 +305,8 @@ export function useTransactionForm({
     setSplitPersonInput('');
     setSettleIouEnabled(false);
     setSelectedDebtId('');
-    setIsIouMode(Boolean(initialIouMode));
-    setIouAction('lent');
+    setIsIouMode(Boolean(initialIouMode || initialDebt));
+    setIouAction(initialDebt ? initialDebt.type : initialIouAction || 'lent');
     setIouPersonName('');
     setIouUseWallet(true);
     setIouIncludeMyShare(true);
@@ -306,6 +316,54 @@ export function useTransactionForm({
     setTypeDropdownVisible(false);
     setMoreExpanded(false);
     setExpandedCategoryId(initialCategoryId || null);
+
+    // Pre-fill when editing an existing Loan (DebtItem)
+    if (initialDebt) {
+      setIsIouMode(true);
+      setIouAction(initialDebt.type);
+      setAmountStr(formatTypingNumber(initialDebt.amount.toString()));
+      setCurrency(initialDebt.currency || baseCurrency);
+      setDateStr(initialDebt.date || formatLocalDate(new Date()));
+      setIouDueDate(initialDebt.due_date || '');
+      setNote(initialDebt.note || '');
+      setSelectedWalletId(initialDebt.wallet_id || '');
+      setIouUseWallet(Boolean(initialDebt.wallet_id));
+      setIouIncludeMyShare(false);
+      setSplitIncludeMe(false);
+      setSplitPeople([{ name: initialDebt.person_name }]);
+      setIouPersonName(initialDebt.person_name);
+      setActiveSheet(null);
+      const timer = setTimeout(focusAmountInput, 150);
+      return () => clearTimeout(timer);
+    }
+
+    // Pre-fill when opening Loan in Settle mode for a specific open debt
+    if (initialIouMode && initialIouAction === 'settle' && initialDebtId) {
+      const targetDebt = debts.find((d) => d.id === initialDebtId);
+      setSelectedDebtId(initialDebtId);
+      setIouIncludeMyShare(false);
+      setSplitIncludeMe(false);
+      if (targetDebt) {
+        const rem = Math.max(0, targetDebt.amount - (targetDebt.paid_amount || 0));
+        setAmountStr(rem > 0 ? formatTypingNumber(rem.toString()) : '');
+        setIouPersonName(targetDebt.person_name);
+        setCurrency(targetDebt.currency || baseCurrency);
+        if (targetDebt.wallet_id) {
+          setSelectedWalletId(targetDebt.wallet_id);
+          setIouUseWallet(true);
+        }
+      }
+      setActiveSheet(null);
+      const timer = setTimeout(focusAmountInput, 150);
+      return () => clearTimeout(timer);
+    }
+
+    // Pre-fill person name when adding a new Loan for a specific person
+    if (initialIouMode && initialIouPersonName?.trim()) {
+      const cleanName = initialIouPersonName.trim();
+      setSplitPeople([{ name: cleanName }]);
+      setIouPersonName(cleanName);
+    }
 
     // Requirement 9: for a new expense, do not auto-open wallet sheet; focus Amount instead.
     if (isEditing) {
@@ -329,6 +387,10 @@ export function useTransactionForm({
     visible,
     defaultTxType,
     initialIouMode,
+    initialIouAction,
+    initialDebt,
+    initialDebtId,
+    initialIouPersonName,
     initialAmount,
     initialWalletId,
     initialToWalletId,
@@ -636,6 +698,27 @@ export function useTransactionForm({
       if (formKind === 'loan') {
         const walletIdForIou =
           iouUseWallet && selectedWalletId ? selectedWalletId : undefined;
+
+        if (initialDebt && iouAction !== 'settle') {
+          const updatedPerson =
+            splitPeople[0]?.name?.trim() ||
+            splitPersonInput.trim() ||
+            iouPersonName.trim() ||
+            initialDebt.person_name;
+          await updateDebt({
+            ...initialDebt,
+            type: iouAction === 'borrowed' ? 'borrowed' : 'lent',
+            person_name: updatedPerson,
+            amount: parsed,
+            currency,
+            date: dateStr,
+            due_date: iouDueDate || null,
+            note: note.trim() || null,
+            wallet_id: walletIdForIou || null,
+          });
+          onClose();
+          return;
+        }
 
         if (iouAction === 'settle' && selectedDebtId) {
           const targetDebt = debts.find((d) => d.id === selectedDebtId);

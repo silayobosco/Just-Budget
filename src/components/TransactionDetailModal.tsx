@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Transaction, Category, Wallet, RecurringBill } from '../types';
+import { Transaction, Category, Wallet, RecurringBill, DebtItem } from '../types';
 import { formatCurrency } from '../utils/format';
 import { M3Elevation, M3Shape } from '../theme';
 import { useBudget } from '../context/BudgetContext';
@@ -21,6 +21,7 @@ import { useBudget } from '../context/BudgetContext';
 interface TransactionDetailModalProps {
   visible: boolean;
   transaction: Transaction | null;
+  debt?: DebtItem | null;
   categories: Category[];
   wallets: Wallet[];
   recurringBills?: RecurringBill[];
@@ -29,11 +30,15 @@ interface TransactionDetailModalProps {
   onClose: () => void;
   onEdit: (tx: Transaction) => void;
   onDelete: (id: string) => void;
+  onEditDebt?: (debt: DebtItem) => void;
+  onSettleDebt?: (debt: DebtItem) => void;
+  onDeleteDebt?: (id: string) => void;
 }
 
 export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
   visible,
   transaction,
+  debt,
   categories,
   wallets,
   recurringBills,
@@ -42,6 +47,9 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
   onClose,
   onEdit,
   onDelete,
+  onEditDebt,
+  onSettleDebt,
+  onDeleteDebt,
 }) => {
   const insets = useSafeAreaInsets();
   const topInset = Math.max(insets.top, Platform.OS === 'android' ? Math.max(StatusBar.currentHeight || 0, 28) : 0);
@@ -63,7 +71,15 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
     );
   }, [transaction, recurringBills]);
 
-  const { debts, debtSettlements, getEffectiveAmount } = useBudget();
+  const { debts, debtSettlements, transactions, getEffectiveAmount } = useBudget();
+  const debtHistory = useMemo(() => {
+    if (!debt) return [];
+    return debtSettlements.filter((s) => s.debt_id === debt.id);
+  }, [debt, debtSettlements]);
+  const originTx = useMemo(() => {
+    if (!debt?.origin_transaction_id) return undefined;
+    return transactions.find((t) => t.id === debt.origin_transaction_id);
+  }, [debt, transactions]);
   const linkedSettlements = useMemo(() => {
     if (!transaction) return [];
     return debtSettlements.filter((s) => s.transaction_id === transaction.id);
@@ -94,7 +110,252 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
     });
   }, [transaction, debts]);
 
-  if (!visible || !transaction) return null;
+  if (!visible || (!transaction && !debt)) return null;
+
+  if (!transaction && debt) {
+    const isLent = debt.type === 'lent';
+    const isSettled = debt.status === 'settled';
+    const remaining = Math.max(0, debt.amount - (debt.paid_amount || 0));
+    const debtCurr = debt.currency || baseCurrency;
+    const debtWallet = debt.wallet_id ? wallets.find((w) => w.id === debt.wallet_id) : undefined;
+    const accentColor = isSettled ? theme.onSurfaceVariant : isLent ? theme.success : theme.error;
+    const accentContainer = isSettled
+      ? theme.pillBg
+      : isLent
+        ? theme.successContainer
+        : theme.errorContainer;
+
+    const handleConfirmDeleteDebt = () => {
+      Alert.alert(
+        'Delete Loan?',
+        `Remove this ${isLent ? 'lent' : 'borrowed'} loan with ${debt.person_name}?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: () => {
+              onClose();
+              onDeleteDebt?.(debt.id);
+            },
+          },
+        ]
+      );
+    };
+
+    return (
+      <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+        <View style={[styles.safeArea, { backgroundColor: theme.background, paddingTop: topInset }]}>
+          <View style={[styles.topBarWrapper, { borderBottomColor: theme.divider, backgroundColor: theme.surface }]}>
+            <View style={styles.topBar}>
+              <TouchableOpacity onPress={onClose} style={styles.backBtn} hitSlop={8}>
+                <MaterialCommunityIcons name="arrow-left" size={24} color={theme.onSurface} />
+              </TouchableOpacity>
+              <Text style={[styles.topBarTitle, { color: theme.onSurface }]}>Loan Details</Text>
+              <View style={{ width: 36 }} />
+            </View>
+          </View>
+
+          <ScrollView
+            style={styles.scrollArea}
+            contentContainerStyle={[styles.scrollContent, { paddingBottom: bottomInset + 24 }]}
+            showsVerticalScrollIndicator={false}
+          >
+            {/* HERO CARD */}
+            <View style={[styles.heroCard, { backgroundColor: theme.surface, borderColor: theme.divider }, M3Elevation.level1]}>
+              <View style={[styles.typeBadge, { backgroundColor: accentContainer }]}>
+                <MaterialCommunityIcons
+                  name={isSettled ? 'check-decagram-outline' : isLent ? 'arrow-top-right' : 'arrow-bottom-left'}
+                  size={15}
+                  color={accentColor}
+                />
+                <Text style={[styles.typeBadgeText, { color: accentColor }]}>
+                  {isSettled ? 'SETTLED LOAN' : isLent ? 'OWED TO YOU' : 'YOU OWE'}
+                </Text>
+              </View>
+              <Text style={[styles.heroAmount, { color: theme.onSurface, marginBottom: debt.paid_amount > 0 && !isSettled ? 6 : 12 }]}>
+                {formatCurrency(isSettled ? debt.amount : remaining, debtCurr)}
+              </Text>
+              {debt.paid_amount > 0 && !isSettled && (
+                <Text style={{ fontSize: 12.5, fontWeight: '600', color: theme.onSurfaceVariant, marginBottom: 10 }}>
+                  Paid {formatCurrency(debt.paid_amount, debtCurr)} of {formatCurrency(debt.amount, debtCurr)}
+                </Text>
+              )}
+              <View style={[styles.typeBadge, { backgroundColor: accentContainer, marginBottom: 0 }]}>
+                <MaterialCommunityIcons
+                  name={isSettled ? 'check-circle' : 'clock-outline'}
+                  size={13}
+                  color={accentColor}
+                />
+                <Text style={[styles.typeBadgeText, { color: accentColor }]}>
+                  {isSettled ? 'Settled' : 'Open'}
+                </Text>
+              </View>
+            </View>
+
+            {/* DETAILS CARD */}
+            <View style={[styles.detailsSection, { backgroundColor: theme.surface, borderColor: theme.divider }, M3Elevation.level1]}>
+              <Text style={[styles.sectionHeading, { color: theme.onSurfaceVariant }]}>LOAN DETAILS</Text>
+
+              <View style={[styles.detailRow, { borderBottomColor: theme.divider }]}>
+                <View style={[styles.detailIconCircle, { backgroundColor: theme.pillBg }]}>
+                  <MaterialCommunityIcons name="account-outline" size={18} color={theme.primary} />
+                </View>
+                <View style={styles.detailCol}>
+                  <Text style={[styles.detailLabel, { color: theme.onSurfaceVariant }]}>Person</Text>
+                  <Text style={[styles.detailValue, { color: theme.onSurface }]}>{debt.person_name}</Text>
+                </View>
+              </View>
+
+              <View style={[styles.detailRow, { borderBottomColor: theme.divider }]}>
+                <View style={[styles.detailIconCircle, { backgroundColor: theme.pillBg }]}>
+                  <MaterialCommunityIcons name="calendar-outline" size={18} color={theme.primary} />
+                </View>
+                <View style={styles.detailCol}>
+                  <Text style={[styles.detailLabel, { color: theme.onSurfaceVariant }]}>Date</Text>
+                  <Text style={[styles.detailValue, { color: theme.onSurface }]}>{debt.date}</Text>
+                </View>
+              </View>
+
+              {Boolean(debt.due_date) && (
+                <View style={[styles.detailRow, { borderBottomColor: theme.divider }]}>
+                  <View style={[styles.detailIconCircle, { backgroundColor: theme.pillBg }]}>
+                    <MaterialCommunityIcons name="calendar-clock" size={18} color={theme.primary} />
+                  </View>
+                  <View style={styles.detailCol}>
+                    <Text style={[styles.detailLabel, { color: theme.onSurfaceVariant }]}>Due Date</Text>
+                    <Text style={[styles.detailValue, { color: theme.onSurface }]}>{debt.due_date}</Text>
+                  </View>
+                </View>
+              )}
+
+              <View style={[styles.detailRow, { borderBottomColor: debt.note || originTx || debtHistory.length > 0 ? theme.divider : 'transparent' }]}>
+                <View style={[styles.detailIconCircle, { backgroundColor: theme.pillBg }]}>
+                  <MaterialCommunityIcons name="wallet-outline" size={18} color={theme.primary} />
+                </View>
+                <View style={styles.detailCol}>
+                  <Text style={[styles.detailLabel, { color: theme.onSurfaceVariant }]}>Wallet</Text>
+                  <Text style={[styles.detailValue, { color: theme.onSurface }]}>
+                    {debtWallet ? debtWallet.name : 'Off-wallet (No wallet)'}
+                  </Text>
+                </View>
+              </View>
+
+              {Boolean(debt.note) && (
+                <View style={[styles.detailRow, { borderBottomColor: originTx || debtHistory.length > 0 ? theme.divider : 'transparent' }]}>
+                  <View style={[styles.detailIconCircle, { backgroundColor: theme.pillBg }]}>
+                    <MaterialCommunityIcons name="text-box-outline" size={18} color={theme.primary} />
+                  </View>
+                  <View style={styles.detailCol}>
+                    <Text style={[styles.detailLabel, { color: theme.onSurfaceVariant }]}>Note</Text>
+                    <Text style={[styles.detailNoteValue, { color: theme.onSurface }]}>{debt.note}</Text>
+                  </View>
+                </View>
+              )}
+
+              {Boolean(originTx) && (
+                <View style={[styles.detailRow, { borderBottomColor: debtHistory.length > 0 ? theme.divider : 'transparent' }]}>
+                  <View style={[styles.detailIconCircle, { backgroundColor: theme.primaryContainer }]}>
+                    <MaterialCommunityIcons name="link-variant" size={18} color={theme.primary} />
+                  </View>
+                  <View style={styles.detailCol}>
+                    <Text style={[styles.detailLabel, { color: theme.onSurfaceVariant }]}>Origin Expense</Text>
+                    <Text style={[styles.detailValue, { color: theme.onSurface }]}>
+                      {originTx!.note || 'Linked Expense'} • {formatCurrency(originTx!.amount, originTx!.currency || baseCurrency)}
+                    </Text>
+                    <Text style={[styles.recurringSubText, { color: theme.onSurfaceVariant }]}>
+                      {originTx!.date}
+                    </Text>
+                  </View>
+                </View>
+              )}
+
+              {debtHistory.length > 0 && (
+                <View style={[styles.detailRow, { borderBottomColor: 'transparent' }]}>
+                  <View style={[styles.detailIconCircle, { backgroundColor: theme.successContainer }]}>
+                    <MaterialCommunityIcons name="history" size={18} color={theme.success} />
+                  </View>
+                  <View style={styles.detailCol}>
+                    <Text style={[styles.detailLabel, { color: theme.onSurfaceVariant }]}>
+                      Settlement History ({debtHistory.length})
+                    </Text>
+                    {debtHistory.map((s) => (
+                      <Text key={s.id} style={[styles.recurringSubText, { color: theme.onSurface }]}>
+                        • {formatCurrency(s.applied_amount, s.currency || debtCurr)}
+                        {s.excess_amount > 0.009
+                          ? ` (+${formatCurrency(s.excess_amount, s.currency || debtCurr)} ${s.excess_mode || 'extra'})`
+                          : ''}
+                      </Text>
+                    ))}
+                  </View>
+                </View>
+              )}
+            </View>
+          </ScrollView>
+
+          {/* FOOTER */}
+          <View
+            style={[
+              styles.footerBar,
+              {
+                backgroundColor: theme.surface,
+                borderTopColor: theme.divider,
+                paddingBottom: bottomInset + 10,
+              },
+              M3Elevation.level2,
+            ]}
+          >
+            {onDeleteDebt && (
+              <TouchableOpacity
+                style={[styles.deleteActionBtn, { backgroundColor: theme.errorContainer, borderColor: theme.error + '44' }]}
+                onPress={handleConfirmDeleteDebt}
+                accessibilityLabel="Delete loan"
+              >
+                <MaterialCommunityIcons name="trash-can-outline" size={20} color={theme.error} />
+              </TouchableOpacity>
+            )}
+
+            {!isSettled && onSettleDebt ? (
+              <TouchableOpacity
+                style={[styles.doneActionBtn, { backgroundColor: theme.primary }]}
+                onPress={() => {
+                  onClose();
+                  onSettleDebt(debt);
+                }}
+                activeOpacity={0.85}
+              >
+                <MaterialCommunityIcons name="check-decagram-outline" size={18} color={theme.onPrimary} />
+                <Text style={[styles.doneActionBtnText, { color: theme.onPrimary }]}>Settle Loan</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={[styles.doneActionBtn, { backgroundColor: theme.primary }]}
+                onPress={onClose}
+                activeOpacity={0.85}
+              >
+                <Text style={[styles.doneActionBtnText, { color: theme.onPrimary }]}>Done</Text>
+              </TouchableOpacity>
+            )}
+
+            {onEditDebt && (
+              <TouchableOpacity
+                style={[styles.editActionBtn, { backgroundColor: theme.primaryContainer, borderColor: theme.primary + '44' }]}
+                onPress={() => {
+                  onClose();
+                  onEditDebt(debt);
+                }}
+                accessibilityLabel="Edit loan"
+              >
+                <MaterialCommunityIcons name="pencil-outline" size={20} color={theme.primary} />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </Modal>
+    );
+  }
+
+  if (!transaction) return null;
 
   const isExpense = transaction.type === 'expense';
   const isIncome = transaction.type === 'income';

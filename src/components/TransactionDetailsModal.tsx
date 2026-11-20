@@ -20,6 +20,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   BillFrequency,
   Category,
+  DebtItem,
   RecurrenceEndType,
   TransactionType,
   Wallet,
@@ -29,7 +30,7 @@ import { M3Elevation } from '../theme';
 import { AnalogClockModal } from './AnalogClockModal';
 import { CalendarPickerModal } from './CalendarPickerModal';
 import { CategoryPickerSheet } from './CategoryPickerSheet';
-import { FORM_FIELDS, FormSlotKey } from './transaction/formConfig';
+import { FORM_FIELDS, FormSlotKey, IouAction } from './transaction/formConfig';
 import { transactionFormStyles as styles } from './transaction/styles';
 import {
   SaveTransactionPayload,
@@ -46,6 +47,10 @@ interface TransactionDetailsModalProps {
   visible: boolean;
   txType: TransactionType;
   initialIouMode?: boolean;
+  initialIouAction?: IouAction;
+  initialDebt?: DebtItem | null;
+  initialDebtId?: string;
+  initialIouPersonName?: string;
   initialAmount: number;
   initialWalletId: string;
   initialToWalletId?: string;
@@ -83,6 +88,10 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   visible,
   txType: defaultTxType,
   initialIouMode = false,
+  initialIouAction,
+  initialDebt,
+  initialDebtId,
+  initialIouPersonName,
   initialAmount,
   initialWalletId,
   initialToWalletId,
@@ -186,6 +195,10 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
     visible,
     defaultTxType,
     initialIouMode,
+    initialIouAction,
+    initialDebt,
+    initialDebtId,
+    initialIouPersonName,
     initialAmount,
     initialWalletId,
     initialToWalletId,
@@ -512,8 +525,8 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
               <View style={styles.iouActionRow}>
                 {(
                   [
-                    { key: 'lent', label: 'Receive', icon: 'arrow-bottom-left' },
-                    { key: 'borrowed', label: 'Pay', icon: 'arrow-top-right' },
+                    { key: 'lent', label: 'Lend', icon: 'arrow-top-right' },
+                    { key: 'borrowed', label: 'Borrow', icon: 'arrow-bottom-left' },
                     { key: 'settle', label: 'Settle', icon: 'check-decagram-outline' },
                   ] as const
                 ).map((act) => {
@@ -583,8 +596,10 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
           >
             <MaterialCommunityIcons name="check" size={20} color="#FFFFFF" />
             <Text style={styles.mainSaveBtnText}>
-              {isEditing
-                ? 'Update Transaction'
+              {isEditing || initialDebt
+                ? initialDebt
+                  ? 'Update Loan'
+                  : 'Update Transaction'
                 : isLoan
                   ? 'Save Loan'
                   : isTransfer
