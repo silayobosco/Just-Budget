@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,26 +10,60 @@ import {
   Alert,
   Platform,
   Switch,
+  Pressable,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
-import { Category, Subcategory, BudgetProgress, BudgetScope } from '../types';
+import { Category, Subcategory, BudgetProgress, BudgetScope, TransactionType, Wallet } from '../types';
 import { formatCurrency, formatTypingNumber, parseCleanNumber } from '../utils/format';
 
 interface CategoryManagerModalProps {
   visible: boolean;
   onClose: () => void;
+  mode?: 'manage' | 'pick';
+  txType?: TransactionType;
+  amount?: number;
+  walletId?: string;
+  wallets?: Wallet[];
+  categories?: Category[];
+  theme?: any;
+  baseCurrency?: string;
+  onSave?: (params: { categoryId?: string; subcategoryId?: string }) => void;
+  onOpenMoreOptions?: (initialParams: { categoryId?: string; subcategoryId?: string }) => void;
+  onManageCategories?: () => void;
+  onAddSubcategory?: (categoryId: string, name: string) => Promise<string>;
+  initialCategoryId?: string;
+  initialSubcategoryId?: string;
+  selectOnly?: boolean;
+  confirmButtonText?: string;
+  useNativeModal?: boolean;
 }
 
-export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visible, onClose }) => {
+export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
+  visible,
+  onClose,
+  mode = 'manage',
+  txType,
+  amount = 0,
+  theme: propTheme,
+  baseCurrency: propBaseCurrency,
+  onSave,
+  onOpenMoreOptions,
+  initialCategoryId,
+  initialSubcategoryId,
+  selectOnly = false,
+  confirmButtonText,
+  useNativeModal = true,
+}) => {
   const insets = useSafeAreaInsets();
   const {
     categories,
     addCategory,
     updateCategory,
     deleteCategory,
+    reorderCategories,
     addSubcategory,
     updateSubcategory,
     deleteSubcategory,
@@ -49,10 +83,35 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
     settings,
   } = useBudget();
 
-  const theme = settings.theme_mode === 'dark' ? darkTheme : lightTheme;
-  const curr = settings.base_currency;
+  const theme = propTheme || (settings.theme_mode === 'dark' ? darkTheme : lightTheme);
+  const curr = propBaseCurrency || settings.base_currency;
 
-  const [filterType, setFilterType] = useState<'expense' | 'income'>('expense');
+  const [activeMode, setActiveMode] = useState<'manage' | 'pick'>(mode);
+  const [filterType, setFilterType] = useState<'expense' | 'income'>(
+    txType === 'income' ? 'income' : 'expense'
+  );
+  const [searchQuery, setSearchQuery] = useState('');
+  const [manageFilter, setManageFilter] = useState<'all' | 'budgeted' | 'over' | 'untracked'>('all');
+  const [selectedCatId, setSelectedCatId] = useState<string | undefined>(initialCategoryId);
+  const [selectedSubId, setSelectedSubId] = useState<string | undefined>(initialSubcategoryId);
+
+  useEffect(() => {
+    if (visible) {
+      setActiveMode(mode);
+      if (txType === 'expense' || txType === 'income') {
+        setFilterType(txType);
+      }
+      setSelectedCatId(initialCategoryId);
+      setSelectedSubId(initialSubcategoryId);
+      setSearchQuery('');
+      setManageFilter('all');
+      setIsAddingNew(false);
+      setEditingCategory(null);
+      if (initialCategoryId) {
+        setExpandedCatIds((prev) => ({ ...prev, [initialCategoryId]: true }));
+      }
+    }
+  }, [visible, mode, txType, initialCategoryId, initialSubcategoryId]);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [isAddingNew, setIsAddingNew] = useState<boolean>(false);
 
@@ -107,6 +166,11 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
     'gamepad-variant-outline', 'heart-pulse', 'cash-plus', 'coffee-outline',
     'airplane', 'school-outline', 'book-open-outline', 'gift-outline',
     'briefcase-outline', 'bank-outline', 'cellphone', 'dumbbell',
+    'cart-outline', 'gas-station', 'lightning-bolt-outline', 'water-outline',
+    'wifi', 'bus', 'taxi', 'medical-bag',
+    'tshirt-crew-outline', 'baby-carriage', 'paw', 'hand-heart-outline',
+    'church', 'music', 'movie-open-outline', 'tools',
+    'store-outline', 'piggy-bank-outline', 'tag-outline', 'shape-outline',
   ];
 
   const handleStartAdd = () => {
@@ -380,28 +444,110 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
     );
   };
 
-  const filteredCategories = categories.filter((c) => c.type === filterType);
+  const typeCategories = useMemo(
+    () => categories.filter((c) => c.type === filterType),
+    [categories, filterType]
+  );
 
-  return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <View
-          style={[
-            styles.sheet,
-            {
-              backgroundColor: theme.surface,
-              paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 16) + 12,
-            },
-          ]}
-        >
-          {/* Header */}
-          <View style={styles.header}>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.headerTitle, { color: theme.onSurface }]}>Category & Budget Manager</Text>
-              <Text style={[styles.headerSubtitle, { color: theme.onSurfaceVariant }]}>
-                Envelopes, categories & spending limits
+  const filteredCategories = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return typeCategories.filter((c) => {
+      if (q) {
+        const nameMatch = c.name.toLowerCase().includes(q);
+        const subMatch = c.subcategories?.some((s) => s.name.toLowerCase().includes(q));
+        if (!nameMatch && !subMatch) return false;
+      }
+      if (activeMode === 'manage' && manageFilter !== 'all') {
+        const prog = categoryBudgetProgressList.find((p) => p.id === c.id);
+        const hasLim = Boolean(prog && prog.limit > 0);
+        if (manageFilter === 'budgeted' && !hasLim) return false;
+        if (manageFilter === 'over' && !(hasLim && (prog!.isOverBudget || prog!.isNearLimit))) return false;
+        if (manageFilter === 'untracked' && !c.exclude_from_analytics) return false;
+      }
+      return true;
+    });
+  }, [typeCategories, searchQuery, activeMode, manageFilter, categoryBudgetProgressList]);
+
+  const canReorder = activeMode === 'manage' && !searchQuery.trim() && manageFilter === 'all';
+
+  const handleMoveCategory = async (catId: string, direction: 'up' | 'down') => {
+    const idx = typeCategories.findIndex((c) => c.id === catId);
+    if (idx === -1) return;
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= typeCategories.length) return;
+    const nextTypeIds = typeCategories.map((c) => c.id);
+    const tmp = nextTypeIds[idx];
+    nextTypeIds[idx] = nextTypeIds[swapIdx];
+    nextTypeIds[swapIdx] = tmp;
+    const otherIds = categories.filter((c) => c.type !== filterType).map((c) => c.id);
+    await reorderCategories([...nextTypeIds, ...otherIds]);
+  };
+
+  if (!visible) return null;
+
+  const sheetBody = (
+    <View style={styles.overlay}>
+      <Pressable style={{ flex: 1 }} onPress={onClose} />
+      <View
+        style={[
+          styles.sheet,
+          {
+            backgroundColor: theme.surface,
+            paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 16) + 12,
+          },
+        ]}
+      >
+        {/* Drag Handle */}
+        <View style={{ alignItems: 'center', marginBottom: 8 }}>
+          <View style={{ width: 38, height: 4, borderRadius: 2, backgroundColor: theme.outlineVariant }} />
+        </View>
+
+        {/* Header */}
+        <View style={styles.header}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.headerTitle, { color: theme.onSurface }]}>
+              {activeMode === 'pick' ? 'Select Category' : 'Category & Budget Manager'}
+            </Text>
+            <Text style={[styles.headerSubtitle, { color: theme.onSurfaceVariant }]}>
+              {activeMode === 'pick'
+                ? `${filterType === 'income' ? 'Income' : 'Expense'}${amount > 0 ? ` • ${formatCurrency(amount, curr)}` : ' • Tap to pick'}`
+                : 'Envelopes, order, categories & limits'}
+            </Text>
+          </View>
+
+          {Boolean(onSave || mode === 'pick') && (
+            <TouchableOpacity
+              onPress={() => setActiveMode(activeMode === 'pick' ? 'manage' : 'pick')}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 4,
+                paddingHorizontal: 10,
+                paddingVertical: 6,
+                borderRadius: M3Shape.full,
+                backgroundColor: activeMode === 'manage' ? theme.primary : theme.primaryContainer,
+                marginRight: 8,
+              }}
+              activeOpacity={0.8}
+            >
+              <MaterialCommunityIcons
+                name={activeMode === 'pick' ? 'pencil-outline' : 'check'}
+                size={14}
+                color={activeMode === 'manage' ? theme.onPrimary : theme.onPrimaryContainer}
+              />
+              <Text
+                style={{
+                  fontSize: 12,
+                  fontWeight: '800',
+                  color: activeMode === 'manage' ? theme.onPrimary : theme.onPrimaryContainer,
+                }}
+              >
+                {activeMode === 'pick' ? 'Edit' : 'Pick'}
               </Text>
-            </View>
+            </TouchableOpacity>
+          )}
+
+          {activeMode === 'manage' && (
             <TouchableOpacity
               onPress={handleRestoreDefaults}
               style={[styles.restoreBtn, { backgroundColor: theme.pillBg }]}
@@ -410,12 +556,42 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
             >
               <MaterialCommunityIcons name="backup-restore" size={18} color={theme.primary} />
             </TouchableOpacity>
-            <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { backgroundColor: theme.pillBg }]}>
-              <MaterialCommunityIcons name="close" size={20} color={theme.onSurface} />
-            </TouchableOpacity>
-          </View>
+          )}
+          <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { backgroundColor: theme.pillBg }]}>
+            <MaterialCommunityIcons name="close" size={20} color={theme.onSurface} />
+          </TouchableOpacity>
+        </View>
 
-          {/* Filter Expense / Income Tabs */}
+        {/* Search Bar */}
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 8,
+            paddingHorizontal: 12,
+            height: 38,
+            borderRadius: M3Shape.full,
+            backgroundColor: theme.pillBg,
+            marginBottom: 8,
+          }}
+        >
+          <MaterialCommunityIcons name="magnify" size={18} color={theme.onSurfaceVariant} />
+          <TextInput
+            style={{ flex: 1, fontSize: 13, color: theme.onSurface, paddingVertical: 0 }}
+            placeholder="Search categories or subcategories..."
+            placeholderTextColor={theme.onSurfaceVariant}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+          {Boolean(searchQuery) && (
+            <TouchableOpacity onPress={() => setSearchQuery('')}>
+              <MaterialCommunityIcons name="close-circle" size={16} color={theme.onSurfaceVariant} />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Filter Expense / Income Tabs (shown in Manage mode, or Pick mode when txType wasn't fixed) */}
+        {(activeMode === 'manage' || !txType) && (
           <View style={[styles.filterBar, { backgroundColor: theme.pillBg }]}>
             <TouchableOpacity
               style={[styles.filterPill, filterType === 'expense' && { backgroundColor: theme.primaryContainer }]}
@@ -430,7 +606,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
                   },
                 ]}
               >
-                Expense Budgets
+                {activeMode === 'pick' ? 'Expenses' : 'Expense Budgets'}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -446,17 +622,64 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
                   },
                 ]}
               >
-                Income Sources
+                {activeMode === 'pick' ? 'Income' : 'Income Sources'}
               </Text>
             </TouchableOpacity>
           </View>
+        )}
 
-          {/* Context Banner: Overall Budget & Envelope Remainder for Expenses OR Income Target for Income */}
+        {/* Manage Mode Filter Chips */}
+        {activeMode === 'manage' && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={{ maxHeight: 34, marginBottom: 8 }}
+            contentContainerStyle={{ gap: 6, alignItems: 'center' }}
+          >
+            {(
+              [
+                { key: 'all', label: 'All' },
+                { key: 'budgeted', label: 'Budgeted' },
+                { key: 'over', label: 'Over / Near' },
+                { key: 'untracked', label: 'Untracked' },
+              ] as const
+            ).map((chip) => {
+              const active = manageFilter === chip.key;
+              return (
+                <TouchableOpacity
+                  key={chip.key}
+                  style={{
+                    paddingHorizontal: 11,
+                    paddingVertical: 5,
+                    borderRadius: M3Shape.full,
+                    backgroundColor: active ? theme.primaryContainer : theme.pillBg,
+                    borderWidth: 1,
+                    borderColor: active ? theme.primary : 'transparent',
+                  }}
+                  onPress={() => setManageFilter(chip.key)}
+                >
+                  <Text
+                    style={{
+                      fontSize: 11.5,
+                      fontWeight: active ? '800' : '600',
+                      color: active ? theme.onPrimaryContainer : theme.onSurfaceVariant,
+                    }}
+                  >
+                    {chip.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        )}
+
+        {/* Context Banner: Overall Budget & Envelope Remainder (Manage mode only) */}
+        {activeMode === 'manage' && (
           <View
             style={[
               styles.overviewBanner,
               filterType === 'expense' && allocatedCategoriesBudget > overallBudgetLimit && overallBudgetLimit > 0
-                ? { backgroundColor: '#FEF2F2', borderColor: '#FCA5A5' }
+                ? { backgroundColor: theme.errorContainer, borderColor: theme.error }
                 : { backgroundColor: theme.cardBg, borderColor: theme.divider },
               M3Elevation.level1,
             ]}
@@ -548,6 +771,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
               )}
             </View>
           </View>
+          )}
 
           {/* Add / Edit Category Form */}
           {(isAddingNew || editingCategory) && (
@@ -588,7 +812,13 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
                   <Text style={[styles.limitInputPrefix, { color: theme.onSurfaceVariant }]}>{curr}</Text>
                   <TextInput
                     style={[styles.limitInput, { color: theme.onSurface }]}
-                    placeholder={filterType === 'expense' ? '0.00 (optional limit)' : '0.00 (optional target)'}
+                    placeholder={
+                      newCatExcludeAnalytics
+                        ? '0.00 (optional fundraising goal)'
+                        : filterType === 'expense'
+                          ? '0.00 (optional limit)'
+                          : '0.00 (optional target)'
+                    }
                     placeholderTextColor={theme.outline}
                     keyboardType="numeric"
                     value={newCatLimitStr}
@@ -720,11 +950,12 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
                 </TouchableOpacity>
               </View>
             ) : (
-              filteredCategories.map((cat) => {
+              filteredCategories.map((cat, idx) => {
               const catProgress = categoryBudgetProgressList.find((c) => c.id === cat.id);
               const hasLimit = catProgress && catProgress.limit > 0;
               const isExpanded = Boolean(expandedCatIds[cat.id]);
               const isAddingSubHere = activeSubInputCatId === cat.id;
+              const isCatSelected = activeMode === 'pick' && selectedCatId === cat.id;
 
               let statusColor = theme.onSurfaceVariant;
               let statusText = filterType === 'expense' ? 'No limit' : 'No target';
@@ -754,10 +985,29 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
               return (
                 <View
                   key={cat.id}
-                  style={[styles.categoryCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }]}
+                  style={[
+                    styles.categoryCard,
+                    {
+                      backgroundColor: isCatSelected ? theme.primaryContainer : theme.cardBg,
+                      borderColor: isCatSelected ? theme.primary : theme.divider,
+                    },
+                  ]}
                 >
                   {/* Category Header */}
-                  <View style={styles.catHeader}>
+                  <TouchableOpacity
+                    activeOpacity={activeMode === 'pick' ? 0.7 : 1}
+                    onPress={() => {
+                      if (activeMode !== 'pick') return;
+                      setSelectedCatId(cat.id);
+                      setSelectedSubId(undefined);
+                      if (cat.subcategories && cat.subcategories.length > 0) {
+                        setExpandedCatIds((prev) => ({ ...prev, [cat.id]: true }));
+                      } else if (selectOnly && onSave) {
+                        onSave({ categoryId: cat.id, subcategoryId: undefined });
+                      }
+                    }}
+                    style={styles.catHeader}
+                  >
                     <View style={[styles.catIconWrap, { backgroundColor: cat.color }]}>
                       <MaterialCommunityIcons name={cat.icon as any} size={20} color="#FFFFFF" />
                     </View>
@@ -809,16 +1059,41 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
                     </View>
 
                     {/* Action buttons */}
-                    <View style={styles.catActions}>
-                      <TouchableOpacity
-                        onPress={() => handleStartEdit(cat)}
-                        style={[styles.smallIconBtn, { backgroundColor: theme.pillBg }]}
-                        accessibilityLabel="Edit Category"
-                      >
-                        <MaterialCommunityIcons name="pencil" size={16} color={theme.onSurface} />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
+                    {activeMode === 'manage' && (
+                      <View style={[styles.catActions, { flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
+                        {canReorder && (
+                          <>
+                            <TouchableOpacity
+                              onPress={() => handleMoveCategory(cat.id, 'up')}
+                              disabled={idx === 0}
+                              style={[styles.smallIconBtn, { backgroundColor: theme.pillBg, opacity: idx === 0 ? 0.35 : 1 }]}
+                              accessibilityLabel="Move Category Up"
+                            >
+                              <MaterialCommunityIcons name="chevron-up" size={16} color={theme.onSurface} />
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              onPress={() => handleMoveCategory(cat.id, 'down')}
+                              disabled={idx === filteredCategories.length - 1}
+                              style={[
+                                styles.smallIconBtn,
+                                { backgroundColor: theme.pillBg, opacity: idx === filteredCategories.length - 1 ? 0.35 : 1 },
+                              ]}
+                              accessibilityLabel="Move Category Down"
+                            >
+                              <MaterialCommunityIcons name="chevron-down" size={16} color={theme.onSurface} />
+                            </TouchableOpacity>
+                          </>
+                        )}
+                        <TouchableOpacity
+                          onPress={() => handleStartEdit(cat)}
+                          style={[styles.smallIconBtn, { backgroundColor: theme.pillBg }]}
+                          accessibilityLabel="Edit Category"
+                        >
+                          <MaterialCommunityIcons name="pencil" size={16} color={theme.onSurface} />
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </TouchableOpacity>
 
                   {/* Subcategories Toggle */}
                   <View style={styles.subToggleRow}>
@@ -857,9 +1132,29 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
                       {cat.subcategories?.map((sub) => {
                         const subProgress = catProgress?.subBudgets?.find((s) => s.id === sub.id);
                         const subHasLimit = subProgress && subProgress.limit > 0;
+                        const isSubSelected = activeMode === 'pick' && selectedCatId === cat.id && selectedSubId === sub.id;
 
                         return (
-                          <View key={sub.id} style={[styles.subItemRow, { backgroundColor: theme.pillBg }]}>
+                          <TouchableOpacity
+                            key={sub.id}
+                            activeOpacity={activeMode === 'pick' ? 0.7 : 1}
+                            onPress={() => {
+                              if (activeMode !== 'pick') return;
+                              setSelectedCatId(cat.id);
+                              setSelectedSubId(sub.id);
+                              if (selectOnly && onSave) {
+                                onSave({ categoryId: cat.id, subcategoryId: sub.id });
+                              }
+                            }}
+                            style={[
+                              styles.subItemRow,
+                              {
+                                backgroundColor: isSubSelected ? theme.primaryContainer : theme.pillBg,
+                                borderWidth: isSubSelected ? 1 : 0,
+                                borderColor: isSubSelected ? theme.primary : 'transparent',
+                              },
+                            ]}
+                          >
                             <View style={styles.subMainInfo}>
                               <View style={styles.subTitleRow}>
                                 <Text style={[styles.subItemName, { color: theme.onSurface }]}>{sub.name}</Text>
@@ -913,16 +1208,18 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
                               )}
                             </View>
 
-                            <View style={styles.subItemActions}>
-                              <TouchableOpacity
-                                style={[styles.subIconBtn, { backgroundColor: theme.surface }]}
-                                onPress={() => handleStartEditSub(cat, sub)}
-                                accessibilityLabel="Edit Subcategory"
-                              >
-                                <MaterialCommunityIcons name="pencil-outline" size={14} color={theme.onSurface} />
-                              </TouchableOpacity>
-                            </View>
-                          </View>
+                            {activeMode === 'manage' && (
+                              <View style={styles.subItemActions}>
+                                <TouchableOpacity
+                                  style={[styles.subIconBtn, { backgroundColor: theme.surface }]}
+                                  onPress={() => handleStartEditSub(cat, sub)}
+                                  accessibilityLabel="Edit Subcategory"
+                                >
+                                  <MaterialCommunityIcons name="pencil-outline" size={14} color={theme.onSurface} />
+                                </TouchableOpacity>
+                              </View>
+                            )}
+                          </TouchableOpacity>
                         );
                       })}
 
@@ -973,30 +1270,71 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
           )}
           </ScrollView>
 
-          {/* Bottom Add New Category button & Restore Defaults */}
-          {!isAddingNew && !editingCategory && (
+          {/* Bottom Action Bar */}
+          {activeMode === 'pick' && onSave ? (
             <View style={styles.bottomBarRow}>
+              {onOpenMoreOptions && !selectOnly && (
+                <TouchableOpacity
+                  style={[styles.restoreFooterBtn, { borderColor: theme.outlineVariant, backgroundColor: theme.pillBg }]}
+                  onPress={() => onOpenMoreOptions({ categoryId: selectedCatId, subcategoryId: selectedSubId })}
+                  activeOpacity={0.75}
+                >
+                  <MaterialCommunityIcons name="tune-variant" size={18} color={theme.primary} />
+                  <Text style={[styles.restoreFooterBtnText, { color: theme.primary }]}>More Options</Text>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity
-                style={[styles.addCategoryBtn, { backgroundColor: theme.primary, flex: 1 }]}
-                onPress={handleStartAdd}
+                style={[
+                  styles.addCategoryBtn,
+                  {
+                    backgroundColor: selectedCatId ? theme.primary : theme.pillBg,
+                    flex: 1,
+                    opacity: selectedCatId ? 1 : 0.6,
+                  },
+                ]}
+                disabled={!selectedCatId}
+                onPress={() => onSave({ categoryId: selectedCatId, subcategoryId: selectedSubId })}
               >
-                <MaterialCommunityIcons name="plus" size={18} color={theme.onPrimary} />
-                <Text style={[styles.addCategoryBtnText, { color: theme.onPrimary }]}>
-                  Add Category
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.restoreFooterBtn, { borderColor: theme.outlineVariant, backgroundColor: theme.pillBg }]}
-                onPress={handleRestoreDefaults}
-                activeOpacity={0.7}
-              >
-                <MaterialCommunityIcons name="backup-restore" size={18} color={theme.primary} />
-                <Text style={[styles.restoreFooterBtnText, { color: theme.primary }]}>
-                  Restore Defaults
+                <MaterialCommunityIcons
+                  name="check"
+                  size={18}
+                  color={selectedCatId ? theme.onPrimary : theme.onSurfaceVariant}
+                />
+                <Text
+                  style={[
+                    styles.addCategoryBtnText,
+                    { color: selectedCatId ? theme.onPrimary : theme.onSurfaceVariant },
+                  ]}
+                >
+                  {confirmButtonText || (selectOnly ? 'Confirm' : 'Save')}
                 </Text>
               </TouchableOpacity>
             </View>
+          ) : (
+            !isAddingNew && !editingCategory && (
+              <View style={styles.bottomBarRow}>
+                <TouchableOpacity
+                  style={[styles.addCategoryBtn, { backgroundColor: theme.primary, flex: 1 }]}
+                  onPress={handleStartAdd}
+                >
+                  <MaterialCommunityIcons name="plus" size={18} color={theme.onPrimary} />
+                  <Text style={[styles.addCategoryBtnText, { color: theme.onPrimary }]}>
+                    Add Category
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.restoreFooterBtn, { borderColor: theme.outlineVariant, backgroundColor: theme.pillBg }]}
+                  onPress={handleRestoreDefaults}
+                  activeOpacity={0.7}
+                >
+                  <MaterialCommunityIcons name="backup-restore" size={18} color={theme.primary} />
+                  <Text style={[styles.restoreFooterBtnText, { color: theme.primary }]}>
+                    Restore Defaults
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )
           )}
 
           {/* INLINE EDIT LIMIT DIALOG */}
@@ -1151,8 +1489,21 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ visi
               </View>
             </View>
           </Modal>
-        </View>
       </View>
+    </View>
+  );
+
+  if (!useNativeModal) {
+    return (
+      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 200 }}>
+        {sheetBody}
+      </View>
+    );
+  }
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      {sheetBody}
     </Modal>
   );
 };

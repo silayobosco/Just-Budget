@@ -29,7 +29,7 @@ import { parseCleanNumber } from '../utils/format';
 import { M3Elevation } from '../theme';
 import { AnalogClockModal } from './AnalogClockModal';
 import { CalendarPickerModal } from './CalendarPickerModal';
-import { CategoryPickerSheet } from './CategoryPickerSheet';
+import { CategoryManagerModal } from './CategoryManagerModal';
 import { FORM_FIELDS, FormSlotKey, IouAction } from './transaction/formConfig';
 import { transactionFormStyles as styles } from './transaction/styles';
 import {
@@ -612,7 +612,8 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
         </View>
 
         {/* CATEGORY SELECTOR BOTTOM SHEET */}
-        <CategoryPickerSheet
+        <CategoryManagerModal
+          mode="pick"
           visible={categorySheetVisible}
           txType={currentType === 'transfer' ? 'expense' : currentType}
           amount={parseCleanNumber(amountStr)}

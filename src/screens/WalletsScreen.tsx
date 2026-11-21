@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useBudget } from '../context/BudgetContext';
+import { useBudget, getWalletSpendableBalance } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
 import { Wallet, Transaction, BillFrequency, RecurrenceEndType } from '../types';
 import { formatCurrency, formatTypingNumber, parseCleanNumber } from '../utils/format';
@@ -37,6 +37,7 @@ export const WalletsScreen: React.FC = () => {
     transactions,
     recurringBills,
     categories,
+    budgets,
     deleteTransaction,
     updateTransaction,
     addSubcategory,
@@ -257,6 +258,26 @@ export const WalletsScreen: React.FC = () => {
   const [walletCurrentBalance, setWalletCurrentBalance] = useState('');
   const [walletColor, setWalletColor] = useState('#10B981');
   const [walletIcon, setWalletIcon] = useState('wallet');
+  const [walletGoalAmount, setWalletGoalAmount] = useState('');
+  const [walletGoalDeadline, setWalletGoalDeadline] = useState('');
+  const [walletSpendableAmount, setWalletSpendableAmount] = useState('');
+
+  const getDeadlineInfo = (deadline?: string | null, remainingToGoal: number = 0) => {
+    if (!deadline || !/^\d{4}-\d{2}-\d{2}$/.test(deadline)) return null;
+    const [y, m, d] = deadline.split('-').map(Number);
+    const target = new Date(y, m - 1, d, 0, 0, 0);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    const daysLeft = Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    const dailyPace = daysLeft > 0 && remainingToGoal > 0 ? remainingToGoal / daysLeft : remainingToGoal;
+    return { daysLeft, dailyPace };
+  };
+
+  const addMonthsToTodayStr = (months: number) => {
+    const d = new Date();
+    d.setMonth(d.getMonth() + months);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
 
   // Transfer form states
   const [fromWalletId, setFromWalletId] = useState('');
@@ -277,6 +298,9 @@ export const WalletsScreen: React.FC = () => {
     setWalletCurrentBalance('0');
     setWalletColor(colors[Math.floor(Math.random() * colors.length)]);
     setWalletIcon('wallet');
+    setWalletGoalAmount('');
+    setWalletGoalDeadline('');
+    setWalletSpendableAmount('');
     setWalletModalVisible(true);
   };
 
@@ -288,6 +312,13 @@ export const WalletsScreen: React.FC = () => {
     setWalletCurrentBalance(formatTypingNumber(w.current_balance.toString()));
     setWalletColor(w.color);
     setWalletIcon(w.icon as any);
+    setWalletGoalAmount(w.goal_amount && w.goal_amount > 0 ? formatTypingNumber(w.goal_amount.toString()) : '');
+    setWalletGoalDeadline(w.goal_deadline || '');
+    setWalletSpendableAmount(
+      w.spendable_amount !== undefined && w.spendable_amount !== null
+        ? formatTypingNumber(w.spendable_amount.toString())
+        : ''
+    );
     setWalletModalVisible(true);
   };
 
@@ -295,6 +326,16 @@ export const WalletsScreen: React.FC = () => {
     if (!walletName.trim()) return;
     const startBal = parseCleanNumber(walletStartingBalance);
     const currBal = parseCleanNumber(walletCurrentBalance);
+    const parsedGoal = parseCleanNumber(walletGoalAmount);
+    const goalAmount = parsedGoal > 0 ? parsedGoal : null;
+    const goalDeadline = walletGoalDeadline.trim() && /^\d{4}-\d{2}-\d{2}$/.test(walletGoalDeadline.trim())
+      ? walletGoalDeadline.trim()
+      : null;
+    const hasSpendableInput = walletSpendableAmount.trim().length > 0;
+    let spendableAmount = hasSpendableInput ? Math.max(0, parseCleanNumber(walletSpendableAmount)) : null;
+    if (goalAmount && spendableAmount !== null && spendableAmount >= goalAmount) {
+      spendableAmount = Math.max(0, goalAmount - 1);
+    }
 
     if (editingWallet) {
       await updateWallet({
@@ -304,6 +345,9 @@ export const WalletsScreen: React.FC = () => {
         current_balance: currBal,
         color: walletColor,
         icon: walletIcon,
+        goal_amount: goalAmount,
+        goal_deadline: goalDeadline,
+        spendable_amount: spendableAmount,
       });
     } else {
       await addWallet({
@@ -312,6 +356,9 @@ export const WalletsScreen: React.FC = () => {
         starting_balance: startBal,
         color: walletColor,
         icon: walletIcon,
+        goal_amount: goalAmount,
+        goal_deadline: goalDeadline,
+        spendable_amount: spendableAmount,
       });
     }
     setWalletModalVisible(false);
@@ -527,10 +574,124 @@ export const WalletsScreen: React.FC = () => {
                         </Text>
                       </View>
                     </View>
+
+                    {(() => {
+                      const goal = w.goal_amount && w.goal_amount > 0 ? w.goal_amount : 0;
+                      const spendable = getWalletSpendableBalance(w);
+                      if (goal <= 0 && (w.spendable_amount === undefined || w.spendable_amount === null)) {
+                        return null;
+                      }
+                      const pct = goal > 0 ? Math.min(100, Math.max(0, Math.round((w.current_balance / goal) * 100))) : 0;
+                      const remGoal = goal > 0 ? Math.max(0, goal - w.current_balance) : 0;
+                      const dlInfo = goal > 0 ? getDeadlineInfo(w.goal_deadline, remGoal) : null;
+                      return (
+                        <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.divider, gap: 6 }}>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Text style={{ fontSize: 11.5, fontWeight: '700', color: theme.onSurfaceVariant }}>
+                              Spendable: <Text style={{ color: theme.onSurface }}>{formatCurrency(spendable, settings.base_currency)}</Text>
+                            </Text>
+                            {goal > 0 && (
+                              <Text style={{ fontSize: 11.5, fontWeight: '800', color: remGoal <= 0 ? theme.success : theme.primary }}>
+                                {remGoal <= 0 ? '🎉 Goal Reached' : `Goal: ${formatCurrency(goal, settings.base_currency)} (${pct}%)`}
+                              </Text>
+                            )}
+                          </View>
+                          {goal > 0 && (
+                            <>
+                              <View style={{ height: 6, borderRadius: 3, backgroundColor: theme.pillBg, overflow: 'hidden' }}>
+                                <View style={{ width: `${pct}%`, height: '100%', backgroundColor: remGoal <= 0 ? theme.success : w.color }} />
+                              </View>
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                                <Text style={{ fontSize: 11, fontWeight: '600', color: theme.onSurfaceVariant }}>
+                                  {remGoal > 0 ? `${formatCurrency(remGoal, settings.base_currency)} left to goal` : 'Target achieved'}
+                                </Text>
+                                {w.goal_deadline && (
+                                  <Text style={{ fontSize: 11, fontWeight: '700', color: dlInfo && dlInfo.daysLeft < 0 ? theme.error : theme.onSurfaceVariant }}>
+                                    {dlInfo
+                                      ? dlInfo.daysLeft > 0 && remGoal > 0
+                                        ? `Due ${w.goal_deadline} (${dlInfo.daysLeft}d • ${formatCurrency(dlInfo.dailyPace, settings.base_currency)}/day)`
+                                        : dlInfo.daysLeft === 0
+                                          ? `Due today (${w.goal_deadline})`
+                                          : dlInfo.daysLeft < 0
+                                            ? `Past due (${w.goal_deadline})`
+                                            : `Due ${w.goal_deadline}`
+                                      : `Due ${w.goal_deadline}`}
+                                  </Text>
+                                )}
+                              </View>
+                            </>
+                          )}
+                        </View>
+                      );
+                    })()}
                   </TouchableOpacity>
                 );
               })
             )}
+
+            {/* PERSONAL FUNDRAISING & UNTRACKED CATEGORY GOALS */}
+            {(() => {
+              const untrackedCats = categories.filter((c) => c.exclude_from_analytics);
+              if (untrackedCats.length === 0) return null;
+              return (
+                <View style={{ marginTop: 10 }}>
+                  <Text style={[styles.sectionTitle, { color: theme.onSurface }]}>
+                    Personal Fundraising & Goals
+                  </Text>
+                  {untrackedCats.map((cat) => {
+                    const catLimit = budgets.find(
+                      (b) => b.scope === 'category' && b.category_id === cat.id && b.amount > 0
+                    );
+                    const target = catLimit?.amount || 0;
+                    const raised = transactions
+                      .filter((t) => t.category_id === cat.id && t.type === cat.type)
+                      .reduce((sum, t) => sum + t.amount, 0);
+                    const pct = target > 0 ? Math.min(100, Math.round((raised / target) * 100)) : 0;
+                    const remaining = target > 0 ? Math.max(0, target - raised) : 0;
+
+                    return (
+                      <View
+                        key={cat.id}
+                        style={[
+                          styles.walletCard,
+                          { backgroundColor: theme.cardBg, borderColor: theme.divider },
+                          M3Elevation.level1,
+                        ]}
+                      >
+                        <View style={styles.walletCardTop}>
+                          <View style={[styles.walletIconCircle, { backgroundColor: cat.color || theme.primary }]}>
+                            <MaterialCommunityIcons name={(cat.icon as any) || 'bullseye-arrow'} size={20} color="#FFFFFF" />
+                          </View>
+                          <View style={styles.walletDetails}>
+                            <Text style={[styles.walletName, { color: theme.onSurface }]}>{cat.name}</Text>
+                            <Text style={[styles.walletCurrencyBadge, { color: theme.onSurfaceVariant }]}>
+                              {target > 0
+                                ? `${pct}% of ${formatCurrency(target, settings.base_currency)} goal`
+                                : 'Untracked category • Set a target in Category Manager'}
+                            </Text>
+                          </View>
+                          <View style={{ alignItems: 'flex-end' }}>
+                            <Text style={{ fontSize: 15, fontWeight: '800', color: theme.primary }}>
+                              {formatCurrency(raised, settings.base_currency)}
+                            </Text>
+                            {target > 0 && (
+                              <Text style={{ fontSize: 11, color: theme.onSurfaceVariant }}>
+                                {remaining > 0 ? `${formatCurrency(remaining, settings.base_currency)} left` : 'Goal reached'}
+                              </Text>
+                            )}
+                          </View>
+                        </View>
+                        {target > 0 && (
+                          <View style={{ marginTop: 10, height: 5, borderRadius: 3, backgroundColor: theme.divider, overflow: 'hidden' }}>
+                            <View style={{ width: `${pct}%`, height: '100%', backgroundColor: cat.color || theme.primary }} />
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })}
+                </View>
+              );
+            })()}
           </>
         )}
 
@@ -708,6 +869,80 @@ export const WalletsScreen: React.FC = () => {
                   />
                 </>
               )}
+
+              <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>
+                Savings Goal ({settings.base_currency}, Optional)
+              </Text>
+              <TextInput
+                style={[styles.input, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
+                keyboardType="decimal-pad"
+                placeholder="e.g. 500,000"
+                placeholderTextColor={theme.onSurfaceVariant}
+                value={walletGoalAmount}
+                onChangeText={(t) => setWalletGoalAmount(formatTypingNumber(t))}
+              />
+
+              <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>
+                Spendable Limit ({settings.base_currency}, Optional)
+              </Text>
+              <TextInput
+                style={[styles.input, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
+                keyboardType="decimal-pad"
+                placeholder={walletGoalAmount ? 'Auto: 0 until goal is reached' : 'Full balance spendable'}
+                placeholderTextColor={theme.onSurfaceVariant}
+                value={walletSpendableAmount}
+                onChangeText={(t) => setWalletSpendableAmount(formatTypingNumber(t))}
+              />
+              {parseCleanNumber(walletGoalAmount) > 0 && (
+                <Text style={{ fontSize: 11, color: theme.onSurfaceVariant, marginTop: -6, marginBottom: 10 }}>
+                  Leave blank to protect money below your goal (default: less than goal is locked).
+                </Text>
+              )}
+
+              <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>
+                Goal Deadline (YYYY-MM-DD, Optional)
+              </Text>
+              <TextInput
+                style={[styles.input, { backgroundColor: theme.pillBg, color: theme.onSurface }]}
+                placeholder="YYYY-MM-DD"
+                placeholderTextColor={theme.onSurfaceVariant}
+                value={walletGoalDeadline}
+                onChangeText={setWalletGoalDeadline}
+              />
+              <View style={{ flexDirection: 'row', gap: 6, marginTop: -4, marginBottom: 12, flexWrap: 'wrap' }}>
+                {[
+                  { label: '+1 Mo', months: 1 },
+                  { label: '+3 Mo', months: 3 },
+                  { label: '+6 Mo', months: 6 },
+                  { label: '+1 Yr', months: 12 },
+                ].map((preset) => (
+                  <TouchableOpacity
+                    key={preset.label}
+                    style={{
+                      paddingHorizontal: 10,
+                      paddingVertical: 5,
+                      borderRadius: M3Shape.full,
+                      backgroundColor: theme.pillBg,
+                    }}
+                    onPress={() => setWalletGoalDeadline(addMonthsToTodayStr(preset.months))}
+                  >
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: theme.primary }}>{preset.label}</Text>
+                  </TouchableOpacity>
+                ))}
+                {Boolean(walletGoalDeadline) && (
+                  <TouchableOpacity
+                    style={{
+                      paddingHorizontal: 10,
+                      paddingVertical: 5,
+                      borderRadius: M3Shape.full,
+                      backgroundColor: theme.errorContainer,
+                    }}
+                    onPress={() => setWalletGoalDeadline('')}
+                  >
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: theme.error }}>Clear</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
 
               <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>Color</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalScroll}>
@@ -972,7 +1207,44 @@ export const WalletsScreen: React.FC = () => {
                   >
                     {formatCurrency(currentSelectedWallet.current_balance, settings.base_currency)}
                   </Text>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: theme.onSurfaceVariant, marginTop: 4 }}>
+                    Spendable: {formatCurrency(getWalletSpendableBalance(currentSelectedWallet), settings.base_currency)}
+                  </Text>
                 </View>
+
+                {currentSelectedWallet.goal_amount && currentSelectedWallet.goal_amount > 0 ? (() => {
+                  const goal = currentSelectedWallet.goal_amount!;
+                  const rem = Math.max(0, goal - currentSelectedWallet.current_balance);
+                  const pct = Math.min(100, Math.max(0, Math.round((currentSelectedWallet.current_balance / goal) * 100)));
+                  const dlInfo = getDeadlineInfo(currentSelectedWallet.goal_deadline, rem);
+                  return (
+                    <View style={{ paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.divider, gap: 6, marginBottom: 8 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                        <Text style={{ fontSize: 12, fontWeight: '800', color: theme.onSurface }}>
+                          Goal: {formatCurrency(goal, settings.base_currency)}
+                        </Text>
+                        <Text style={{ fontSize: 12, fontWeight: '800', color: rem <= 0 ? theme.success : theme.primary }}>
+                          {rem <= 0 ? '🎉 Reached' : `${pct}%`}
+                        </Text>
+                      </View>
+                      <View style={{ height: 7, borderRadius: 4, backgroundColor: theme.pillBg, overflow: 'hidden' }}>
+                        <View style={{ width: `${pct}%`, height: '100%', backgroundColor: rem <= 0 ? theme.success : currentSelectedWallet.color }} />
+                      </View>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
+                        <Text style={{ fontSize: 11.5, fontWeight: '600', color: theme.onSurfaceVariant }}>
+                          {rem > 0 ? `Remaining: ${formatCurrency(rem, settings.base_currency)}` : 'Goal achieved'}
+                        </Text>
+                        {currentSelectedWallet.goal_deadline && (
+                          <Text style={{ fontSize: 11.5, fontWeight: '700', color: dlInfo && dlInfo.daysLeft < 0 ? theme.error : theme.onSurfaceVariant }}>
+                            {dlInfo && dlInfo.daysLeft > 0 && rem > 0
+                              ? `Due ${currentSelectedWallet.goal_deadline} (${dlInfo.daysLeft}d • ${formatCurrency(dlInfo.dailyPace, settings.base_currency)}/day)`
+                              : `Due ${currentSelectedWallet.goal_deadline}`}
+                          </Text>
+                        )}
+                      </View>
+                    </View>
+                  );
+                })() : null}
 
                 {/* STATS TILES (INFLOW, OUTFLOW, NET) */}
                 <View style={[styles.detailStatsGrid, { borderTopColor: theme.divider }]}>

@@ -40,6 +40,7 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose, embedd
     addDebt,
     updateDebt,
     recordDebtPayment,
+    offsetMutualDebts,
     deleteDebt,
     addTransaction,
     addSubcategory,
@@ -180,17 +181,50 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose, embedd
   const handleSettleAllForPerson = (displayName: string, items: DebtItem[]) => {
     const openItems = items.filter((d) => d.status === 'open');
     if (openItems.length === 0) return;
+
+    const lentOpen = openItems
+      .filter((d) => d.type === 'lent')
+      .reduce((s, d) => s + Math.max(0, d.amount - (d.paid_amount || 0)), 0);
+    const borrowedOpen = openItems
+      .filter((d) => d.type === 'borrowed')
+      .reduce((s, d) => s + Math.max(0, d.amount - (d.paid_amount || 0)), 0);
+    const overlap = Math.min(lentOpen, borrowedOpen);
+    const netRem = Math.abs(lentOpen - borrowedOpen);
+
+    const msg =
+      overlap > 0
+        ? netRem > 0.009
+          ? `Offset ${formatCurrency(overlap, baseCurr)} mutually (no wallet transaction) and settle the remaining ${formatCurrency(netRem, baseCurr)}?`
+          : `Cancel out ${formatCurrency(overlap, baseCurr)} mutually with ${displayName} (no wallet transaction)?`
+        : `Mark all ${openItems.length} open Loan(s) with ${displayName} as settled?`;
+
     Alert.alert(
-      `Settle All with ${displayName}?`,
-      `Mark all ${openItems.length} open Loan(s) with ${displayName} as settled?`,
+      overlap > 0 ? `Offset & Settle with ${displayName}?` : `Settle All with ${displayName}?`,
+      msg,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Settle All',
+          text: overlap > 0 && netRem <= 0.009 ? 'Offset Mutually' : 'Settle All',
           onPress: async () => {
-            for (const item of openItems) {
-              const rem = Math.max(0, item.amount - (item.paid_amount || 0));
-              if (rem > 0) await recordDebtPayment(item.id, rem);
+            if (overlap > 0) {
+              await offsetMutualDebts(displayName);
+            }
+            if (netRem > 0.009) {
+              const remType = lentOpen > borrowedOpen ? 'lent' : 'borrowed';
+              const remItems =
+                overlap > 0
+                  ? openItems.filter((d) => d.type === remType)
+                  : openItems;
+              let toPay = overlap > 0 ? netRem : Infinity;
+              for (const item of remItems) {
+                if (toPay <= 0.009) break;
+                const rem = Math.max(0, item.amount - (item.paid_amount || 0));
+                const payAmt = Math.min(rem, toPay);
+                if (payAmt > 0) {
+                  await recordDebtPayment(item.id, payAmt);
+                  if (overlap > 0) toPay -= payAmt;
+                }
+              }
             }
           },
         },
@@ -759,7 +793,7 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose, embedd
                         );
                       })}
 
-                      <View style={{ flexDirection: 'row', gap: 8, marginTop: 2 }}>
+                      <View style={{ flexDirection: 'row', gap: 8, marginTop: 2, flexWrap: 'wrap' }}>
                         <TouchableOpacity
                           style={[styles.cardActionBtn, { backgroundColor: theme.primaryContainer, flex: 1, justifyContent: 'center', paddingVertical: 8 }]}
                           onPress={() => openAddForm('lent', group.displayName)}
@@ -769,6 +803,27 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose, embedd
                             Add Loan
                           </Text>
                         </TouchableOpacity>
+                        {group.lentOpen > 0 && group.borrowedOpen > 0 && (
+                          <TouchableOpacity
+                            style={[styles.cardActionBtn, { backgroundColor: theme.tertiaryContainer || theme.primaryContainer, flex: 1, justifyContent: 'center', paddingVertical: 8 }]}
+                            onPress={() => {
+                              const overlap = Math.min(group.lentOpen, group.borrowedOpen);
+                              Alert.alert(
+                                `Offset ${formatCurrency(overlap, baseCurr)}?`,
+                                `Cancel out ${formatCurrency(overlap, baseCurr)} between what ${group.displayName} owes you and what you owe ${group.displayName} without creating wallet transactions?`,
+                                [
+                                  { text: 'Cancel', style: 'cancel' },
+                                  { text: 'Offset', onPress: () => offsetMutualDebts(group.displayName) },
+                                ]
+                              );
+                            }}
+                          >
+                            <MaterialCommunityIcons name="swap-horizontal" size={15} color={theme.onTertiaryContainer || theme.primary} />
+                            <Text style={[styles.cardActionText, { color: theme.onTertiaryContainer || theme.primary }]}>
+                              Offset {formatCurrency(Math.min(group.lentOpen, group.borrowedOpen), baseCurr)}
+                            </Text>
+                          </TouchableOpacity>
+                        )}
                         {group.openCount > 1 && (
                           <TouchableOpacity
                             style={[styles.cardActionBtn, { backgroundColor: theme.successContainer, flex: 1, justifyContent: 'center', paddingVertical: 8 }]}

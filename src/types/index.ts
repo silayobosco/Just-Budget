@@ -9,6 +9,9 @@ export interface Wallet {
   color: string;
   icon: string;
   is_default: boolean;
+  goal_amount?: number | null;
+  goal_deadline?: string | null; // YYYY-MM-DD
+  spendable_amount?: number | null;
 }
 
 export interface Subcategory {
@@ -25,6 +28,7 @@ export interface Category {
   color: string;
   is_default: boolean;
   exclude_from_analytics?: boolean;
+  sort_order?: number;
   subcategories?: Subcategory[];
 }
 
@@ -113,6 +117,7 @@ export interface RecurringBill {
 export type CycleMode = 'regular' | 'custom';
 export type CycleBalanceMode = 'monthly' | 'accumulated';
 export type CycleTargetMode = 'inherit' | 'monthly';
+export type DailyLeftoverMode = 'spread' | 'next_day' | 'lock_savings';
 
 export interface AppSettings {
   base_currency: string;
@@ -122,6 +127,8 @@ export interface AppSettings {
   cycle_mode?: CycleMode;
   cycle_balance_mode?: CycleBalanceMode;
   cycle_target_mode?: CycleTargetMode;
+  daily_leftover_mode?: DailyLeftoverMode;
+  lock_savings_wallet_id?: string;
   cycle_month_start_day?: number;
   cycle_default_budget?: number;
   cycle_default_income?: number;
@@ -163,6 +170,8 @@ export interface DailyAllowanceStats {
   headlineLabel: string;
   badgeLabel?: string;
   subText: string;
+  leftoverMode?: DailyLeftoverMode;
+  savedLeftoverPool?: number;
 }
 
 export type DebtType = 'lent' | 'borrowed';

@@ -23,7 +23,7 @@ import { DateRangePickerModal } from '../components/DateRangePickerModal';
 import { CycleModeSwitcherModal } from '../components/CycleModeSwitcherModal';
 import { TransactionDetailModal } from '../components/TransactionDetailModal';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
-import { CategoryPickerSheet } from '../components/CategoryPickerSheet';
+import { CategoryManagerModal } from '../components/CategoryManagerModal';
 import { DebtsModal } from '../components/DebtsModal';
 import { Transaction, BudgetCycle, TransactionType, BillFrequency, RecurrenceEndType, RecurringBill } from '../types';
 
@@ -498,7 +498,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
           t.date >= cycle.start_date &&
           t.date <= targetDate
       )
-      .reduce((sum, t) => sum + (t.base_amount || t.amount || 0), 0);
+      .reduce((sum, t) => sum + getEffectiveAmount(t), 0);
 
     const expensePercent = hasTarget ? Math.round((spentUpToDate / cycleCap) * 100) : 0;
     const isOverBudget = hasTarget && spentUpToDate > cycleCap;
@@ -521,7 +521,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
           t.date >= cycle.start_date &&
           t.date <= targetDate
       )
-      .reduce((sum, t) => sum + (t.base_amount || t.amount || 0), 0);
+      .reduce((sum, t) => sum + getEffectiveAmount(t), 0);
 
     const incomePercent = hasGoal ? Math.round((incomeUpToDate / cycleGoal) * 100) : 0;
     const isIncomeReached = hasGoal && incomeUpToDate >= cycleGoal;
@@ -544,12 +544,15 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
       const [sy, sm, sd] = cycle.start_date.split('-').map(Number);
       const [ey, em, ed] = cycle.end_date.split('-').map(Number);
       const [fy, fm, fd] = targetDate.split('-').map(Number);
+      const cycleStart = new Date(sy, sm - 1, sd, 0, 0, 0);
       const cycleEnd = new Date(ey, em - 1, ed, 0, 0, 0);
       const focDateObj = new Date(fy, fm - 1, fd, 0, 0, 0);
 
+      const totalDays = Math.max(1, Math.round((cycleEnd.getTime() - cycleStart.getTime()) / 86400000) + 1);
       const diffDays = Math.round((cycleEnd.getTime() - focDateObj.getTime()) / 86400000);
       const daysForAllowance = Math.max(1, diffDays + 1);
       daysRemaining = Math.max(0, diffDays);
+      const dayIndex = Math.min(totalDays, Math.max(1, Math.round((focDateObj.getTime() - cycleStart.getTime()) / 86400000) + 1));
 
       const spentBefore = transactions
         .filter(
@@ -558,17 +561,35 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
             t.date >= cycle.start_date &&
             t.date < targetDate
         )
-        .reduce((sum, t) => sum + (t.base_amount || t.amount || 0), 0);
+        .reduce((sum, t) => sum + getEffectiveAmount(t), 0);
 
       const spentOnDate = transactions
         .filter((t) => t.type === 'expense' && t.date === targetDate)
-        .reduce((sum, t) => sum + (t.base_amount || t.amount || 0), 0);
+        .reduce((sum, t) => sum + getEffectiveAmount(t), 0);
 
       const poolAtStart = hasTarget
         ? Math.max(0, cycleCap - spentBefore)
         : Math.max(0, walletBalanceAtEndOfDate + spentOnDate);
 
-      const dailyAllowance = daysForAllowance > 0 ? poolAtStart / daysForAllowance : 0;
+      let dailyAllowance = daysForAllowance > 0 ? poolAtStart / daysForAllowance : 0;
+      if (hasTarget) {
+        const baseDaily = totalDays > 0 ? cycleCap / totalDays : cycleCap;
+        const spreadDaily = dailyAllowance;
+        const sustainableDaily = Math.min(baseDaily, spreadDaily);
+        const mode = settings.daily_leftover_mode || 'spread';
+        if (mode === 'lock_savings') {
+          dailyAllowance = sustainableDaily;
+        } else if (mode === 'next_day') {
+          const yDate = new Date(fy, fm - 1, fd - 1, 12, 0, 0);
+          const yStr = `${yDate.getFullYear()}-${String(yDate.getMonth() + 1).padStart(2, '0')}-${String(yDate.getDate()).padStart(2, '0')}`;
+          const ySpent = transactions
+            .filter((t) => t.type === 'expense' && t.date === yStr)
+            .reduce((sum, t) => sum + getEffectiveAmount(t), 0);
+          const yLeftover = dayIndex > 1 ? Math.max(0, baseDaily - ySpent) : 0;
+          const priorLeftover = Math.max(0, Math.max(0, dayIndex - 1) * baseDaily - spentBefore);
+          dailyAllowance = Math.min(poolAtStart, sustainableDaily + Math.min(yLeftover, priorLeftover));
+        }
+      }
       availableAmount = dailyAllowance - spentOnDate;
     }
 
@@ -603,6 +624,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     transactions,
     totalConvertedBalance,
     dailyAllowanceStats.remainingToday,
+    getEffectiveAmount,
   ]);
 
   const effectiveSpent = focusedValues.spentUpToDate;
@@ -2177,6 +2199,114 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                       );
                     })
                   )}
+
+                  {/* Compact Day Report Footer */}
+                  {dateStr <= todayStr && (() => {
+                    const c = group.cycle;
+                    const cap =
+                      c.target_budget ??
+                      (settings.cycle_default_budget !== undefined ? Number(settings.cycle_default_budget) : 0);
+                    const dayNetSpent = dayTxs
+                      .filter((t) => t.type === 'expense')
+                      .reduce((s, t) => s + getEffectiveAmount(t), 0);
+                    const dayNetIncome = dayTxs
+                      .filter((t) => t.type === 'income')
+                      .reduce((s, t) => s + getEffectiveAmount(t), 0);
+                    if (cap <= 0 && dayNetSpent === 0 && dayNetIncome === 0) return null;
+
+                    let dayAllowance = 0;
+                    if (cap > 0 && c.start_date && c.end_date) {
+                      const [sy, sm, sd] = c.start_date.split('-').map(Number);
+                      const [ey, em, ed] = c.end_date.split('-').map(Number);
+                      const [dy, dm, dd] = dateStr.split('-').map(Number);
+                      const cStart = new Date(sy, sm - 1, sd, 0, 0, 0);
+                      const cEnd = new Date(ey, em - 1, ed, 0, 0, 0);
+                      const dObj = new Date(dy, dm - 1, dd, 0, 0, 0);
+                      const tDays = Math.max(1, Math.round((cEnd.getTime() - cStart.getTime()) / 86400000) + 1);
+                      const dRem = Math.max(1, Math.round((cEnd.getTime() - dObj.getTime()) / 86400000) + 1);
+                      const dIdx = Math.min(tDays, Math.max(1, Math.round((dObj.getTime() - cStart.getTime()) / 86400000) + 1));
+                      const spentPrior = transactions
+                        .filter((t) => t.type === 'expense' && t.date >= c.start_date && t.date < dateStr)
+                        .reduce((s, t) => s + getEffectiveAmount(t), 0);
+                      const poolStart = Math.max(0, cap - spentPrior);
+                      const spreadD = poolStart / dRem;
+                      const baseD = cap / tDays;
+                      const sustainD = Math.min(baseD, spreadD);
+                      const mode = settings.daily_leftover_mode || 'spread';
+                      if (mode === 'lock_savings') {
+                        dayAllowance = sustainD;
+                      } else if (mode === 'next_day') {
+                        const yD = new Date(dy, dm - 1, dd - 1, 12, 0, 0);
+                        const yStr = `${yD.getFullYear()}-${String(yD.getMonth() + 1).padStart(2, '0')}-${String(yD.getDate()).padStart(2, '0')}`;
+                        const ySp = transactions
+                          .filter((t) => t.type === 'expense' && t.date === yStr)
+                          .reduce((s, t) => s + getEffectiveAmount(t), 0);
+                        const yLeft = dIdx > 1 ? Math.max(0, baseD - ySp) : 0;
+                        const pLeft = Math.max(0, Math.max(0, dIdx - 1) * baseD - spentPrior);
+                        dayAllowance = Math.min(poolStart, sustainD + Math.min(yLeft, pLeft));
+                      } else {
+                        dayAllowance = spreadD;
+                      }
+                    }
+
+                    const dayLeft = dayAllowance - dayNetSpent;
+                    const isPositive = dayLeft >= 0;
+
+                    return (
+                      <View
+                        style={{
+                          marginTop: 8,
+                          paddingTop: 7,
+                          borderTopWidth: StyleSheet.hairlineWidth,
+                          borderTopColor: theme.divider,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 8,
+                          flexWrap: 'wrap',
+                        }}
+                      >
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          {cap > 0 && (
+                            <Text style={{ fontSize: 11, fontWeight: '600', color: theme.onSurfaceVariant }}>
+                              Allowed: <Text style={{ fontWeight: '700', color: theme.onSurface }}>{formatCurrency(dayAllowance, settings.base_currency)}</Text>
+                            </Text>
+                          )}
+                          <Text style={{ fontSize: 11, fontWeight: '600', color: theme.onSurfaceVariant }}>
+                            Spent: <Text style={{ fontWeight: '700', color: dayNetSpent > 0 ? theme.error : theme.onSurface }}>{formatCurrency(dayNetSpent, settings.base_currency)}</Text>
+                          </Text>
+                          {dayNetIncome > 0 && (
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: theme.success }}>
+                              +{formatCurrency(dayNetIncome, settings.base_currency)}
+                            </Text>
+                          )}
+                        </View>
+
+                        {cap > 0 && (
+                          <View
+                            style={{
+                              paddingHorizontal: 8,
+                              paddingVertical: 2,
+                              borderRadius: M3Shape.full,
+                              backgroundColor: isPositive ? theme.successContainer : theme.errorContainer,
+                            }}
+                          >
+                            <Text
+                              style={{
+                                fontSize: 10.5,
+                                fontWeight: '800',
+                                color: isPositive ? theme.onSuccessContainer : theme.onErrorContainer,
+                              }}
+                            >
+                              {isPositive
+                                ? `${formatCurrency(dayLeft, settings.base_currency)} left`
+                                : `${formatCurrency(Math.abs(dayLeft), settings.base_currency)} over`}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })()}
                 </View>
               );
             })}
@@ -2503,7 +2633,8 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
       </TouchableOpacity>
 
       {/* CATEGORY PICKER SHEET (STEP 1: OPENS FIRST ON RECORD) */}
-      <CategoryPickerSheet
+      <CategoryManagerModal
+        mode="pick"
         visible={addCategorySheetVisible}
         txType={addModalType}
         amount={0}

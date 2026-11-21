@@ -14,6 +14,7 @@ import {
   AppSettings,
   DailyAllowanceStats,
   DailyAllowanceStatus,
+  DailyLeftoverMode,
   TransactionType,
   RecurringBill,
   BillFrequency,
@@ -25,6 +26,19 @@ import {
   DebtType,
   DebtSettlement,
 } from '../types';
+
+export const getWalletSpendableBalance = (w: Wallet): number => {
+  const bal = w.current_balance || 0;
+  const goal = w.goal_amount && w.goal_amount > 0 ? w.goal_amount : 0;
+  if (w.spendable_amount !== undefined && w.spendable_amount !== null) {
+    return Math.max(0, Math.min(bal, Math.max(0, w.spendable_amount)));
+  }
+  if (goal > 0) {
+    // Default for goal wallets: funds up to the goal are protected; only surplus above goal is spendable
+    return Math.max(0, bal - goal);
+  }
+  return bal;
+};
 
 interface BudgetContextType {
   wallets: Wallet[];
@@ -72,6 +86,7 @@ interface BudgetContextType {
 
   // Computed
   totalConvertedBalance: number;
+  totalSpendableBalance: number;
   spentInCycle: number;
   incomeInCycle: number;
   remainingCycleBalance: number;
@@ -145,6 +160,9 @@ interface BudgetContextType {
     starting_balance: number;
     color: string;
     icon: string;
+    goal_amount?: number | null;
+    goal_deadline?: string | null;
+    spendable_amount?: number | null;
   }) => Promise<void>;
   updateWallet: (wallet: Wallet) => Promise<void>;
   deleteWallet: (id: string) => Promise<void>;
@@ -159,6 +177,7 @@ interface BudgetContextType {
   addCategory: (params: { name: string; type: 'expense' | 'income'; icon: string; color: string; initial_limit?: number; exclude_from_analytics?: boolean }) => Promise<string>;
   updateCategory: (category: Category) => Promise<void>;
   deleteCategory: (id: string) => Promise<void>;
+  reorderCategories: (orderedIds: string[]) => Promise<void>;
   addSubcategory: (category_id: string, name: string, initial_limit?: number) => Promise<string>;
   updateSubcategory: (id: string, name: string) => Promise<void>;
   deleteSubcategory: (id: string) => Promise<void>;
@@ -200,6 +219,7 @@ interface BudgetContextType {
     paymentAmount: number,
     options?: { recordExcessAsCredit?: boolean; transactionId?: string }
   ) => Promise<void>;
+  offsetMutualDebts: (personName: string, maxAmount?: number) => Promise<number>;
   deleteDebt: (id: string) => Promise<void>;
   debtSettlements: DebtSettlement[];
   undoTransactionDebtSettlements: (transactionId: string) => Promise<void>;
@@ -283,6 +303,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     cycle_mode: 'regular',
     cycle_balance_mode: 'accumulated',
     cycle_target_mode: 'inherit',
+    daily_leftover_mode: 'spread',
     cycle_month_start_day: 1,
     app_lock_enabled: false,
     biometrics_enabled: false,
@@ -298,6 +319,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isAppLocked, setIsAppLocked] = useState<boolean>(false);
   const hasInitializedLockRef = useRef<boolean>(false);
   const lastBackgroundTimeRef = useRef<number | null>(null);
+  const sweepInFlightRef = useRef<boolean>(false);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
@@ -335,6 +357,8 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         cycle_mode: (sMap['cycle_mode'] as any) || 'regular',
         cycle_balance_mode: (sMap['cycle_balance_mode'] as any) || 'accumulated',
         cycle_target_mode: (sMap['cycle_target_mode'] as any) || 'inherit',
+        daily_leftover_mode: (sMap['daily_leftover_mode'] as DailyLeftoverMode) || 'spread',
+        lock_savings_wallet_id: sMap['lock_savings_wallet_id'] || undefined,
         cycle_month_start_day: sMap['cycle_month_start_day'] ? parseInt(sMap['cycle_month_start_day'], 10) : 1,
         cycle_default_budget: sMap['cycle_default_budget'] ? parseFloat(sMap['cycle_default_budget']) : undefined,
         cycle_default_income: sMap['cycle_default_income'] ? parseFloat(sMap['cycle_default_income']) : undefined,
@@ -365,7 +389,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setWallets(walletsRows);
 
       // Categories + Subcategories
-      const catRows = db.getAllSync<Category>(`SELECT * FROM categories ORDER BY name ASC`);
+      const catRows = db.getAllSync<Category>(`SELECT * FROM categories ORDER BY sort_order ASC, name ASC`);
       const subRows = db.getAllSync<Subcategory>(`SELECT * FROM subcategories ORDER BY name ASC`);
       const categoriesWithSubs = catRows.map((c) => ({
         ...c,
@@ -577,6 +601,11 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return wallets.reduce((total, w) => total + w.current_balance, 0);
   }, [wallets]);
 
+  // Computed spendable balance across wallets (goal wallets protect up to goal_amount by default)
+  const totalSpendableBalance = useMemo(() => {
+    return wallets.reduce((total, w) => total + getWalletSpendableBalance(w), 0);
+  }, [wallets]);
+
   // Cycle range transactions
   const cycleTransactions = useMemo(() => {
     if (!currentCycle) return transactions;
@@ -719,6 +748,9 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     let badgeLabel: string | undefined = undefined;
     let subText = '';
 
+    const leftoverMode: DailyLeftoverMode = settings.daily_leftover_mode || 'spread';
+    let savedLeftoverPool = 0;
+
     if (hasTargetBudget) {
       if (isBudgetOver) {
         status = 'budget_over';
@@ -732,7 +764,29 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           : `Over cap by ${formatCurrency(budgetOverAmount, curr)} • Wallet empty`;
       } else {
         const pool = Math.max(0, (targetBudget - spentInCycle) + todayExpenses);
-        availableForDay = daysForAllowance > 0 ? pool / daysForAllowance : 0;
+        const spreadDaily = daysForAllowance > 0 ? pool / daysForAllowance : 0;
+        const baseDaily = totalDays > 0 ? targetBudget / totalDays : targetBudget;
+        const sustainableDaily = Math.min(baseDaily, spreadDaily);
+        const priorSpent = Math.max(0, spentInCycle - todayExpenses);
+        const priorDaysCount = Math.max(0, dayIndex - 1);
+        const priorLeftover = Math.max(0, priorDaysCount * baseDaily - priorSpent);
+
+        if (leftoverMode === 'lock_savings') {
+          availableForDay = sustainableDaily;
+          savedLeftoverPool = Math.round(priorLeftover * 100) / 100;
+        } else if (leftoverMode === 'next_day') {
+          const yDate = new Date(todayY, todayM - 1, todayD - 1, 12, 0, 0);
+          const yesterdayStr = `${yDate.getFullYear()}-${String(yDate.getMonth() + 1).padStart(2, '0')}-${String(yDate.getDate()).padStart(2, '0')}`;
+          const yesterdaySpent = transactions
+            .filter((t) => t.type === 'expense' && t.date === yesterdayStr)
+            .reduce((sum, t) => sum + getEffectiveAmount(t), 0);
+          const yesterdayLeftover = dayIndex > 1 ? Math.max(0, baseDaily - yesterdaySpent) : 0;
+          const carryFromYesterday = Math.min(yesterdayLeftover, priorLeftover);
+          availableForDay = Math.min(pool, sustainableDaily + carryFromYesterday);
+        } else {
+          availableForDay = spreadDaily;
+        }
+
         remainingToday = availableForDay - todayExpenses;
         isOverDaily = todayExpenses > availableForDay;
 
@@ -753,16 +807,16 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
       }
     } else {
-      // No budget set: App is running on actual wallet
-      const walletPool = Math.max(0, totalConvertedBalance + todayExpenses);
-      if (totalConvertedBalance <= 0) {
+      // No budget set: App is running on actual spendable wallet balance
+      const walletPool = Math.max(0, totalSpendableBalance + todayExpenses);
+      if (totalSpendableBalance <= 0) {
         status = 'wallet_empty';
         headlineLabel = 'WALLET DEPLETED';
-        badgeLabel = 'No Budget • Wallet Empty';
+        badgeLabel = 'No Budget • Spendable Empty';
         availableForDay = 0;
-        remainingToday = totalConvertedBalance;
+        remainingToday = totalSpendableBalance;
         isOverDaily = todayExpenses > 0;
-        subText = 'Running on actual wallet • No funds available';
+        subText = 'Running on spendable wallet • No spendable funds available';
       } else {
         availableForDay = daysForAllowance > 0 ? walletPool / daysForAllowance : 0;
         remainingToday = availableForDay - todayExpenses;
@@ -773,14 +827,14 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           headlineLabel = "OVER TODAY'S PACE";
           badgeLabel = 'From Wallet';
           const overToday = Math.abs(remainingToday);
-          subText = `Over pace by ${formatCurrency(overToday, curr)} • Wallet: ${formatCurrency(totalConvertedBalance, curr)}`;
+          subText = `Over pace by ${formatCurrency(overToday, curr)} • Spendable: ${formatCurrency(totalSpendableBalance, curr)}`;
         } else {
           status = 'wallet_normal';
           headlineLabel = 'AVAILABLE FOR TODAY';
           badgeLabel = 'From Wallet';
           subText = todayExpenses > 0
             ? `Wallet pace: ${formatCurrency(availableForDay, curr)} • ${formatCurrency(todayExpenses, curr)} spent today`
-            : `Paced across ${daysRemaining} days • Wallet: ${formatCurrency(totalConvertedBalance, curr)}`;
+            : `Paced across ${daysRemaining} days • Spendable: ${formatCurrency(totalSpendableBalance, curr)}`;
         }
       }
     }
@@ -807,8 +861,10 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       headlineLabel,
       badgeLabel,
       subText,
+      leftoverMode,
+      savedLeftoverPool,
     };
-  }, [currentCycle, transactions, remainingCycleBalance, spentInCycle, totalConvertedBalance, settings.base_currency]);
+  }, [currentCycle, transactions, remainingCycleBalance, spentInCycle, totalConvertedBalance, totalSpendableBalance, settings.base_currency, settings.daily_leftover_mode]);
 
   // Overall Budget metrics
   const overallBudgetLimit = currentCycle?.target_budget || 0;
@@ -1368,14 +1424,28 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     starting_balance: number;
     color: string;
     icon: string;
+    goal_amount?: number | null;
+    goal_deadline?: string | null;
+    spendable_amount?: number | null;
   }) => {
     const db = getDB();
     const id = `w-${Date.now()}`;
     const wCurrency = params.currency || settings.base_currency;
     db.runSync(
-      `INSERT INTO wallets (id, name, currency, starting_balance, current_balance, color, icon, is_default)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
-      [id, params.name, wCurrency, params.starting_balance, params.starting_balance, params.color, params.icon]
+      `INSERT INTO wallets (id, name, currency, starting_balance, current_balance, color, icon, is_default, goal_amount, goal_deadline, spendable_amount)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+      [
+        id,
+        params.name,
+        wCurrency,
+        params.starting_balance,
+        params.starting_balance,
+        params.color,
+        params.icon,
+        params.goal_amount ?? null,
+        params.goal_deadline ?? null,
+        params.spendable_amount ?? null,
+      ]
     );
     await loadData();
   };
@@ -1383,8 +1453,19 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const updateWallet = async (wallet: Wallet) => {
     const db = getDB();
     db.runSync(
-      `UPDATE wallets SET name = ?, currency = ?, current_balance = ?, color = ?, icon = ?, is_default = ? WHERE id = ?`,
-      [wallet.name, wallet.currency, wallet.current_balance, wallet.color, wallet.icon, wallet.is_default ? 1 : 0, wallet.id]
+      `UPDATE wallets SET name = ?, currency = ?, current_balance = ?, color = ?, icon = ?, is_default = ?, goal_amount = ?, goal_deadline = ?, spendable_amount = ? WHERE id = ?`,
+      [
+        wallet.name,
+        wallet.currency,
+        wallet.current_balance,
+        wallet.color,
+        wallet.icon,
+        wallet.is_default ? 1 : 0,
+        wallet.goal_amount ?? null,
+        wallet.goal_deadline ?? null,
+        wallet.spendable_amount ?? null,
+        wallet.id,
+      ]
     );
     await loadData();
   };
@@ -1416,6 +1497,86 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
   };
 
+  // Auto-sweep yesterday's unspent daily leftover into the chosen Lock Savings wallet
+  useEffect(() => {
+    if (isLoading || sweepInFlightRef.current) return;
+    if (settings.daily_leftover_mode !== 'lock_savings' || !settings.lock_savings_wallet_id) return;
+    if (!currentCycle || !currentCycle.target_budget || currentCycle.target_budget <= 0) return;
+    if (!currentCycle.start_date || !currentCycle.end_date) return;
+
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const yDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 12, 0, 0);
+    const yesterdayStr = `${yDate.getFullYear()}-${String(yDate.getMonth() + 1).padStart(2, '0')}-${String(yDate.getDate()).padStart(2, '0')}`;
+
+    if (yesterdayStr < currentCycle.start_date || yesterdayStr > currentCycle.end_date) return;
+
+    const targetWallet = wallets.find((w) => w.id === settings.lock_savings_wallet_id);
+    const sourceWallet =
+      wallets.find((w) => w.is_default && w.id !== targetWallet?.id && w.current_balance > 0) ||
+      wallets.find((w) => w.id !== targetWallet?.id && getWalletSpendableBalance(w) > 0);
+    if (!targetWallet || !sourceWallet) return;
+
+    const db = getDB();
+    const sweepRow = db.getFirstSync<{ value: string }>(
+      `SELECT value FROM settings WHERE key = 'last_lock_savings_sweep_date'`
+    );
+    if (sweepRow?.value === yesterdayStr) return;
+
+    const [sy, sm, sd] = currentCycle.start_date.split('-').map(Number);
+    const [ey, em, ed] = currentCycle.end_date.split('-').map(Number);
+    const start = new Date(sy, sm - 1, sd, 0, 0, 0);
+    const end = new Date(ey, em - 1, ed, 0, 0, 0);
+    const totalDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+    const baseDaily = currentCycle.target_budget / totalDays;
+
+    const yOnly = new Date(yDate.getFullYear(), yDate.getMonth(), yDate.getDate(), 0, 0, 0);
+    const daysFromYesterday = Math.max(1, Math.round((end.getTime() - yOnly.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+
+    const spentBeforeYesterday = transactions
+      .filter((t) => t.type === 'expense' && t.date >= currentCycle.start_date && t.date < yesterdayStr)
+      .reduce((sum, t) => sum + getEffectiveAmount(t), 0);
+    const yesterdaySpent = transactions
+      .filter((t) => t.type === 'expense' && t.date === yesterdayStr)
+      .reduce((sum, t) => sum + getEffectiveAmount(t), 0);
+
+    const poolAtStartOfYesterday = Math.max(0, currentCycle.target_budget - spentBeforeYesterday);
+    const yesterdayAllowance = Math.min(baseDaily, poolAtStartOfYesterday / daysFromYesterday);
+    const yesterdayLeftover = Math.round(Math.max(0, yesterdayAllowance - yesterdaySpent) * 100) / 100;
+    const moveAmt = Math.round(Math.min(yesterdayLeftover, Math.max(0, sourceWallet.current_balance)) * 100) / 100;
+
+    sweepInFlightRef.current = true;
+    db.runSync(
+      `INSERT OR REPLACE INTO settings (key, value) VALUES ('last_lock_savings_sweep_date', ?)`,
+      [yesterdayStr]
+    );
+
+    if (moveAmt <= 0) {
+      sweepInFlightRef.current = false;
+      return;
+    }
+
+    transferBetweenWallets({
+      from_wallet_id: sourceWallet.id,
+      to_wallet_id: targetWallet.id,
+      amount: moveAmt,
+      date: todayStr,
+      note: `Auto-locked leftover (${yesterdayStr})`,
+    })
+      .catch((err) => console.warn('Auto lock-savings sweep failed:', err))
+      .finally(() => {
+        sweepInFlightRef.current = false;
+      });
+  }, [
+    isLoading,
+    settings.daily_leftover_mode,
+    settings.lock_savings_wallet_id,
+    currentCycle,
+    wallets,
+    transactions,
+    getEffectiveAmount,
+  ]);
+
   const addCategory = async (params: {
     name: string;
     type: 'expense' | 'income';
@@ -1426,9 +1587,11 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }): Promise<string> => {
     const db = getDB();
     const id = `cat-${Date.now()}`;
+    const maxRow = db.getFirstSync<{ maxSort: number | null }>(`SELECT MAX(sort_order) as maxSort FROM categories`);
+    const nextSort = (maxRow?.maxSort ?? 0) + 1;
     db.runSync(
-      `INSERT INTO categories (id, name, type, icon, color, is_default, exclude_from_analytics) VALUES (?, ?, ?, ?, ?, 0, ?)`,
-      [id, params.name, params.type, params.icon, params.color, params.exclude_from_analytics ? 1 : 0]
+      `INSERT INTO categories (id, name, type, icon, color, is_default, exclude_from_analytics, sort_order) VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
+      [id, params.name, params.type, params.icon, params.color, params.exclude_from_analytics ? 1 : 0, nextSort]
     );
 
     if (params.initial_limit && params.initial_limit > 0) {
@@ -1457,6 +1620,14 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     db.runSync(`DELETE FROM budgets WHERE category_id = ?`, [id]);
     db.runSync(`DELETE FROM subcategories WHERE category_id = ?`, [id]);
     db.runSync(`DELETE FROM categories WHERE id = ?`, [id]);
+    await loadData();
+  };
+
+  const reorderCategories = async (orderedIds: string[]) => {
+    const db = getDB();
+    orderedIds.forEach((catId, idx) => {
+      db.runSync(`UPDATE categories SET sort_order = ? WHERE id = ?`, [idx + 1, catId]);
+    });
     await loadData();
   };
 
@@ -1787,6 +1958,65 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     await loadData();
   };
 
+  // Mutual offset: cancels open 'lent' and 'borrowed' debts for the same person without creating wallet cash transactions
+  const offsetMutualDebts = async (personName: string, maxAmount?: number): Promise<number> => {
+    const key = personName.trim().toLowerCase();
+    if (!key) return 0;
+
+    const openLent = debts
+      .filter((d) => d.status === 'open' && d.type === 'lent' && d.person_name.trim().toLowerCase() === key)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    const openBorrowed = debts
+      .filter((d) => d.status === 'open' && d.type === 'borrowed' && d.person_name.trim().toLowerCase() === key)
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    const lentTotal = openLent.reduce((s, d) => s + Math.max(0, d.amount - (d.paid_amount || 0)), 0);
+    const borrowedTotal = openBorrowed.reduce((s, d) => s + Math.max(0, d.amount - (d.paid_amount || 0)), 0);
+    const offsetTotal = Math.round(
+      Math.min(lentTotal, borrowedTotal, maxAmount !== undefined ? Math.max(0, maxAmount) : Infinity) * 100
+    ) / 100;
+
+    if (offsetTotal <= 0) return 0;
+
+    const db = getDB();
+    const nowIso = new Date().toISOString();
+
+    db.withTransactionSync(() => {
+      let remLent = offsetTotal;
+      for (const d of openLent) {
+        if (remLent <= 0.009) break;
+        const paid = d.paid_amount || 0;
+        const left = Math.max(0, d.amount - paid);
+        const apply = Math.min(remLent, left);
+        const nextPaid = Math.round((paid + apply) * 100) / 100;
+        const nextStatus = nextPaid >= d.amount - 0.01 ? 'settled' : 'open';
+        db.runSync(
+          `UPDATE debts SET paid_amount = ?, status = ?, updated_at = ? WHERE id = ?`,
+          [nextPaid, nextStatus, nowIso, d.id]
+        );
+        remLent = Math.round((remLent - apply) * 100) / 100;
+      }
+
+      let remBorrowed = offsetTotal;
+      for (const d of openBorrowed) {
+        if (remBorrowed <= 0.009) break;
+        const paid = d.paid_amount || 0;
+        const left = Math.max(0, d.amount - paid);
+        const apply = Math.min(remBorrowed, left);
+        const nextPaid = Math.round((paid + apply) * 100) / 100;
+        const nextStatus = nextPaid >= d.amount - 0.01 ? 'settled' : 'open';
+        db.runSync(
+          `UPDATE debts SET paid_amount = ?, status = ?, updated_at = ? WHERE id = ?`,
+          [nextPaid, nextStatus, nowIso, d.id]
+        );
+        remBorrowed = Math.round((remBorrowed - apply) * 100) / 100;
+      }
+    });
+
+    await loadData();
+    return offsetTotal;
+  };
+
   const deleteDebt = async (id: string) => {
     const db = getDB();
     db.runSync(`DELETE FROM debts WHERE id = ?`, [id]);
@@ -1953,6 +2183,16 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
     if (newSettings.cycle_target_mode) {
       db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('cycle_target_mode', ?)`, [newSettings.cycle_target_mode]);
+    }
+    if (newSettings.daily_leftover_mode) {
+      db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('daily_leftover_mode', ?)`, [newSettings.daily_leftover_mode]);
+    }
+    if (newSettings.lock_savings_wallet_id !== undefined) {
+      if (newSettings.lock_savings_wallet_id) {
+        db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('lock_savings_wallet_id', ?)`, [newSettings.lock_savings_wallet_id]);
+      } else {
+        db.runSync(`DELETE FROM settings WHERE key = 'lock_savings_wallet_id'`);
+      }
     }
     if (newSettings.cycle_month_start_day !== undefined) {
       db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('cycle_month_start_day', ?)`, [newSettings.cycle_month_start_day.toString()]);
@@ -2213,6 +2453,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setSelectedAnalyticsCycle,
         isViewingCurrentCycle,
         totalConvertedBalance,
+        totalSpendableBalance,
         spentInCycle,
         incomeInCycle,
         remainingCycleBalance,
@@ -2239,6 +2480,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         addCategory,
         updateCategory,
         deleteCategory,
+        reorderCategories,
         addSubcategory,
         updateSubcategory,
         deleteSubcategory,
@@ -2250,6 +2492,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         addDebt,
         updateDebt,
         recordDebtPayment,
+        offsetMutualDebts,
         deleteDebt,
         debtSettlements,
         undoTransactionDebtSettlements,

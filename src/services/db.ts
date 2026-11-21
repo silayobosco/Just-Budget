@@ -26,7 +26,10 @@ export const initDatabase = async () => {
       current_balance REAL NOT NULL DEFAULT 0,
       color TEXT NOT NULL,
       icon TEXT NOT NULL,
-      is_default INTEGER NOT NULL DEFAULT 0
+      is_default INTEGER NOT NULL DEFAULT 0,
+      goal_amount REAL,
+      goal_deadline TEXT,
+      spendable_amount REAL
     );
 
     CREATE TABLE IF NOT EXISTS categories (
@@ -36,7 +39,8 @@ export const initDatabase = async () => {
       icon TEXT NOT NULL,
       color TEXT NOT NULL,
       is_default INTEGER NOT NULL DEFAULT 0,
-      exclude_from_analytics INTEGER NOT NULL DEFAULT 0
+      exclude_from_analytics INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS subcategories (
@@ -196,6 +200,18 @@ export const initDatabase = async () => {
   } catch {}
   try {
     db.runSync(`ALTER TABLE categories ADD COLUMN exclude_from_analytics INTEGER DEFAULT 0`);
+  } catch {}
+  try {
+    db.runSync(`ALTER TABLE categories ADD COLUMN sort_order INTEGER DEFAULT 0`);
+  } catch {}
+  try {
+    db.runSync(`ALTER TABLE wallets ADD COLUMN goal_amount REAL`);
+  } catch {}
+  try {
+    db.runSync(`ALTER TABLE wallets ADD COLUMN goal_deadline TEXT`);
+  } catch {}
+  try {
+    db.runSync(`ALTER TABLE wallets ADD COLUMN spendable_amount REAL`);
   } catch {}
 
   // Run migrations & ensure defaults

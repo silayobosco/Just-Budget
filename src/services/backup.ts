@@ -195,17 +195,29 @@ export const restoreFromBackupContentAsync = async (
       // Restore wallets
       for (const w of parsed.wallets) {
         db.runSync(
-          `INSERT INTO wallets (id, name, currency, starting_balance, current_balance, color, icon, is_default)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [w.id, w.name, w.currency, w.starting_balance, w.current_balance, w.color, w.icon, w.is_default ? 1 : 0]
+          `INSERT INTO wallets (id, name, currency, starting_balance, current_balance, color, icon, is_default, goal_amount, goal_deadline, spendable_amount)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            w.id,
+            w.name,
+            w.currency,
+            w.starting_balance,
+            w.current_balance,
+            w.color,
+            w.icon,
+            w.is_default ? 1 : 0,
+            w.goal_amount ?? null,
+            w.goal_deadline ?? null,
+            w.spendable_amount ?? null,
+          ]
         );
       }
 
       // Restore categories
       for (const c of parsed.categories) {
         db.runSync(
-          `INSERT INTO categories (id, name, type, icon, color, is_default, exclude_from_analytics) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [c.id, c.name, c.type, c.icon, c.color, c.is_default ? 1 : 0, c.exclude_from_analytics ? 1 : 0]
+          `INSERT INTO categories (id, name, type, icon, color, is_default, exclude_from_analytics, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [c.id, c.name, c.type, c.icon, c.color, c.is_default ? 1 : 0, c.exclude_from_analytics ? 1 : 0, c.sort_order ?? 0]
         );
       }
 

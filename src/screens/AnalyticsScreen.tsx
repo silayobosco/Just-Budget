@@ -31,7 +31,7 @@ import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
 import { formatCurrency } from '../utils/format';
 import { TransactionType, BillFrequency, RecurrenceEndType } from '../types';
-import { CategoryPickerSheet } from '../components/CategoryPickerSheet';
+import { CategoryManagerModal } from '../components/CategoryManagerModal';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
 import { CalendarPickerModal } from '../components/CalendarPickerModal';
 import { DebtsModal } from '../components/DebtsModal';
@@ -3630,7 +3630,8 @@ export const AnalyticsScreen: React.FC = () => {
       </TouchableOpacity>
 
       {/* CATEGORY PICKER SHEET (STEP 1: OPENS FIRST ON RECORD) */}
-      <CategoryPickerSheet
+      <CategoryManagerModal
+        mode="pick"
         visible={addCategorySheetVisible}
         txType={addModalType}
         amount={0}

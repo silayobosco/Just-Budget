@@ -20,6 +20,7 @@ import { getDB } from '../services/db';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
 import { Transaction, TransactionType, BillFrequency, RecurrenceEndType } from '../types';
 import { formatCurrency, formatTypingNumber, parseCleanNumber } from '../utils/format';
+import { formatLocalDate } from '../utils/date';
 import { CategoryManagerModal } from '../components/CategoryManagerModal';
 import { CategoryPickerSheet } from '../components/CategoryPickerSheet';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
@@ -32,7 +33,7 @@ import { TabType } from '../components/BottomTabs';
 // Safe arithmetic evaluator for basic calculation on dialpad
 export const evaluateMathExpression = (expr: string): number => {
   if (!expr) return 0;
-  let clean = expr.replace(/×/g, '*').replace(/÷/g, '/').replace(/,/g, '');
+  let clean = expr.replace(/Ã—/g, '*').replace(/Ã·/g, '/').replace(/,/g, '');
   clean = clean.replace(/[+\-*/.]+$/, '').trim();
   if (!clean) return 0;
   try {
@@ -126,12 +127,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
     settings,
     dailyAllowanceStats,
     totalConvertedBalance,
+    totalSpendableBalance,
     spentInCycle,
     incomeInCycle,
     currentCycle,
     overallBudgetLimit,
+    categoryBudgetProgressList,
+    budgets,
     transactions,
     recurringBills,
+    debts,
     payRecurringBill,
     categories,
     wallets,
@@ -141,6 +146,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
     addRecurringBill,
     updateBudgetCycle,
     updateCurrentCycleTarget,
+    updateSettings,
+    transferBetweenWallets,
     deleteTransaction,
     getEffectiveAmount,
     setAnalyticsFocus,
@@ -186,10 +193,46 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
 
   // 2-Step Recording Modals State
   const [activeTxType, setActiveTxType] = useState<TransactionType>('expense');
+  const [keypadSheetVisible, setKeypadSheetVisible] = useState(false);
+  const [keypadType, setKeypadType] = useState<'expense' | 'income'>('expense');
+  const [loanModalVisible, setLoanModalVisible] = useState(false);
   const [categoryPickerVisible, setCategoryPickerVisible] = useState(false);
   const [detailsModalVisible, setDetailsModalVisible] = useState(false);
   const [prefilledCategoryId, setPrefilledCategoryId] = useState<string | undefined>(undefined);
   const [prefilledSubcategoryId, setPrefilledSubcategoryId] = useState<string | undefined>(undefined);
+
+  // Floating Action Button (FAB) Speed-Dial states
+  const [isFabOpen, setIsFabOpen] = useState(false);
+  const fabAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.spring(fabAnim, {
+      toValue: isFabOpen ? 1 : 0,
+      useNativeDriver: true,
+      tension: 65,
+      friction: 10,
+    }).start();
+  }, [isFabOpen, fabAnim]);
+
+  const fabRotate = fabAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '45deg'],
+  });
+
+  const speedDialTranslateY = fabAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [20, 0],
+  });
+
+  const speedDialScale = fabAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.85, 1],
+  });
+
+  const speedDialOpacity = fabAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 1],
+  });
 
   // Quick Wallet modal
   const [quickWalletModalVisible, setQuickWalletModalVisible] = useState(false);
@@ -236,7 +279,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
       setAmountSelection({ start: 1, end: 1 });
       return;
     }
-    const cleaned = text.replace(/[*]/g, '×').replace(/[/]/g, '÷').replace(/[^0-9.+×÷\- ,]/g, '');
+    const cleaned = text.replace(/[*]/g, 'Ã—').replace(/[/]/g, 'Ã·').replace(/[^0-9.+Ã—Ã·\- ,]/g, '');
     const formatted = formatTypingNumber(cleaned);
     setAmountStr(formatted || '0');
   };
@@ -309,10 +352,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
       return;
     }
 
-    // Basic calculation operators (+, -, ×, ÷)
-    if (['+', '-', '×', '÷'].includes(val)) {
+    // Basic calculation operators (+, -, Ã—, Ã·)
+    if (['+', '-', 'Ã—', 'Ã·'].includes(val)) {
       // If trailing operator already exists, replace it
-      const operatorRegex = / [+\-×÷] $/;
+      const operatorRegex = / [+\-Ã—Ã·] $/;
       if (operatorRegex.test(amountStr)) {
         const next = amountStr.replace(operatorRegex, ` ${val} `);
         setAmountStr(next);
@@ -320,7 +363,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
         return;
       }
       // If equation already has a first number and operator, solve first then chain operator
-      if (/[0-9] [+\-×÷] [0-9]/.test(amountStr)) {
+      if (/[0-9] [+\-Ã—Ã·] [0-9]/.test(amountStr)) {
         const result = evaluateMathExpression(amountStr);
         const next = `${formatTypingNumber(result.toString())} ${val} `;
         setAmountStr(next);
@@ -336,7 +379,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
 
     if (val === '.') {
       // Check last number segment in amountStr
-      const parts = amountStr.split(/ [+\-×÷] /);
+      const parts = amountStr.split(/ [+\-Ã—Ã·] /);
       const lastPart = parts[parts.length - 1] || '';
       if (lastPart.includes('.')) {
         const selectedText = amountStr.slice(curStart, curEnd);
@@ -366,7 +409,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
     const cleanCandidate = rawCandidate.replace(/,/g, '');
 
     // Check decimal constraint on current number segment
-    const segments = cleanCandidate.split(/ [+\-×÷] /);
+    const segments = cleanCandidate.split(/ [+\-Ã—Ã·] /);
     const currentSegment = segments[segments.length - 1] || '';
     const decParts = currentSegment.split('.');
     if (decParts.length === 2 && decParts[1].length > 2) return;
@@ -390,8 +433,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
   };
 
   // Math calculation properties
-  const hasOperator = useMemo(() => /[+\-×÷]/.test(amountStr), [amountStr]);
-  const isEquationReady = useMemo(() => /[0-9] [+\-×÷] [0-9]/.test(amountStr), [amountStr]);
+  const hasOperator = useMemo(() => /[+\-Ã—Ã·]/.test(amountStr), [amountStr]);
+  const isEquationReady = useMemo(() => /[0-9] [+\-Ã—Ã·] [0-9]/.test(amountStr), [amountStr]);
   const evaluatedAmount = useMemo(() => evaluateMathExpression(amountStr), [amountStr]);
   const parsedAmount = evaluatedAmount;
 
@@ -417,8 +460,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
       ];
     }
     return [
-      ['1', '2', '3', '÷'],
-      ['4', '5', '6', '×'],
+      ['1', '2', '3', 'Ã·'],
+      ['4', '5', '6', 'Ã—'],
       ['7', '8', '9', '-'],
       ['.', '0', 'backspace', isEquationReady ? '=' : '+'],
     ];
@@ -427,7 +470,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
   // Duplicate warning detection
   const isDuplicate = useMemo(() => {
     if (parsedAmount <= 0 || !selectedWalletId) return false;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = formatLocalDate(new Date());
     return transactions.some((t) => {
       return (
         t.date === today &&
@@ -451,11 +494,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
       isOver,
       remaining,
       overBy,
-      badgeText: hasTarget ? (isOver ? `⚠️ ${percent}%` : `${percent}%`) : '+ Set Cap',
+      badgeText: hasTarget ? (isOver ? `âš ï¸ ${percent}%` : `${percent}%`) : '+ Set Cap',
       subText: hasTarget
         ? isOver
-          ? `⚠️ ${formatCurrency(overBy, curr)} over`
-          : `Cap: ${formatCurrency(overallBudgetLimit, curr)}`
+          ? `âš ï¸ ${formatCurrency(overBy, curr)} over`
+          : `${formatCurrency(remaining, curr)} left of ${formatCurrency(overallBudgetLimit, curr)}`
         : 'Tap to set budget cap',
     };
   }, [overallBudgetLimit, spentInCycle, curr]);
@@ -474,16 +517,25 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
       percent,
       isReached,
       remaining,
-      badgeText: hasGoal ? (isReached ? '🎉 100%' : `${percent}%`) : '+ Set Goal',
+      badgeText: hasGoal ? (isReached ? 'ðŸŽ‰ 100%' : `${percent}%`) : '+ Set Goal',
       subText: hasGoal
         ? isReached
-          ? '🎉 Goal reached'
-          : `Goal: ${formatCurrency(goal, curr)}`
+          ? 'ðŸŽ‰ Goal reached'
+          : `${formatCurrency(remaining, curr)} to reach goal`
         : 'Tap to set income goal',
     };
   }, [currentCycle, incomeInCycle, curr]);
 
-  // Flow Triggers: Tapping Record Income or Record Expense
+  // Flow Triggers: Open Keypad Sheet or Record Income/Expense
+  const handleOpenKeypad = (type: 'expense' | 'income') => {
+    setKeypadType(type);
+    setKeypadSheetVisible(true);
+    setTimeout(() => {
+      amountInputRef.current?.focus();
+      Keyboard.dismiss();
+    }, 120);
+  };
+
   const handleOpenRecordFlow = (type: TransactionType) => {
     if (parsedAmount <= 0) {
       Alert.alert('Enter Amount', `Please enter an amount greater than 0 before recording ${type}.`);
@@ -494,11 +546,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
       setAmountStr(parsedAmount.toString());
     }
     if (!selectedWalletId && wallets.length === 0) {
+      setKeypadSheetVisible(false);
       setNewWalletName('');
       setNewWalletBal('0');
       setQuickWalletModalVisible(true);
       return;
     }
+    setKeypadSheetVisible(false);
     setActiveTxType(type);
     setCategoryPickerVisible(true);
   };
@@ -511,7 +565,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
     categoryId?: string;
     subcategoryId?: string;
   }) => {
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayStr = formatLocalDate(new Date());
     const d = new Date();
     const timeNow = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 
@@ -788,10 +842,76 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
     snapToCollapsed(collapsedHeight);
   };
 
+  // Dashboard glance stats: Savings Rate, Loans Summary, Next Bill, Recent Transactions
+  const savingsRateStats = useMemo(() => {
+    const net = incomeInCycle - spentInCycle;
+    const rate = incomeInCycle > 0 ? Math.round((net / incomeInCycle) * 100) : 0;
+    return { net, rate, hasIncome: incomeInCycle > 0 };
+  }, [incomeInCycle, spentInCycle]);
+
+  const loansSummary = useMemo(() => {
+    const open = debts.filter((d) => d.status === 'open');
+    const owedToYou = open
+      .filter((d) => d.type === 'lent')
+      .reduce((sum, d) => sum + Math.max(0, d.amount - (d.paid_amount || 0)), 0);
+    const youOwe = open
+      .filter((d) => d.type === 'borrowed')
+      .reduce((sum, d) => sum + Math.max(0, d.amount - (d.paid_amount || 0)), 0);
+    return { openCount: open.length, owedToYou, youOwe };
+  }, [debts]);
+
+  const nextBill = useMemo(() => {
+    const todayStr = formatLocalDate(new Date());
+    const upcoming = recurringBills
+      .filter((b) => b.is_active && b.next_due_date > todayStr)
+      .sort((a, b) => a.next_due_date.localeCompare(b.next_due_date));
+    return upcoming[0] || null;
+  }, [recurringBills]);
+
+  const recentTransactions = useMemo(() => {
+    const todayStr = formatLocalDate(new Date());
+    return transactions
+      .filter((t) => t.date === todayStr)
+      .sort((a, b) => (b.created_at || b.id).localeCompare(a.created_at || a.id))
+      .slice(0, 5);
+  }, [transactions]);
+
+  const fallbackRecentTransactions = useMemo(() => {
+    return [...transactions]
+      .sort((a, b) => (b.date !== a.date ? b.date.localeCompare(a.date) : (b.created_at || b.id).localeCompare(a.created_at || a.id)))
+      .slice(0, 4);
+  }, [transactions]);
+
+  const goalWallets = useMemo(() => {
+    return wallets.filter((w) => w.goal_amount && w.goal_amount > 0);
+  }, [wallets]);
+
+  const fundraisingGoals = useMemo(() => {
+    return categories
+      .filter((c) => c.exclude_from_analytics)
+      .map((cat) => {
+        const limitObj = budgets.find((b) => b.scope === 'category' && b.category_id === cat.id && b.amount > 0);
+        const target = limitObj?.amount || 0;
+        const raised = transactions
+          .filter((t) => t.category_id === cat.id)
+          .reduce((sum, t) => sum + (t.type === 'income' ? (t.amount || 0) : -(t.amount || 0)), 0);
+        return { cat, target, raised: Math.max(0, raised) };
+      });
+  }, [categories, budgets, transactions]);
+
+  const topCategoryWatchlist = useMemo(() => {
+    const withLimit = categoryBudgetProgressList
+      .filter((p) => p.limit > 0)
+      .sort((a, b) => b.percent - a.percent);
+    const withoutLimit = categoryBudgetProgressList
+      .filter((p) => p.limit <= 0 && p.spent > 0)
+      .sort((a, b) => b.spent - a.spent);
+    return [...withLimit, ...withoutLimit].slice(0, 4);
+  }, [categoryBudgetProgressList]);
+
   const handlePressHistoryItem = (tx: Transaction) => {
     setSelectedCalendarDate(tx.date);
     setSelectedTransactionIdForCalendar(tx.id);
-    closeSheet();
     onNavigateTab?.('calendar');
   };
 
@@ -857,18 +977,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
   ).current;
 
   return (
-    <View
-      style={[styles.container, { backgroundColor: theme.background }]}
-      onLayout={(e) => setScreenContainerHeight(e.nativeEvent.layout.height)}
-    >
-      {/* 1. BASE SCREEN: ENTRY DISPLAY & DOCKED DIAL PAD */}
-      <View
-        style={[
-          styles.baseEntryContainer,
-          {
-            paddingTop: collapsedHeight,
-          },
-        ]}
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
+      {/* 1. DASHBOARD SCROLLABLE BODY */}
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={styles.dashScrollContent}
+        showsVerticalScrollIndicator={false}
       >
         {/* OVERDUE & DUE TODAY RECURRING BILL REMINDER */}
         <OverdueBillReminderBanner
@@ -883,448 +997,17 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
           }}
         />
 
-        {/* INPUT SPACE (AMOUNT DISPLAY) */}
-        <View style={styles.inputSpace}>
-          <Pressable
-            style={styles.amountPressable}
-            onPress={() => {
-              amountInputRef.current?.focus();
-            }}
-          >
-            <View style={styles.amountDisplayRow}>
-              <Text
-                style={[
-                  styles.currencySymbol,
-                  {
-                    color: theme.primary,
-                    fontSize: isTinyScreen ? 20 : isCompactScreen ? 23 : 26,
-                  },
-                ]}
-              >
-                {curr}{' '}
-              </Text>
-              <TextInput
-                ref={amountInputRef}
-                style={[
-                  styles.amountInputText,
-                  {
-                    color: theme.onSurface,
-                    fontSize: dynamicAmountFontSize,
-                  },
-                ]}
-                value={amountStr}
-                onChangeText={handleAmountChange}
-                selection={amountSelection}
-                onSelectionChange={(e) => setAmountSelection(e.nativeEvent.selection)}
-                keyboardType="decimal-pad"
-                showSoftInputOnFocus={false}
-                caretHidden={false}
-                cursorColor={theme.primary}
-                selectionColor={theme.primary + '55'}
-                autoFocus={false}
-                onFocus={() => Keyboard.dismiss()}
-                contextMenuHidden={false}
-                scrollEnabled={false}
-              />
-            </View>
-          </Pressable>
-
-          {/* CALCULATION LIVE PREVIEW / SOLVE PILL */}
-          {hasOperator && (
-            <TouchableOpacity
-              style={[
-                styles.calcPreviewPill,
-                {
-                  backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.2)' : '#EEF2FF',
-                  borderColor: isDarkMode ? 'rgba(99, 102, 241, 0.45)' : '#C7D2FE',
-                },
-              ]}
-              onPress={() => handleKeyPress('=')}
-              activeOpacity={0.7}
-            >
-              <MaterialCommunityIcons name="equal" size={15} color={theme.primary} />
-              <Text style={[styles.calcPreviewAmount, { color: theme.primary }]}>
-                {formatCurrency(evaluatedAmount, curr)}
-              </Text>
-              <Text style={[styles.calcPreviewHint, { color: theme.onSurfaceVariant }]}>
-                tap to solve
-              </Text>
-            </TouchableOpacity>
-          )}
-
-          {isDuplicate && (
-            <View style={[styles.duplicateBanner, { backgroundColor: '#FEF3C7' }]}>
-              <MaterialCommunityIcons name="alert-outline" size={14} color="#D97706" />
-              <Text style={styles.duplicateBannerText}>Possible duplicate recorded today</Text>
-            </View>
-          )}
-        </View>
-
-        {/* LOWER SECTION: WALLETS ROW + DIAL PAD + DUAL RECORD BUTTONS */}
-        <View style={styles.dockedLowerSection}>
-          {/* WALLETS ROW ONLY (ABOVE DIAL PAD) */}
-          <View style={[styles.chipsWorkspace, { backgroundColor: theme.surface }]}>
-            <View style={styles.chipRowWrap}>
-              <Text style={[styles.chipSectionLabel, { color: theme.onSurfaceVariant }]}>WALLET</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll}>
-                {wallets.length === 0 ? (
-                  <TouchableOpacity
-                    style={[
-                      styles.chipItem,
-                      {
-                        backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.22)' : theme.primaryContainer,
-                        borderColor: theme.primary,
-                        borderWidth: 1,
-                        paddingHorizontal: 12,
-                      },
-                    ]}
-                    onPress={() => {
-                      setNewWalletName('');
-                      setNewWalletBal('0');
-                      setQuickWalletModalVisible(true);
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <MaterialCommunityIcons name="wallet-plus" size={14} color={theme.primary} />
-                    <Text
-                      style={[
-                        styles.chipText,
-                        {
-                          color: isDarkMode ? '#C7D2FE' : theme.onPrimaryContainer,
-                          fontWeight: '800',
-                        },
-                      ]}
-                    >
-                      + Register First Wallet
-                    </Text>
-                  </TouchableOpacity>
-                ) : (
-                  wallets.map((w) => {
-                    const isSelected = w.id === selectedWalletId;
-                    return (
-                      <TouchableOpacity
-                        key={w.id}
-                        style={[
-                          styles.chipItem,
-                          {
-                            backgroundColor: isSelected ? theme.primaryContainer : theme.pillBg,
-                            borderColor: isSelected ? theme.primary : 'transparent',
-                          },
-                        ]}
-                        onPress={() => setSelectedWalletId(w.id)}
-                        activeOpacity={0.7}
-                      >
-                        <MaterialCommunityIcons
-                          name={(w.icon as any) || 'wallet'}
-                          size={14}
-                          color={isSelected ? theme.onPrimaryContainer : theme.onSurface}
-                        />
-                        <Text
-                          style={[
-                            styles.chipText,
-                            {
-                              color: isSelected ? theme.onPrimaryContainer : theme.onSurface,
-                              fontWeight: isSelected ? '700' : '500',
-                            },
-                          ]}
-                        >
-                          {w.name}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })
-                )}
-                {wallets.length > 0 && (
-                  <TouchableOpacity
-                    style={[styles.addChipBtn, { backgroundColor: theme.primaryContainer }]}
-                    onPress={() => {
-                      setNewWalletName('');
-                      setNewWalletBal('0');
-                      setQuickWalletModalVisible(true);
-                    }}
-                  >
-                    <MaterialCommunityIcons name="plus" size={15} color={theme.onPrimaryContainer} />
-                  </TouchableOpacity>
-                )}
-              </ScrollView>
-            </View>
-          </View>
-
-          {/* DOCKED DIAL PAD (PINNED TO BOTTOM) */}
-          <View
-            style={[
-              styles.dockedDialPadArea,
-              { borderTopColor: theme.divider, backgroundColor: theme.surface },
-              isCompactScreen && { paddingTop: 6, paddingBottom: 8 },
-            ]}
-          >
-            {dialPadRows.map((row, rIdx) => (
-              <View key={rIdx} style={[styles.dialRow, { marginBottom: dialRowMargin }]}>
-                {row.map((k) => {
-                  if (k === '.') {
-                    return (
-                      <View
-                        key={k}
-                        style={[
-                          styles.dialKey,
-                          styles.dotSwitcherKeyContainer,
-                          {
-                            backgroundColor: showCalcSide
-                              ? (isDarkMode ? 'rgba(99, 102, 241, 0.22)' : '#EEF2FF')
-                              : theme.pillBg,
-                            borderColor: showCalcSide
-                              ? theme.primary
-                              : (isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'transparent'),
-                            borderWidth: showCalcSide ? 1.5 : StyleSheet.hairlineWidth,
-                            height: dialKeyHeight,
-                          },
-                        ]}
-                      >
-                        {/* Dot Touch Area */}
-                        <TouchableOpacity
-                          style={styles.dotSubKeyTouch}
-                          onPress={() => handleKeyPress('.')}
-                          onLongPress={toggleCalcSide}
-                          activeOpacity={0.65}
-                          accessibilityRole="button"
-                          accessibilityLabel="Decimal point"
-                        >
-                          <Text
-                            style={[
-                              styles.dialKeyText,
-                              {
-                                color: theme.onSurface,
-                                fontSize: dialKeyFontSize + 4,
-                                fontWeight: '900',
-                                lineHeight: dialKeyFontSize + 4,
-                              },
-                            ]}
-                          >
-                            .
-                          </Text>
-                        </TouchableOpacity>
-
-                        {/* Subtle Divider */}
-                        <View
-                          style={[
-                            styles.dotSwitcherDivider,
-                            {
-                              backgroundColor: showCalcSide
-                                ? (isDarkMode ? 'rgba(99, 102, 241, 0.4)' : '#C7D2FE')
-                                : theme.divider,
-                            },
-                          ]}
-                        />
-
-                        {/* Calculation Side Switcher Touch Area */}
-                        <TouchableOpacity
-                          style={[
-                            styles.calcSwitchSubKeyTouch,
-                            showCalcSide && {
-                              backgroundColor: theme.primary,
-                            },
-                          ]}
-                          onPress={toggleCalcSide}
-                          activeOpacity={0.65}
-                          accessibilityRole="button"
-                          accessibilityLabel={
-                            showCalcSide
-                              ? 'Hide basic calculation keyboard'
-                              : 'Show basic calculation keyboard'
-                          }
-                        >
-                          <MaterialCommunityIcons
-                            name={showCalcSide ? 'calculator' : 'calculator-variant-outline'}
-                            size={isTinyScreen ? 14 : 16}
-                            color={showCalcSide ? '#FFFFFF' : theme.onSurfaceVariant}
-                          />
-                        </TouchableOpacity>
-                      </View>
-                    );
-                  }
-
-                  const isOperator = ['+', '-', '×', '÷', '='].includes(k);
-                  const isEquals = k === '=';
-
-                  return (
-                    <TouchableOpacity
-                      key={k}
-                      style={[
-                        styles.dialKey,
-                        {
-                          backgroundColor: isEquals
-                            ? theme.primary
-                            : isOperator
-                              ? (isDarkMode ? 'rgba(99, 102, 241, 0.2)' : '#EEF2FF')
-                              : theme.pillBg,
-                          borderColor: isOperator && !isEquals
-                            ? (isDarkMode ? 'rgba(99, 102, 241, 0.4)' : '#C7D2FE')
-                            : 'transparent',
-                          borderWidth: isOperator && !isEquals ? StyleSheet.hairlineWidth : 0,
-                          height: dialKeyHeight,
-                        },
-                      ]}
-                      onPress={() => handleKeyPress(k)}
-                      activeOpacity={0.65}
-                    >
-                      {k === 'backspace' ? (
-                        <MaterialCommunityIcons
-                          name="backspace-outline"
-                          size={isTinyScreen ? 20 : 24}
-                          color={theme.onSurface}
-                        />
-                      ) : (
-                        <Text
-                          style={[
-                            styles.dialKeyText,
-                            {
-                              color: isEquals
-                                ? '#FFFFFF'
-                                : isOperator
-                                  ? theme.primary
-                                  : theme.onSurface,
-                              fontSize: isOperator ? dialKeyFontSize + 2 : dialKeyFontSize,
-                              fontWeight: isOperator ? '800' : '700',
-                            },
-                          ]}
-                          maxFontSizeMultiplier={1.2}
-                        >
-                          {k}
-                        </Text>
-                      )}
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            ))}
-
-            {/* DUAL RECORD ACTION BUTTONS: INCOME ON LEFT, EXPENSE ON RIGHT */}
-            <View style={styles.dualActionBar}>
-              {/* Record Income Button (Left) */}
-              <TouchableOpacity
-                style={[
-                  styles.dualRecordBtn,
-                  {
-                    height: recordButtonHeight,
-                    backgroundColor: theme.successContainer,
-                    borderColor: theme.success,
-                  },
-                  M3Elevation.level2,
-                ]}
-                onPress={() => handleOpenRecordFlow('income')}
-                activeOpacity={0.85}
-              >
-                <View style={styles.dualRecordBtnContent}>
-                  <View style={styles.dualRecordHeaderRow}>
-                    <MaterialCommunityIcons name="plus-circle" size={16} color={theme.success} />
-                    <Text
-                      style={[styles.dualRecordBtnTitle, { color: theme.onSuccessContainer }]}
-                      numberOfLines={1}
-                    >
-                      Record Income
-                    </Text>
-                  </View>
-                  <View
-                    style={[
-                      styles.dualRecordBadge,
-                      {
-                        backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.85)',
-                        borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
-                        borderWidth: StyleSheet.hairlineWidth,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.dualRecordBadgeText,
-                        { color: isDarkMode ? '#6EE7B7' : '#047857' },
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {incomeSwitcherProgress.hasGoal
-                        ? incomeSwitcherProgress.isReached
-                          ? '🎉 Reached'
-                          : `Remain: ${formatCurrency(incomeSwitcherProgress.remaining, curr)}`
-                        : `Total: ${formatCurrency(incomeInCycle, curr)}`}
-                    </Text>
-                  </View>
-                </View>
-              </TouchableOpacity>
-
-              {/* Record Expense Button (Right) */}
-              <TouchableOpacity
-                style={[
-                  styles.dualRecordBtn,
-                  {
-                    height: recordButtonHeight,
-                    backgroundColor: theme.errorContainer,
-                    borderColor: theme.error,
-                  },
-                  M3Elevation.level2,
-                ]}
-                onPress={() => handleOpenRecordFlow('expense')}
-                activeOpacity={0.85}
-              >
-                <View style={styles.dualRecordBtnContent}>
-                  <View style={styles.dualRecordHeaderRow}>
-                    <MaterialCommunityIcons name="minus-circle" size={16} color={theme.error} />
-                    <Text
-                      style={[styles.dualRecordBtnTitle, { color: theme.onErrorContainer }]}
-                      numberOfLines={1}
-                    >
-                      Record Expense
-                    </Text>
-                  </View>
-                  <View
-                    style={[
-                      styles.dualRecordBadge,
-                      {
-                        backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.85)',
-                        borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
-                        borderWidth: StyleSheet.hairlineWidth,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.dualRecordBadgeText,
-                        { color: isDarkMode ? '#FCA5A5' : '#B91C1C' },
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {expenseSwitcherProgress.hasTarget
-                        ? expenseSwitcherProgress.isOver
-                          ? `Over: ${formatCurrency(expenseSwitcherProgress.overBy, curr)}`
-                          : `Remain: ${formatCurrency(expenseSwitcherProgress.remaining, curr)}`
-                        : `Total: ${formatCurrency(spentInCycle, curr)}`}
-                    </Text>
-                  </View>
-                </View>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </View>
-
-      {/* BACKDROP DIMMER WHEN SHEET IS EXPANDED */}
-      {isSheetExpanded && (
-        <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={closeSheet} />
-      )}
-
-      {/* 2. TOP SHEET: TODAY'S BALANCE & INCOME GOAL | BUDGET CAP DISPLAY */}
-      <Animated.View
-        style={[
-          styles.topSheetContainer,
-          {
-            backgroundColor: theme.surface,
-            height: animatedHeight,
-          },
-          M3Elevation.level3,
-        ]}
-      >
-        {/* 2A. HERO SECTION: TODAY'S BALANCE & PROGRESS CARDS */}
-        <View {...panResponder.panHandlers} style={[styles.heroSection, isCompactScreen && { paddingTop: 6, paddingBottom: 6 }]}>
-          {/* Available for Today Row */}
+        {/* HERO CARD: AVAILABLE FOR TODAY + DAYS LEFT + CYCLE PULSE (SPENT / INCOME / SAVINGS RATE) */}
+        <View
+          style={[
+            styles.dashHeroCard,
+            {
+              backgroundColor: theme.surface,
+              borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.12)' : theme.divider,
+            },
+            M3Elevation.level2,
+          ]}
+        >
           <View style={styles.todayBalanceRow}>
             <TouchableOpacity
               style={{ flex: 1, marginRight: 8 }}
@@ -1345,7 +1028,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
                             ? (isDarkMode ? '#F87171' : theme.error)
                             : theme.onSurfaceVariant,
                     },
-                    isCompactScreen && { fontSize: 9.5 },
                   ]}
                   maxFontSizeMultiplier={1.2}
                 >
@@ -1403,7 +1085,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
                         ? theme.error
                         : theme.primary,
                   },
-                  isCompactScreen && { fontSize: 21 },
                 ]}
                 numberOfLines={1}
                 adjustsFontSizeToFit
@@ -1416,13 +1097,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
               </Text>
             </TouchableOpacity>
 
-            {/* Days Left chip - Tap to open Cycle Type picker */}
             <TouchableOpacity
               style={[
                 styles.walletSumPill,
-                {
-                  backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.16)' : theme.pillBg,
-                },
+                { backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.16)' : theme.pillBg },
               ]}
               onPress={() => setCycleModeModalVisible(true)}
               activeOpacity={0.7}
@@ -1437,10 +1115,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
               <Text
                 style={[
                   styles.walletSumText,
-                  {
-                    color: isDarkMode ? '#E0E7FF' : theme.onSurface,
-                    fontWeight: '700',
-                  },
+                  { color: isDarkMode ? '#E0E7FF' : theme.onSurface, fontWeight: '700' },
                 ]}
               >
                 {!currentCycle
@@ -1456,449 +1131,1029 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
             </TouchableOpacity>
           </View>
 
-          {/* DUAL DISPLAY CARDS: INCOME GOAL (LEFT) & BUDGET CAP (RIGHT) */}
-          <Animated.View style={[styles.dualCardsRow, { opacity: dualCardsOpacity }]}>
-            {/* Income Goal Card (Left) */}
-            <TouchableOpacity
-              style={[
-                styles.heroDisplayCard,
-                {
-                  backgroundColor: theme.cardBg,
-                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.12)' : theme.divider,
-                },
-                M3Elevation.level1,
-              ]}
-              onPress={() => {
-                if (!incomeSwitcherProgress.hasGoal) {
-                  handleOpenQuickTarget('income');
-                } else {
-                  setAnalyticsFocus('income');
-                  onNavigateTab?.('analytics');
-                }
-              }}
-              onLongPress={() => handleOpenQuickTarget('income')}
-              delayLongPress={350}
-              activeOpacity={0.8}
-            >
-              {/* Background Progress Fill Track */}
-              {incomeSwitcherProgress.hasGoal && (
+          {/* AVG DAILY SPEND & SAVINGS RATE / SAVED LEFTOVERS */}
+          <View style={[styles.pulseStrip, { borderTopColor: theme.divider, justifyContent: 'space-between', paddingHorizontal: 2 }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+              <Text style={[styles.pulseLabel, { color: theme.onSurfaceVariant }]}>AVG / DAY</Text>
+              <Text style={[styles.pulseVal, { color: theme.onSurface }]}>
+                {formatCurrency(dailyAllowanceStats.dailyAverage, curr)}
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+              <Text style={[styles.pulseLabel, { color: theme.onSurfaceVariant }]}>
+                {dailyAllowanceStats.leftoverMode === 'lock_savings' && (dailyAllowanceStats.savedLeftoverPool || 0) > 0
+                  ? 'SAVED'
+                  : 'SAVINGS'}
+              </Text>
+              <Text
+                style={[
+                  styles.pulseVal,
+                  {
+                    color:
+                      dailyAllowanceStats.leftoverMode === 'lock_savings' && (dailyAllowanceStats.savedLeftoverPool || 0) > 0
+                        ? theme.success
+                        : !savingsRateStats.hasIncome
+                          ? theme.onSurfaceVariant
+                          : savingsRateStats.rate >= 0
+                            ? theme.success
+                            : theme.error,
+                  },
+                ]}
+              >
+                {dailyAllowanceStats.leftoverMode === 'lock_savings' && (dailyAllowanceStats.savedLeftoverPool || 0) > 0
+                  ? formatCurrency(dailyAllowanceStats.savedLeftoverPool || 0, curr)
+                  : savingsRateStats.hasIncome
+                    ? `${savingsRateStats.rate}%`
+                    : '—'}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* DUAL DISPLAY CARDS: INCOME GOAL & BUDGET CAP */}
+        <View style={[styles.dualCardsRow, { marginTop: 0 }]}>
+          <TouchableOpacity
+            style={[
+              styles.heroDisplayCard,
+              {
+                backgroundColor: theme.cardBg,
+                borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.12)' : theme.divider,
+              },
+              M3Elevation.level1,
+            ]}
+            onPress={() => {
+              if (!incomeSwitcherProgress.hasGoal) {
+                handleOpenQuickTarget('income');
+              } else {
+                setAnalyticsFocus('income');
+                onNavigateTab?.('analytics');
+              }
+            }}
+            onLongPress={() => handleOpenQuickTarget('income')}
+            delayLongPress={350}
+            activeOpacity={0.8}
+          >
+            {incomeSwitcherProgress.hasGoal && (
+              <View
+                style={[
+                  styles.cardProgressFillTrack,
+                  {
+                    width: `${Math.min(100, Math.max(0, incomeSwitcherProgress.percent))}%`,
+                    backgroundColor: isDarkMode ? 'rgba(16, 185, 129, 0.20)' : 'rgba(16, 185, 129, 0.12)',
+                  },
+                ]}
+              />
+            )}
+            <View style={styles.switcherHeaderRow}>
+              <View style={styles.switcherIconTextRow}>
+                <View style={[styles.tabDot, { backgroundColor: theme.success }]} />
+                <Text style={[styles.switcherTabTitle, { color: theme.onSurfaceVariant }]}>INCOME GOAL</Text>
+              </View>
+              {incomeSwitcherProgress.badgeText && (
                 <View
                   style={[
-                    styles.cardProgressFillTrack,
+                    styles.switcherBadgePill,
                     {
-                      width: `${Math.min(100, Math.max(0, incomeSwitcherProgress.percent))}%`,
-                      backgroundColor: isDarkMode ? 'rgba(16, 185, 129, 0.20)' : 'rgba(16, 185, 129, 0.12)',
+                      backgroundColor: incomeSwitcherProgress.isReached
+                        ? (isDarkMode ? 'rgba(5, 150, 105, 0.35)' : '#D1FAE5')
+                        : (isDarkMode ? 'rgba(255, 255, 255, 0.12)' : theme.pillBg),
                     },
                   ]}
-                />
-              )}
-
-              {/* Header: Dot + Title + Badge */}
-              <View style={styles.switcherHeaderRow}>
-                <View style={styles.switcherIconTextRow}>
-                  <View style={[styles.tabDot, { backgroundColor: theme.success }]} />
-                  <Text style={[styles.switcherTabTitle, { color: theme.onSurfaceVariant }]}>
-                    INCOME GOAL
-                  </Text>
-                </View>
-
-                {incomeSwitcherProgress.badgeText && (
-                  <View
+                >
+                  <Text
                     style={[
-                      styles.switcherBadgePill,
+                      styles.switcherBadgeText,
                       {
-                        backgroundColor: incomeSwitcherProgress.isReached
-                          ? (isDarkMode ? 'rgba(5, 150, 105, 0.35)' : '#D1FAE5')
-                          : (isDarkMode ? 'rgba(255, 255, 255, 0.12)' : theme.pillBg),
+                        color: incomeSwitcherProgress.isReached
+                          ? (isDarkMode ? '#6EE7B7' : '#059669')
+                          : (isDarkMode ? '#A7F3D0' : theme.success),
                       },
                     ]}
                   >
-                    <Text
-                      style={[
-                        styles.switcherBadgeText,
-                        {
-                          color: incomeSwitcherProgress.isReached
-                            ? (isDarkMode ? '#6EE7B7' : '#059669')
-                            : (isDarkMode ? '#A7F3D0' : theme.success),
-                        },
-                      ]}
-                    >
-                      {incomeSwitcherProgress.badgeText}
-                    </Text>
-                  </View>
-                )}
+                    {incomeSwitcherProgress.badgeText}
+                  </Text>
+                </View>
+              )}
+            </View>
+            <View style={styles.heroAmountRow}>
+              <Text style={[styles.switcherTabAmount, { color: isDarkMode ? '#34D399' : theme.success }]} numberOfLines={1}>
+                {incomeSwitcherProgress.hasGoal ? formatCurrency(incomeInCycle, curr) : '+ Set Goal'}
+              </Text>
+              {incomeSwitcherProgress.hasGoal && (
+                <Text style={[styles.heroAmountCaption, { color: theme.onSurfaceVariant }]}>EARNED</Text>
+              )}
+            </View>
+            <Text
+              style={[
+                styles.switcherProgressSubtext,
+                { color: incomeSwitcherProgress.isReached ? (isDarkMode ? '#6EE7B7' : '#059669') : theme.onSurfaceVariant },
+              ]}
+              numberOfLines={1}
+            >
+              {incomeSwitcherProgress.subText}
+            </Text>
+            {incomeSwitcherProgress.hasGoal && (
+              <View style={styles.switcherBottomLineTrack}>
+                <View
+                  style={[
+                    styles.switcherBottomLineFill,
+                    { width: `${Math.min(100, Math.max(0, incomeSwitcherProgress.percent))}%`, backgroundColor: theme.success },
+                  ]}
+                />
               </View>
+            )}
+          </TouchableOpacity>
 
-              {/* Main Headline: Amount Earned */}
-              <View style={styles.heroAmountRow}>
-                <Text
-                  style={[styles.switcherTabAmount, { color: isDarkMode ? '#34D399' : theme.success }]}
-                  numberOfLines={1}
+          <TouchableOpacity
+            style={[
+              styles.heroDisplayCard,
+              {
+                backgroundColor: theme.cardBg,
+                borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.12)' : theme.divider,
+              },
+              M3Elevation.level1,
+            ]}
+            onPress={() => {
+              if (!expenseSwitcherProgress.hasTarget) {
+                handleOpenQuickTarget('budget');
+              } else {
+                setAnalyticsFocus('expense');
+                onNavigateTab?.('analytics');
+              }
+            }}
+            onLongPress={() => handleOpenQuickTarget('budget')}
+            delayLongPress={350}
+            activeOpacity={0.8}
+          >
+            {expenseSwitcherProgress.hasTarget && (
+              <View
+                style={[
+                  styles.cardProgressFillTrack,
+                  {
+                    width: `${Math.min(100, Math.max(0, expenseSwitcherProgress.percent))}%`,
+                    backgroundColor: expenseSwitcherProgress.isOver
+                      ? (isDarkMode ? 'rgba(239, 68, 68, 0.25)' : 'rgba(239, 68, 68, 0.15)')
+                      : (isDarkMode ? 'rgba(239, 68, 68, 0.18)' : 'rgba(239, 68, 68, 0.10)'),
+                  },
+                ]}
+              />
+            )}
+            <View style={styles.switcherHeaderRow}>
+              <View style={styles.switcherIconTextRow}>
+                <View style={[styles.tabDot, { backgroundColor: theme.error }]} />
+                <Text style={[styles.switcherTabTitle, { color: theme.onSurfaceVariant }]}>BUDGET CAP</Text>
+              </View>
+              {expenseSwitcherProgress.badgeText && (
+                <View
+                  style={[
+                    styles.switcherBadgePill,
+                    {
+                      backgroundColor: expenseSwitcherProgress.isOver
+                        ? (isDarkMode ? 'rgba(220, 38, 38, 0.35)' : '#FEE2E2')
+                        : (isDarkMode ? 'rgba(255, 255, 255, 0.12)' : theme.pillBg),
+                    },
+                  ]}
                 >
-                  {incomeSwitcherProgress.hasGoal
-                    ? formatCurrency(incomeInCycle, curr)
-                    : '+ Set Goal'}
-                </Text>
-                {incomeSwitcherProgress.hasGoal && (
-                  <Text style={[styles.heroAmountCaption, { color: theme.onSurfaceVariant }]}>EARNED</Text>
-                )}
-              </View>
-
-              {/* Subtext: Target or Reached */}
+                  <Text
+                    style={[
+                      styles.switcherBadgeText,
+                      {
+                        color: expenseSwitcherProgress.isOver
+                          ? (isDarkMode ? '#FCA5A5' : '#DC2626')
+                          : (isDarkMode ? '#F87171' : theme.error),
+                      },
+                    ]}
+                  >
+                    {expenseSwitcherProgress.badgeText}
+                  </Text>
+                </View>
+              )}
+            </View>
+            <View style={styles.heroAmountRow}>
               <Text
                 style={[
-                  styles.switcherProgressSubtext,
-                  {
-                    color: incomeSwitcherProgress.isReached
-                      ? (isDarkMode ? '#6EE7B7' : '#059669')
-                      : theme.onSurfaceVariant,
-                  },
+                  styles.switcherTabAmount,
+                  { color: expenseSwitcherProgress.isOver ? (isDarkMode ? '#F87171' : '#DC2626') : (isDarkMode ? '#F87171' : theme.error) },
                 ]}
                 numberOfLines={1}
               >
-                {incomeSwitcherProgress.subText}
+                {expenseSwitcherProgress.hasTarget ? formatCurrency(spentInCycle, curr) : '+ Set Cap'}
               </Text>
-
-              {/* Bottom Progress Line */}
-              {incomeSwitcherProgress.hasGoal && (
-                <View style={styles.switcherBottomLineTrack}>
-                  <View
-                    style={[
-                      styles.switcherBottomLineFill,
-                      {
-                        width: `${Math.min(100, Math.max(0, incomeSwitcherProgress.percent))}%`,
-                        backgroundColor: theme.success,
-                      },
-                    ]}
-                  />
-                </View>
-              )}
-            </TouchableOpacity>
-
-            {/* Budget Cap Card (Right) */}
-            <TouchableOpacity
-              style={[
-                styles.heroDisplayCard,
-                {
-                  backgroundColor: theme.cardBg,
-                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.12)' : theme.divider,
-                },
-                M3Elevation.level1,
-              ]}
-              onPress={() => {
-                if (!expenseSwitcherProgress.hasTarget) {
-                  handleOpenQuickTarget('budget');
-                } else {
-                  setAnalyticsFocus('expense');
-                  onNavigateTab?.('analytics');
-                }
-              }}
-              onLongPress={() => handleOpenQuickTarget('budget')}
-              delayLongPress={350}
-              activeOpacity={0.8}
-            >
-              {/* Background Progress Fill Track */}
               {expenseSwitcherProgress.hasTarget && (
+                <Text style={[styles.heroAmountCaption, { color: theme.onSurfaceVariant }]}>USED</Text>
+              )}
+            </View>
+            <Text
+              style={[
+                styles.switcherProgressSubtext,
+                { color: expenseSwitcherProgress.isOver ? (isDarkMode ? '#FCA5A5' : '#DC2626') : theme.onSurfaceVariant },
+              ]}
+              numberOfLines={1}
+            >
+              {expenseSwitcherProgress.subText}
+            </Text>
+            {expenseSwitcherProgress.hasTarget && (
+              <View style={styles.switcherBottomLineTrack}>
                 <View
                   style={[
-                    styles.cardProgressFillTrack,
+                    styles.switcherBottomLineFill,
                     {
                       width: `${Math.min(100, Math.max(0, expenseSwitcherProgress.percent))}%`,
-                      backgroundColor: expenseSwitcherProgress.isOver
-                        ? (isDarkMode ? 'rgba(239, 68, 68, 0.25)' : 'rgba(239, 68, 68, 0.15)')
-                        : (isDarkMode ? 'rgba(239, 68, 68, 0.18)' : 'rgba(239, 68, 68, 0.10)'),
+                      backgroundColor: expenseSwitcherProgress.isOver ? '#EF4444' : theme.error,
                     },
                   ]}
                 />
-              )}
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
 
-              {/* Header: Dot + Title + Badge */}
-              <View style={styles.switcherHeaderRow}>
-                <View style={styles.switcherIconTextRow}>
-                  <View style={[styles.tabDot, { backgroundColor: theme.error }]} />
-                  <Text style={[styles.switcherTabTitle, { color: theme.onSurfaceVariant }]}>
-                    BUDGET CAP
-                  </Text>
-                </View>
+        {/* AT-A-GLANCE MONEY STRIP: NET WORTH | LOANS | NEXT BILL */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.glanceStrip}
+        >
+          <TouchableOpacity
+            style={[styles.glanceCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}
+            onPress={() => onNavigateTab?.('wallets')}
+            activeOpacity={0.75}
+          >
+            <View style={styles.glanceTopRow}>
+              <MaterialCommunityIcons name="wallet-outline" size={16} color={theme.primary} />
+              <Text style={[styles.glanceLabel, { color: theme.onSurfaceVariant }]}>NET WORTH</Text>
+            </View>
+            <Text style={[styles.glanceValue, { color: theme.onSurface }]} numberOfLines={1}>
+              {formatCurrency(totalConvertedBalance, curr)}
+            </Text>
+            <Text style={[styles.glanceSub, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
+              {wallets.length} {wallets.length === 1 ? 'wallet' : 'wallets'}
+            </Text>
+          </TouchableOpacity>
 
-                {expenseSwitcherProgress.badgeText && (
-                  <View
-                    style={[
-                      styles.switcherBadgePill,
-                      {
-                        backgroundColor: expenseSwitcherProgress.isOver
-                          ? (isDarkMode ? 'rgba(220, 38, 38, 0.35)' : '#FEE2E2')
-                          : (isDarkMode ? 'rgba(255, 255, 255, 0.12)' : theme.pillBg),
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.switcherBadgeText,
-                        {
-                          color: expenseSwitcherProgress.isOver
-                            ? (isDarkMode ? '#FCA5A5' : '#DC2626')
-                            : (isDarkMode ? '#F87171' : theme.error),
-                        },
-                      ]}
-                    >
-                      {expenseSwitcherProgress.badgeText}
+          {totalSpendableBalance !== totalConvertedBalance && (
+            <TouchableOpacity
+              style={[styles.glanceCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}
+              onPress={() => onNavigateTab?.('wallets')}
+              activeOpacity={0.75}
+            >
+              <View style={styles.glanceTopRow}>
+                <MaterialCommunityIcons name="cash-check" size={16} color={theme.success} />
+                <Text style={[styles.glanceLabel, { color: theme.onSurfaceVariant }]}>SPENDABLE</Text>
+              </View>
+              <Text style={[styles.glanceValue, { color: theme.success }]} numberOfLines={1}>
+                {formatCurrency(totalSpendableBalance, curr)}
+              </Text>
+              <Text style={[styles.glanceSub, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
+                {formatCurrency(Math.max(0, totalConvertedBalance - totalSpendableBalance), curr)} in goals
+              </Text>
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity
+            style={[styles.glanceCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}
+            onPress={() => onNavigateTab?.('wallets')}
+            activeOpacity={0.75}
+          >
+            <View style={styles.glanceTopRow}>
+              <MaterialCommunityIcons name="handshake-outline" size={16} color={theme.primary} />
+              <Text style={[styles.glanceLabel, { color: theme.onSurfaceVariant }]}>LOANS</Text>
+            </View>
+            <Text
+              style={[
+                styles.glanceValue,
+                {
+                  color:
+                    loansSummary.owedToYou - loansSummary.youOwe >= 0
+                      ? theme.success
+                      : theme.error,
+                },
+              ]}
+              numberOfLines={1}
+            >
+              {loansSummary.openCount === 0
+                ? formatCurrency(0, curr)
+                : `${loansSummary.owedToYou >= loansSummary.youOwe ? '+' : '-'}${formatCurrency(
+                    Math.abs(loansSummary.owedToYou - loansSummary.youOwe),
+                    curr
+                  )}`}
+            </Text>
+            <Text style={[styles.glanceSub, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
+              {loansSummary.openCount === 0 ? 'All settled' : `${loansSummary.openCount} open`}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.glanceCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }, M3Elevation.level1]}
+            onPress={() => onNavigateTab?.('wallets')}
+            activeOpacity={0.75}
+          >
+            <View style={styles.glanceTopRow}>
+              <MaterialCommunityIcons name="calendar-clock" size={16} color={theme.primary} />
+              <Text style={[styles.glanceLabel, { color: theme.onSurfaceVariant }]}>NEXT BILL</Text>
+            </View>
+            <Text style={[styles.glanceValue, { color: theme.onSurface }]} numberOfLines={1}>
+              {nextBill ? formatCurrency(nextBill.amount, nextBill.currency || curr) : 'None'}
+            </Text>
+            <Text style={[styles.glanceSub, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
+              {nextBill ? `${nextBill.name} â€¢ ${nextBill.next_due_date}` : 'No active bills'}
+            </Text>
+          </TouchableOpacity>
+        </ScrollView>
+
+        {/* SAVINGS & GOALS (GOAL WALLETS + FUNDRAISING CATEGORIES) */}
+        {(goalWallets.length > 0 || fundraisingGoals.length > 0) && (
+          <View style={{ gap: 8 }}>
+            <View style={styles.recentHeaderRow}>
+              <Text style={[styles.recentSectionTitle, { color: theme.onSurface }]}>
+                Savings & Goals
+              </Text>
+              <TouchableOpacity onPress={() => onNavigateTab?.('wallets')} activeOpacity={0.7}>
+                <Text style={{ fontSize: 12.5, fontWeight: '700', color: theme.primary }}>
+                  Manage →
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {goalWallets.map((w) => {
+              const goal = w.goal_amount || 0;
+              const rem = Math.max(0, goal - w.current_balance);
+              const pct = goal > 0 ? Math.min(100, Math.max(0, Math.round((w.current_balance / goal) * 100))) : 0;
+              return (
+                <TouchableOpacity
+                  key={w.id}
+                  style={[styles.txItemRow, { backgroundColor: theme.cardBg, borderColor: theme.divider, flexDirection: 'column', alignItems: 'stretch', gap: 6 }]}
+                  onPress={() => onNavigateTab?.('wallets')}
+                  activeOpacity={0.75}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <View style={[styles.txCatDot, { backgroundColor: w.color, width: 30, height: 30, borderRadius: 15 }]}>
+                      <MaterialCommunityIcons name={(w.icon as any) || 'piggy-bank'} size={15} color="#FFFFFF" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.txItemTitle, { color: theme.onSurface }]} numberOfLines={1}>
+                        {w.name}{w.goal_deadline ? ` • Due ${w.goal_deadline}` : ''}
+                      </Text>
+                      <Text style={[styles.txItemSub, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
+                        {rem <= 0 ? '🎉 Goal reached!' : `${formatCurrency(rem, curr)} left of ${formatCurrency(goal, curr)}`}
+                      </Text>
+                    </View>
+                    <Text style={{ fontSize: 12.5, fontWeight: '800', color: rem <= 0 ? theme.success : theme.primary }}>
+                      {formatCurrency(w.current_balance, curr)} ({pct}%)
                     </Text>
                   </View>
-                )}
-              </View>
+                  <View style={{ height: 5, borderRadius: 3, backgroundColor: theme.pillBg, overflow: 'hidden' }}>
+                    <View style={{ width: `${pct}%`, height: '100%', backgroundColor: rem <= 0 ? theme.success : w.color }} />
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
 
-              {/* Main Headline: Amount Used */}
-              <View style={styles.heroAmountRow}>
-                <Text
-                  style={[
-                    styles.switcherTabAmount,
-                    { color: expenseSwitcherProgress.isOver ? (isDarkMode ? '#F87171' : '#DC2626') : (isDarkMode ? '#F87171' : theme.error) },
-                  ]}
-                  numberOfLines={1}
+            {fundraisingGoals.map(({ cat, target, raised }) => {
+              const rem = target > 0 ? Math.max(0, target - raised) : 0;
+              const pct = target > 0 ? Math.min(100, Math.max(0, Math.round((raised / target) * 100))) : 0;
+              return (
+                <TouchableOpacity
+                  key={cat.id}
+                  style={[styles.txItemRow, { backgroundColor: theme.cardBg, borderColor: theme.divider, flexDirection: 'column', alignItems: 'stretch', gap: 6 }]}
+                  onPress={() => onNavigateTab?.('wallets')}
+                  activeOpacity={0.75}
                 >
-                  {expenseSwitcherProgress.hasTarget
-                    ? formatCurrency(spentInCycle, curr)
-                    : '+ Set Cap'}
-                </Text>
-                {expenseSwitcherProgress.hasTarget && (
-                  <Text style={[styles.heroAmountCaption, { color: theme.onSurfaceVariant }]}>USED</Text>
-                )}
-              </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <View style={[styles.txCatDot, { backgroundColor: cat.color, width: 30, height: 30, borderRadius: 15 }]}>
+                      <MaterialCommunityIcons name={(cat.icon as any) || 'hand-heart'} size={15} color="#FFFFFF" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.txItemTitle, { color: theme.onSurface }]} numberOfLines={1}>
+                        {cat.name}
+                      </Text>
+                      <Text style={[styles.txItemSub, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
+                        {target > 0
+                          ? rem <= 0
+                            ? '🎉 Fundraising goal reached'
+                            : `${formatCurrency(rem, curr)} left of ${formatCurrency(target, curr)}`
+                          : 'Untracked fundraising'}
+                      </Text>
+                    </View>
+                    <Text style={{ fontSize: 12.5, fontWeight: '800', color: theme.success }}>
+                      {formatCurrency(raised, curr)}{target > 0 ? ` (${pct}%)` : ''}
+                    </Text>
+                  </View>
+                  {target > 0 && (
+                    <View style={{ height: 5, borderRadius: 3, backgroundColor: theme.pillBg, overflow: 'hidden' }}>
+                      <View style={{ width: `${pct}%`, height: '100%', backgroundColor: theme.success }} />
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
 
-              {/* Subtext: Cap or Over status */}
+        {/* TOP CATEGORIES & BUDGET WATCHLIST */}
+        {topCategoryWatchlist.length > 0 && (
+          <View style={{ gap: 8 }}>
+            <View style={styles.recentHeaderRow}>
+              <Text style={[styles.recentSectionTitle, { color: theme.onSurface }]}>
+                Top Categories
+              </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setAnalyticsFocus('expense');
+                  onNavigateTab?.('analytics');
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={{ fontSize: 12.5, fontWeight: '700', color: theme.primary }}>
+                  Analytics →
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={[styles.txItemRow, { backgroundColor: theme.cardBg, borderColor: theme.divider, flexDirection: 'column', alignItems: 'stretch', gap: 10 }]}>
+              {topCategoryWatchlist.map((item) => {
+                const hasLim = item.limit > 0;
+                const pct = hasLim ? Math.min(100, Math.max(0, Math.round(item.percent))) : 0;
+                const isOver = hasLim && item.spent > item.limit;
+                return (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={{ gap: 4 }}
+                    onPress={() => {
+                      setAnalyticsFocus('expense');
+                      onNavigateTab?.('analytics');
+                    }}
+                    activeOpacity={0.75}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <View style={[styles.txCatDot, { backgroundColor: item.color, width: 24, height: 24, borderRadius: 12 }]}>
+                        <MaterialCommunityIcons name={(item.icon as any) || 'tag'} size={13} color="#FFFFFF" />
+                      </View>
+                      <Text style={[styles.txItemTitle, { color: theme.onSurface, flex: 1 }]} numberOfLines={1}>
+                        {item.name}
+                      </Text>
+                      <Text style={{ fontSize: 12, fontWeight: '800', color: isOver ? theme.error : theme.onSurface }}>
+                        {formatCurrency(item.spent, curr)}
+                        {hasLim ? ` / ${formatCurrency(item.limit, curr)}` : ''}
+                      </Text>
+                    </View>
+                    {hasLim && (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <View style={{ flex: 1, height: 4, borderRadius: 2, backgroundColor: theme.pillBg, overflow: 'hidden' }}>
+                          <View style={{ width: `${pct}%`, height: '100%', backgroundColor: isOver ? theme.error : item.color }} />
+                        </View>
+                        <Text style={{ fontSize: 10.5, fontWeight: '700', color: isOver ? theme.error : theme.onSurfaceVariant }}>
+                          {isOver ? `Over ${formatCurrency(item.spent - item.limit, curr)}` : `${formatCurrency(item.remaining, curr)} left`}
+                        </Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        )}
+
+        {/* TODAY'S TRANSACTIONS */}
+        <View style={styles.recentHeaderRow}>
+          <Text style={[styles.recentSectionTitle, { color: theme.onSurface }]}>
+            {recentTransactions.length > 0 ? "Today's Activity" : 'Recent Activity'}
+          </Text>
+          <TouchableOpacity onPress={() => onNavigateTab?.('calendar')} activeOpacity={0.7}>
+            <Text style={{ fontSize: 12.5, fontWeight: '700', color: theme.primary }}>
+              See History →
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {recentTransactions.length === 0 && fallbackRecentTransactions.length === 0 ? (
+          <View style={[styles.emptyRecentCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }]}>
+            <MaterialCommunityIcons name="receipt-text-outline" size={32} color={theme.outlineVariant} />
+            <Text style={[styles.emptyHistoryText, { color: theme.onSurfaceVariant }]}>
+              No transactions recorded yet
+            </Text>
+          </View>
+        ) : (
+          <View style={{ gap: 8 }}>
+            {recentTransactions.length === 0 && (
+              <View style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: M3Shape.medium, backgroundColor: theme.pillBg }}>
+                <Text style={{ fontSize: 11.5, fontWeight: '600', color: theme.onSurfaceVariant }}>
+                  Nothing recorded today yet — showing your latest activity
+                </Text>
+              </View>
+            )}
+            {(recentTransactions.length > 0 ? recentTransactions : fallbackRecentTransactions).map((tx) => {
+              const cat = categories.find((c) => c.id === tx.category_id);
+              const sub = cat?.subcategories?.find((s) => s.id === tx.subcategory_id);
+              const wallet = wallets.find((w) => w.id === tx.wallet_id);
+              const isExp = tx.type === 'expense';
+              const isTransfer = tx.type === 'transfer';
+              const mainTitle = isTransfer ? 'Transfer' : sub?.name || cat?.name || 'Activity';
+              const subtitle = [
+                sub ? cat?.name : null,
+                wallet?.name,
+                tx.date,
+                tx.note || null,
+              ]
+                .filter(Boolean)
+                .join(' â€¢ ');
+
+              const effectiveAmt = isExp ? getEffectiveAmount(tx) : tx.amount;
+              const isSplit = isExp && effectiveAmt < tx.amount - 0.01;
+
+              return (
+                <TouchableOpacity
+                  key={tx.id}
+                  style={[styles.txItemRow, { backgroundColor: theme.cardBg, borderColor: theme.divider }]}
+                  onPress={() => handlePressHistoryItem(tx)}
+                  activeOpacity={0.7}
+                >
+                  <View
+                    style={[
+                      styles.txCatDot,
+                      { backgroundColor: isTransfer ? theme.tertiary : cat?.color || theme.primary },
+                    ]}
+                  >
+                    <MaterialCommunityIcons
+                      name={isTransfer ? 'swap-horizontal' : (cat?.icon as any) || 'cash'}
+                      size={16}
+                      color="#FFFFFF"
+                    />
+                  </View>
+
+                  <View style={styles.txTextCol}>
+                    <Text style={[styles.txItemTitle, { color: theme.onSurface }]} numberOfLines={1}>
+                      {mainTitle}
+                    </Text>
+                    <Text style={[styles.txItemSub, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
+                      {subtitle}
+                    </Text>
+                  </View>
+
+                  <View style={styles.txItemRight}>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text
+                        style={[
+                          styles.txItemAmount,
+                          {
+                            color: isExp
+                              ? theme.error
+                              : isTransfer
+                                ? theme.tertiary
+                                : theme.success,
+                          },
+                        ]}
+                      >
+                        {isExp ? '-' : isTransfer ? '' : '+'}
+                        {formatCurrency(isSplit ? effectiveAmt : tx.amount, tx.currency)}
+                      </Text>
+                      {isSplit && (
+                        <Text style={{ fontSize: 10.5, fontWeight: '600', color: theme.onSurfaceVariant }}>
+                          Total: {formatCurrency(tx.amount, tx.currency)}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+      </ScrollView>
+
+      {/* 2. FAB OVERLAY BACKDROP */}
+      {isFabOpen && (
+        <Pressable
+          style={styles.fabBackdrop}
+          onPress={() => setIsFabOpen(false)}
+        />
+      )}
+
+      {/* FLOATING SPEED DIAL ACTION BUTTONS (FLOATING VERTICAL, EXPENSE ON TOP) */}
+      <Animated.View
+        pointerEvents={isFabOpen ? 'auto' : 'none'}
+        style={[
+          styles.fabSpeedDialContainer,
+          {
+            opacity: speedDialOpacity,
+            transform: [{ translateY: speedDialTranslateY }, { scale: speedDialScale }],
+          },
+        ]}
+      >
+        {/* Record Expense Button (Top) */}
+        <TouchableOpacity
+          style={[
+            styles.fabRecordBtn,
+            {
+              backgroundColor: theme.errorContainer,
+              borderColor: theme.error,
+            },
+            M3Elevation.level3,
+          ]}
+          onPress={() => {
+            setIsFabOpen(false);
+            handleOpenKeypad('expense');
+          }}
+          activeOpacity={0.85}
+          accessibilityLabel="Record Expense"
+        >
+          <View style={styles.fabRecordBtnContent}>
+            <View style={styles.fabRecordHeaderRow}>
+              <MaterialCommunityIcons name="minus-circle" size={16} color={theme.error} />
+              <Text
+                style={[styles.fabRecordBtnTitle, { color: theme.onErrorContainer }]}
+                numberOfLines={1}
+              >
+                Record Expense
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.fabRecordBadge,
+                {
+                  backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.85)',
+                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
+                },
+              ]}
+            >
               <Text
                 style={[
-                  styles.switcherProgressSubtext,
-                  {
-                    color: expenseSwitcherProgress.isOver
-                      ? (isDarkMode ? '#FCA5A5' : '#DC2626')
-                      : theme.onSurfaceVariant,
-                  },
+                  styles.fabRecordBadgeText,
+                  { color: isDarkMode ? '#FCA5A5' : '#B91C1C' },
                 ]}
                 numberOfLines={1}
               >
-                {expenseSwitcherProgress.subText}
+                {expenseSwitcherProgress.hasTarget
+                  ? expenseSwitcherProgress.isOver
+                    ? `Over: ${formatCurrency(expenseSwitcherProgress.overBy, curr)}`
+                    : `Remain: ${formatCurrency(expenseSwitcherProgress.remaining, curr)}`
+                  : `Total: ${formatCurrency(spentInCycle, curr)}`}
               </Text>
+            </View>
+          </View>
+        </TouchableOpacity>
 
-              {/* Bottom Progress Line */}
-              {expenseSwitcherProgress.hasTarget && (
-                <View style={styles.switcherBottomLineTrack}>
-                  <View
-                    style={[
-                      styles.switcherBottomLineFill,
-                      {
-                        width: `${Math.min(100, Math.max(0, expenseSwitcherProgress.percent))}%`,
-                        backgroundColor: expenseSwitcherProgress.isOver
-                          ? '#EF4444'
-                          : theme.error,
-                      },
-                    ]}
-                  />
-                </View>
-              )}
-            </TouchableOpacity>
-          </Animated.View>
-        </View>
+        {/* Record Income Button */}
+        <TouchableOpacity
+          style={[
+            styles.fabRecordBtn,
+            {
+              backgroundColor: theme.successContainer,
+              borderColor: theme.success,
+            },
+            M3Elevation.level3,
+          ]}
+          onPress={() => {
+            setIsFabOpen(false);
+            handleOpenKeypad('income');
+          }}
+          activeOpacity={0.85}
+          accessibilityLabel="Record Income"
+        >
+          <View style={styles.fabRecordBtnContent}>
+            <View style={styles.fabRecordHeaderRow}>
+              <MaterialCommunityIcons name="plus-circle" size={16} color={theme.success} />
+              <Text
+                style={[styles.fabRecordBtnTitle, { color: theme.onSuccessContainer }]}
+                numberOfLines={1}
+              >
+                Record Income
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.fabRecordBadge,
+                {
+                  backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.85)',
+                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.fabRecordBadgeText,
+                  { color: isDarkMode ? '#6EE7B7' : '#047857' },
+                ]}
+                numberOfLines={1}
+              >
+                {incomeSwitcherProgress.hasGoal
+                  ? incomeSwitcherProgress.isReached
+                    ? 'ðŸŽ‰ Reached'
+                    : `Remain: ${formatCurrency(incomeSwitcherProgress.remaining, curr)}`
+                  : `Total: ${formatCurrency(incomeInCycle, curr)}`}
+              </Text>
+            </View>
+          </View>
+        </TouchableOpacity>
 
-        {/* 2B. HISTORY LIST (REVEALED WHEN SHEET PULLS DOWN) */}
-        <View style={styles.activityContentWrapper}>
-          {/* STICKY TOP HISTORY HEADER */}
-          <Animated.View
+        {/* Transfer Button */}
+        <TouchableOpacity
+          style={[
+            styles.fabRecordBtn,
+            {
+              backgroundColor: theme.primaryContainer,
+              borderColor: theme.primary,
+            },
+            M3Elevation.level3,
+          ]}
+          onPress={() => {
+            setIsFabOpen(false);
+            setPrefilledCategoryId(undefined);
+            setPrefilledSubcategoryId(undefined);
+            setActiveTxType('transfer');
+            setAmountStr('0');
+            setDetailsModalVisible(true);
+          }}
+          activeOpacity={0.85}
+          accessibilityLabel="Record Transfer"
+        >
+          <View style={styles.fabRecordBtnContent}>
+            <View style={styles.fabRecordHeaderRow}>
+              <MaterialCommunityIcons name="swap-horizontal" size={16} color={theme.primary} />
+              <Text
+                style={[styles.fabRecordBtnTitle, { color: theme.onPrimaryContainer }]}
+                numberOfLines={1}
+              >
+                Transfer
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.fabRecordBadge,
+                {
+                  backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.85)',
+                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.fabRecordBadgeText,
+                  { color: theme.primary },
+                ]}
+                numberOfLines={1}
+              >
+                {wallets.length} wallets
+              </Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+
+        {/* Loan / Split Button (Bottom - Above FAB) */}
+        <TouchableOpacity
+          style={[
+            styles.fabRecordBtn,
+            {
+              backgroundColor: isDarkMode ? '#312E81' : '#E0E7FF',
+              borderColor: isDarkMode ? '#818CF8' : '#4338CA',
+            },
+            M3Elevation.level3,
+          ]}
+          onPress={() => {
+            setIsFabOpen(false);
+            setLoanModalVisible(true);
+          }}
+          activeOpacity={0.85}
+          accessibilityLabel="Loans and Splits"
+        >
+          <View style={styles.fabRecordBtnContent}>
+            <View style={styles.fabRecordHeaderRow}>
+              <MaterialCommunityIcons
+                name="handshake-outline"
+                size={16}
+                color={isDarkMode ? '#A5B4FC' : '#4338CA'}
+              />
+              <Text
+                style={[
+                  styles.fabRecordBtnTitle,
+                  { color: isDarkMode ? '#E0E7FF' : '#312E81' },
+                ]}
+                numberOfLines={1}
+              >
+                Loan / Split
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.fabRecordBadge,
+                {
+                  backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.85)',
+                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.fabRecordBadgeText,
+                  { color: isDarkMode ? '#C7D2FE' : '#4338CA' },
+                ]}
+                numberOfLines={1}
+              >
+                {loansSummary.openCount > 0 ? `${loansSummary.openCount} open` : 'Loans & Splits'}
+              </Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Animated.View>
+
+      {/* FLOATING ACTION BUTTON (BOTTOM RIGHT) */}
+      <TouchableOpacity
+        style={[
+          styles.fabMainBtn,
+          {
+            backgroundColor: theme.primary,
+          },
+          M3Elevation.level3,
+        ]}
+        onPress={() => setIsFabOpen(!isFabOpen)}
+        activeOpacity={0.85}
+        accessibilityLabel={isFabOpen ? 'Close record menu' : 'Add transaction'}
+      >
+        <Animated.View style={{ transform: [{ rotate: fabRotate }] }}>
+          <MaterialCommunityIcons name="plus" size={28} color={theme.onPrimary} />
+        </Animated.View>
+      </TouchableOpacity>
+
+      {/* 3. QUICK-ENTRY KEYPAD BOTTOM SHEET */}
+      <Modal
+        visible={keypadSheetVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setKeypadSheetVisible(false)}
+      >
+        <View style={styles.keypadBackdrop}>
+          <Pressable style={{ flex: 1 }} onPress={() => setKeypadSheetVisible(false)} />
+          <View
             style={[
-              styles.historyHeader,
-              {
-                opacity: historyHeaderOpacity,
-                height: historyHeaderHeight,
-                borderBottomColor: theme.divider,
-                backgroundColor: theme.surface,
-              },
+              styles.keypadSheetBox,
+              { backgroundColor: theme.surface, borderColor: theme.divider },
+              M3Elevation.level3,
             ]}
           >
-            <View style={styles.historyTitleRow}>
-              <MaterialCommunityIcons name="history" size={18} color={theme.primary} />
-              <Text style={[styles.historyTitle, { color: theme.onSurface }]}>Transaction History</Text>
-            </View>
-            <TouchableOpacity onPress={closeSheet} style={styles.closeSheetBtn}>
-              <MaterialCommunityIcons name="close" size={18} color={theme.onSurfaceVariant} />
-            </TouchableOpacity>
-          </Animated.View>
-
-          {groupedTransactions.length === 0 ? (
-            <View style={[styles.emptyHistoryBox, { flexGrow: 1, justifyContent: 'center' }]}>
-              <MaterialCommunityIcons
-                name="receipt-text-outline"
-                size={42}
-                color={theme.outlineVariant}
-              />
-              <Text style={[styles.emptyHistoryText, { color: theme.onSurfaceVariant }]}>
-                No transactions recorded yet
-              </Text>
-            </View>
-          ) : (
-            <ScrollView
-              ref={historyScrollRef}
-              style={{ flex: 1 }}
-              contentContainerStyle={styles.historyScrollContent}
-              showsVerticalScrollIndicator={true}
-              nestedScrollEnabled={true}
-            >
-              {groupedTransactions.map((group) => {
-                return (
-                  <View key={group.date} style={styles.dateGroupContainer}>
-                    <View style={[styles.dateGroupHeaderRow, { borderBottomColor: theme.divider }]}>
-                      <Text style={[styles.dateGroupTitle, { color: theme.onSurfaceVariant }]}>
-                        {group.displayDate.toUpperCase()}
+            <View style={styles.keypadSheetHeader}>
+              <View style={[styles.keypadTypeToggle, { backgroundColor: theme.pillBg }]}>
+                {(
+                  [
+                    { key: 'expense', label: 'Expense', color: theme.error },
+                    { key: 'income', label: 'Income', color: theme.success },
+                  ] as const
+                ).map((t) => {
+                  const active = keypadType === t.key;
+                  return (
+                    <TouchableOpacity
+                      key={t.key}
+                      style={[styles.keypadTypePill, active && { backgroundColor: t.color }]}
+                      onPress={() => setKeypadType(t.key)}
+                    >
+                      <Text style={{ fontSize: 12.5, fontWeight: '800', color: active ? '#FFFFFF' : theme.onSurfaceVariant }}>
+                        {t.label}
                       </Text>
-                      <View style={styles.dateGroupTotalsRow}>
-                        {group.totalSpent > 0 && (
-                          <Text style={[styles.daySpentPill, { color: theme.error }]}>
-                            -{formatCurrency(group.totalSpent, curr)}
-                          </Text>
-                        )}
-                        {group.totalIncome > 0 && (
-                          <Text style={[styles.dayIncomePill, { color: theme.success }]}>
-                            +{formatCurrency(group.totalIncome, curr)}
-                          </Text>
-                        )}
-                      </View>
-                    </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
 
-                    {group.items.map((tx) => {
-                      const cat = categories.find((c) => c.id === tx.category_id);
-                      const sub = cat?.subcategories?.find((s) => s.id === tx.subcategory_id);
-                      const wallet = wallets.find((w) => w.id === tx.wallet_id);
-                      const isExp = tx.type === 'expense';
-                      const isTransfer = tx.type === 'transfer';
-
-                      const mainTitle = isTransfer
-                        ? 'Transfer'
-                        : sub?.name || cat?.name || 'Activity';
-
-                      const subtitle = [
-                        sub ? cat?.name : null,
-                        wallet?.name,
-                        tx.time || null,
-                        tx.note || null,
-                      ]
-                        .filter(Boolean)
-                        .join(' • ');
-
-                      return (
-                        <TouchableOpacity
-                          key={tx.id}
-                          style={[
-                            styles.txItemRow,
-                            { backgroundColor: theme.cardBg, borderColor: theme.divider },
-                          ]}
-                          onPress={() => handlePressHistoryItem(tx)}
-                          activeOpacity={0.7}
-                        >
-                          <View
-                            style={[
-                              styles.txCatDot,
-                              {
-                                backgroundColor: isTransfer
-                                  ? theme.tertiary
-                                  : cat?.color || theme.primary,
-                              },
-                            ]}
-                          >
-                            <MaterialCommunityIcons
-                              name={isTransfer ? 'swap-horizontal' : (cat?.icon as any) || 'cash'}
-                              size={16}
-                              color="#FFFFFF"
-                            />
-                          </View>
-
-                          <View style={styles.txTextCol}>
-                            <Text style={[styles.txItemTitle, { color: theme.onSurface }]}>
-                              {mainTitle}
-                            </Text>
-                            <Text
-                              style={[styles.txItemSub, { color: theme.onSurfaceVariant }]}
-                              numberOfLines={1}
-                            >
-                              {subtitle}
-                            </Text>
-                          </View>
-
-                          <View style={styles.txItemRight}>
-                            <View style={{ alignItems: 'flex-end' }}>
-                              {(() => {
-                                const effectiveAmt = isExp ? getEffectiveAmount(tx) : tx.amount;
-                                const isSplit = isExp && effectiveAmt < tx.amount - 0.01;
-                                return (
-                                  <>
-                                    <Text
-                                      style={[
-                                        styles.txItemAmount,
-                                        {
-                                          color: isExp
-                                            ? theme.error
-                                            : isTransfer
-                                              ? theme.tertiary
-                                              : theme.success,
-                                        },
-                                      ]}
-                                    >
-                                      {isExp ? '-' : isTransfer ? '' : '+'}
-                                      {formatCurrency(isSplit ? effectiveAmt : tx.amount, tx.currency)}
-                                    </Text>
-                                    {isSplit && (
-                                      <Text style={{ fontSize: 10.5, fontWeight: '600', color: theme.onSurfaceVariant }}>
-                                        Total: {formatCurrency(tx.amount, tx.currency)}
-                                      </Text>
-                                    )}
-                                  </>
-                                );
-                              })()}
-                            </View>
-                            <TouchableOpacity
-                              onPress={(e) => {
-                                e?.stopPropagation?.();
-                                deleteTransaction(tx.id);
-                              }}
-                              style={styles.txDeleteTouch}
-                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                            >
-                              <MaterialCommunityIcons
-                                name="close-circle-outline"
-                                size={16}
-                                color={theme.outline}
-                              />
-                            </TouchableOpacity>
-                          </View>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                );
-              })}
-            </ScrollView>
-          )}
-        </View>
-
-        {/* 2C. DRAG HANDLE BAR AT BOTTOM OF TOP SHEET */}
-        <View
-          {...panResponder.panHandlers}
-          style={[styles.dragHandleArea, { backgroundColor: theme.surface }]}
-        >
-          <TouchableOpacity onPress={toggleSheet} activeOpacity={0.8} style={styles.dragHandleTouch}>
-            <View style={[styles.dragHandlePill, { backgroundColor: theme.outlineVariant }]} />
-            <View style={styles.dragHandleHintRow}>
-              <MaterialCommunityIcons
-                name={isSheetExpanded ? 'chevron-up' : 'chevron-down'}
-                size={16}
-                color={theme.onSurfaceVariant}
-              />
-              <Text style={[styles.dragHandleHintText, { color: theme.onSurfaceVariant }]}>
-                {isSheetExpanded ? 'Tap to close history' : 'Pull down to see history'}
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <TouchableOpacity
+                  style={[styles.keypadIconBtn, { backgroundColor: showCalcSide ? theme.primaryContainer : theme.pillBg }]}
+                  onPress={toggleCalcSide}
+                  accessibilityLabel="Toggle calculator operators"
+                >
+                  <MaterialCommunityIcons
+                    name="calculator-variant-outline"
+                    size={18}
+                    color={showCalcSide ? theme.primary : theme.onSurfaceVariant}
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.keypadIconBtn, { backgroundColor: theme.pillBg }]}
+                  onPress={() => setKeypadSheetVisible(false)}
+                  accessibilityLabel="Close keypad"
+                >
+                  <MaterialCommunityIcons name="close" size={18} color={theme.onSurface} />
+                </TouchableOpacity>
+              </View>
             </View>
-          </TouchableOpacity>
+
+            <Pressable style={styles.keypadAmountBox} onPress={() => amountInputRef.current?.focus()}>
+              <View style={styles.amountDisplayRow}>
+                <Text style={[styles.currencySymbol, { color: theme.primary, fontSize: 22 }]}>
+                  {curr}{' '}
+                </Text>
+                <TextInput
+                  ref={amountInputRef}
+                  style={[styles.amountInputText, { color: theme.onSurface, fontSize: Math.min(dynamicAmountFontSize, 36) }]}
+                  value={amountStr}
+                  onChangeText={handleAmountChange}
+                  onSelectionChange={(e) => setAmountSelection(e.nativeEvent.selection)}
+                  showSoftInputOnFocus={false}
+                  caretHidden={false}
+                  selectionColor={theme.primary}
+                  contextMenuHidden={true}
+                  selectTextOnFocus={false}
+                />
+              </View>
+              {isEquationReady && (
+                <TouchableOpacity
+                  style={[styles.calcPreviewPill, { backgroundColor: theme.primaryContainer }]}
+                  onPress={() => handleKeyPress('=')}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.calcPreviewAmount, { color: theme.onPrimaryContainer }]}>
+                    = {formatTypingNumber(evaluatedAmount.toString())}
+                  </Text>
+                </TouchableOpacity>
+              )}
+              {isDuplicate && (
+                <View style={[styles.duplicateBanner, { backgroundColor: '#FEF3C7', marginTop: 4 }]}>
+                  <MaterialCommunityIcons name="alert-circle" size={12} color="#B45309" />
+                  <Text style={[styles.duplicateBannerText, { color: '#B45309' }]}>Similar entry recorded today</Text>
+                </View>
+              )}
+            </Pressable>
+
+            <View style={{ marginBottom: 8 }}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll}>
+                {wallets.map((w) => {
+                  const isSelected = w.id === selectedWalletId;
+                  return (
+                    <TouchableOpacity
+                      key={w.id}
+                      style={[
+                        styles.chipItem,
+                        {
+                          backgroundColor: isSelected ? theme.primaryContainer : theme.pillBg,
+                          borderColor: isSelected ? theme.primary : 'transparent',
+                        },
+                      ]}
+                      onPress={() => setSelectedWalletId(w.id)}
+                    >
+                      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: w.color }} />
+                      <Text style={[styles.chipText, { color: isSelected ? theme.onPrimaryContainer : theme.onSurface, fontWeight: isSelected ? '800' : '600' }]}>
+                        {w.name} â€¢ {formatCurrency(w.current_balance, curr)}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                <TouchableOpacity
+                  style={[styles.addChipBtn, { backgroundColor: theme.pillBg, borderColor: theme.divider, borderWidth: 1 }]}
+                  onPress={() => {
+                    setKeypadSheetVisible(false);
+                    setQuickWalletModalVisible(true);
+                  }}
+                >
+                  <MaterialCommunityIcons name="plus" size={16} color={theme.primary} />
+                </TouchableOpacity>
+              </ScrollView>
+            </View>
+
+            <View>
+              {dialPadRows.map((row, rIdx) => (
+                <View key={rIdx} style={[styles.dialRow, { marginBottom: dialRowMargin }]}>
+                  {row.map((keyVal) => {
+                    const isBackspace = keyVal === 'backspace';
+                    const isOperator = ['+', '-', 'Ã—', 'Ã·'].includes(keyVal);
+                    const isEquals = keyVal === '=';
+                    return (
+                      <TouchableOpacity
+                        key={keyVal}
+                        style={[
+                          styles.dialKey,
+                          {
+                            height: dialKeyHeight,
+                            backgroundColor: isEquals ? theme.primary : isOperator ? theme.primaryContainer : isBackspace ? theme.pillBg : theme.surfaceVariant || theme.pillBg,
+                          },
+                        ]}
+                        onPress={() => handleKeyPress(keyVal)}
+                        onLongPress={() => { if (isBackspace) handleKeyPress('clear'); }}
+                        delayLongPress={350}
+                        activeOpacity={0.6}
+                      >
+                        {isBackspace ? (
+                          <MaterialCommunityIcons name="backspace-outline" size={20} color={theme.onSurfaceVariant} />
+                        ) : (
+                          <Text style={[styles.dialKeyText, { fontSize: dialKeyFontSize, color: isEquals ? theme.onPrimary : isOperator ? theme.primary : theme.onSurface, fontWeight: isOperator || isEquals ? '800' : '600' }]}>
+                            {keyVal}
+                          </Text>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ))}
+            </View>
+
+            <TouchableOpacity
+              style={[styles.keypadContinueBtn, { backgroundColor: keypadType === 'expense' ? theme.error : theme.success }, M3Elevation.level1]}
+              onPress={() => handleOpenRecordFlow(keypadType)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.keypadContinueText}>Continue â€¢ {keypadType === 'expense' ? 'Expense' : 'Income'}</Text>
+              <MaterialCommunityIcons name="arrow-right" size={18} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
         </View>
-      </Animated.View>
+      </Modal>
 
       {/* STEP 1: CATEGORY PICKER BOTTOM SHEET */}
       <CategoryPickerSheet
@@ -2155,7 +2410,167 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
                   {dailyAllowanceStats.daysRemaining} days remaining
                 </Text>
               </View>
+
+              {dailyAllowanceStats.leftoverMode === 'lock_savings' && (
+                <View style={styles.allowanceBreakdownRow}>
+                  <Text style={[styles.allowanceBreakdownLabel, { color: theme.success }]}>
+                    Locked in Savings Reserve
+                  </Text>
+                  <Text style={[styles.allowanceBreakdownVal, { color: theme.success }]}>
+                    {formatCurrency(dailyAllowanceStats.savedLeftoverPool || 0, curr)}
+                  </Text>
+                </View>
+              )}
             </View>
+
+            {/* Daily Leftover Rule Switcher */}
+            {dailyAllowanceStats.hasBudget && (
+              <View style={{ marginBottom: 14, gap: 6 }}>
+                <Text style={[styles.allowanceBreakdownLabel, { color: theme.onSurfaceVariant, fontSize: 10.5, fontWeight: '800', letterSpacing: 0.6 }]}>
+                  DAILY LEFTOVER RULE
+                </Text>
+                <View style={{ flexDirection: 'row', gap: 6 }}>
+                  {(
+                    [
+                      { key: 'spread', label: 'Spread' },
+                      { key: 'next_day', label: 'Next Day' },
+                      { key: 'lock_savings', label: 'Lock Savings' },
+                    ] as const
+                  ).map((m) => {
+                    const active = (settings.daily_leftover_mode || 'spread') === m.key;
+                    return (
+                      <TouchableOpacity
+                        key={m.key}
+                        style={{
+                          flex: 1,
+                          paddingVertical: 8,
+                          borderRadius: M3Shape.medium,
+                          borderWidth: 1,
+                          alignItems: 'center',
+                          backgroundColor: active ? theme.primaryContainer : theme.pillBg,
+                          borderColor: active ? theme.primary : theme.divider,
+                        }}
+                        onPress={() => updateSettings({ daily_leftover_mode: m.key })}
+                        activeOpacity={0.75}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 11.5,
+                            fontWeight: active ? '800' : '600',
+                            color: active ? theme.onPrimaryContainer : theme.onSurfaceVariant,
+                          }}
+                        >
+                          {m.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                {settings.daily_leftover_mode === 'lock_savings' && (
+                  <View style={{ marginTop: 8, gap: 6 }}>
+                    <Text style={[styles.allowanceBreakdownLabel, { color: theme.onSurfaceVariant, fontSize: 10.5, fontWeight: '800', letterSpacing: 0.6 }]}>
+                      {settings.lock_savings_wallet_id
+                        ? 'SAVINGS WALLET FOR LOCKED LEFTOVERS'
+                        : 'CHOOSE A WALLET TO LOCK SAVINGS INTO'}
+                    </Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+                      {wallets.map((w) => {
+                        const isTarget = settings.lock_savings_wallet_id === w.id;
+                        const hasGoal = Boolean(w.goal_amount && w.goal_amount > 0);
+                        return (
+                          <TouchableOpacity
+                            key={w.id}
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              gap: 6,
+                              paddingHorizontal: 10,
+                              paddingVertical: 7,
+                              borderRadius: M3Shape.medium,
+                              borderWidth: 1,
+                              backgroundColor: isTarget ? theme.successContainer : theme.pillBg,
+                              borderColor: isTarget ? theme.success : theme.divider,
+                            }}
+                            onPress={() => updateSettings({ lock_savings_wallet_id: w.id })}
+                            activeOpacity={0.75}
+                          >
+                            <MaterialCommunityIcons
+                              name={(w.icon as any) || 'wallet'}
+                              size={14}
+                              color={isTarget ? theme.success : w.color}
+                            />
+                            <Text
+                              style={{
+                                fontSize: 11.5,
+                                fontWeight: isTarget ? '800' : '600',
+                                color: isTarget ? theme.onSuccessContainer : theme.onSurface,
+                              }}
+                            >
+                              {w.name}{hasGoal ? ' ðŸŽ¯' : ''}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+
+                    {settings.lock_savings_wallet_id && (dailyAllowanceStats.savedLeftoverPool ?? 0) > 0 && (() => {
+                      const moveAmt = dailyAllowanceStats.savedLeftoverPool ?? 0;
+                      const targetWallet = wallets.find((w) => w.id === settings.lock_savings_wallet_id);
+                      const sourceWallet =
+                        wallets.find((w) => w.id === selectedWalletId && w.id !== settings.lock_savings_wallet_id) ||
+                        wallets.find((w) => w.is_default && w.id !== settings.lock_savings_wallet_id) ||
+                        wallets.find((w) => w.id !== settings.lock_savings_wallet_id);
+                      if (!targetWallet || !sourceWallet) return null;
+                      return (
+                        <TouchableOpacity
+                          style={{
+                            marginTop: 4,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6,
+                            paddingVertical: 9,
+                            paddingHorizontal: 12,
+                            borderRadius: M3Shape.medium,
+                            backgroundColor: theme.successContainer,
+                            borderWidth: 1,
+                            borderColor: theme.success,
+                          }}
+                          onPress={() => {
+                            Alert.alert(
+                              'Move Locked Savings',
+                              `Transfer ${formatCurrency(moveAmt, curr)} from ${sourceWallet.name} to ${targetWallet.name}?`,
+                              [
+                                { text: 'Cancel', style: 'cancel' },
+                                {
+                                  text: 'Move',
+                                  onPress: async () => {
+                                    await transferBetweenWallets({
+                                      from_wallet_id: sourceWallet.id,
+                                      to_wallet_id: targetWallet.id,
+                                      amount: moveAmt,
+                                      date: formatLocalDate(new Date()),
+                                      note: 'Locked daily leftovers savings',
+                                    });
+                                    setAllowanceDetailVisible(false);
+                                  },
+                                },
+                              ]
+                            );
+                          }}
+                          activeOpacity={0.8}
+                        >
+                          <MaterialCommunityIcons name="bank-transfer-in" size={16} color={theme.success} />
+                          <Text style={{ fontSize: 12, fontWeight: '800', color: theme.onSuccessContainer }}>
+                            Move {formatCurrency(moveAmt, curr)} to {targetWallet.name}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })()}
+                  </View>
+                )}
+              </View>
+            )}
 
             <View style={styles.quickTargetBtnRow}>
               <TouchableOpacity
@@ -2223,6 +2638,23 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
       <CycleModeSwitcherModal
         visible={cycleModeModalVisible}
         onClose={() => setCycleModeModalVisible(false)}
+      />
+
+      {/* QUICK LOAN / SPLIT MODAL */}
+      <TransactionDetailsModal
+        visible={loanModalVisible}
+        txType="expense"
+        initialIouMode={true}
+        initialAmount={0}
+        initialWalletId={selectedWalletId || wallets[0]?.id || ''}
+        wallets={wallets}
+        categories={categories}
+        theme={theme}
+        baseCurrency={curr}
+        onClose={() => setLoanModalVisible(false)}
+        onSave={handleSaveTransactionDetails}
+        onManageCategories={() => setCategoryModalVisible(true)}
+        onAddSubcategory={addSubcategory}
       />
     </View>
   );
@@ -2874,5 +3306,204 @@ const styles = StyleSheet.create({
     borderRadius: M3Shape.full,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  dashScrollContent: {
+    padding: 16,
+    paddingBottom: 92,
+    gap: 14,
+  },
+  dashHeroCard: {
+    borderRadius: M3Shape.extraLarge,
+    borderWidth: 1,
+    padding: 16,
+    gap: 12,
+  },
+  pulseStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  pulseCol: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 2,
+  },
+  pulseDivider: {
+    width: 1,
+    height: 26,
+  },
+  pulseLabel: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+  },
+  pulseVal: {
+    fontSize: 13.5,
+    fontWeight: '800',
+  },
+  glanceStrip: {
+    gap: 10,
+    paddingVertical: 2,
+  },
+  glanceCard: {
+    width: 148,
+    borderRadius: M3Shape.large,
+    borderWidth: 1,
+    padding: 12,
+    gap: 4,
+  },
+  glanceTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  glanceLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+  },
+  glanceValue: {
+    fontSize: 15,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  glanceSub: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  recentHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 2,
+  },
+  recentSectionTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  emptyRecentCard: {
+    borderRadius: M3Shape.large,
+    borderWidth: 1,
+    padding: 24,
+    alignItems: 'center',
+    gap: 8,
+  },
+  fabBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
+    zIndex: 90,
+  },
+  fabSpeedDialContainer: {
+    position: 'absolute',
+    right: 18,
+    bottom: 84,
+    zIndex: 95,
+    gap: 10,
+    alignItems: 'flex-end',
+  },
+  fabRecordBtn: {
+    borderRadius: M3Shape.large,
+    borderWidth: 1.5,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    minWidth: 165,
+    justifyContent: 'center',
+  },
+  fabRecordBtnContent: {
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    gap: 3,
+  },
+  fabRecordHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  fabRecordBtnTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  fabRecordBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 1.5,
+    borderRadius: M3Shape.full,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginTop: 1,
+  },
+  fabRecordBadgeText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+  },
+  fabMainBtn: {
+    position: 'absolute',
+    right: 18,
+    bottom: 18,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 100,
+  },
+  keypadBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'flex-end',
+  },
+  keypadSheetBox: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderTopWidth: 1,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 20,
+    gap: 8,
+  },
+  keypadSheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  keypadTypeToggle: {
+    flexDirection: 'row',
+    borderRadius: M3Shape.full,
+    padding: 3,
+    gap: 4,
+  },
+  keypadTypePill: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: M3Shape.full,
+  },
+  keypadIconBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  keypadAmountBox: {
+    alignItems: 'center',
+    paddingVertical: 6,
+  },
+  keypadContinueBtn: {
+    height: 48,
+    borderRadius: M3Shape.full,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
+  keypadContinueText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '800',
   },
 });

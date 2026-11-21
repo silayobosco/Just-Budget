@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useBudget } from '../../context/BudgetContext';
 import { formatCurrency, formatTypingNumber, parseCleanNumber } from '../../utils/format';
 import { transactionFormStyles as styles } from './styles';
 import { TransactionFormState } from './useTransactionForm';
@@ -51,6 +52,7 @@ export const PeopleSplitEditor: React.FC<PeopleSplitEditorProps> = ({
     focusAmountInput,
   } = form;
 
+  const { debts } = useBudget();
   const iouAccent = theme.primary;
   const iouContainer = theme.primaryContainer;
   const onIouContainer = theme.onPrimaryContainer;
@@ -371,6 +373,58 @@ export const PeopleSplitEditor: React.FC<PeopleSplitEditorProps> = ({
           ))}
         </ScrollView>
       )}
+
+      {(() => {
+        const candidateNames = [
+          ...splitPeople.map((p) => p.name.trim()),
+          ...(splitPersonInput.trim() ? [splitPersonInput.trim()] : []),
+        ].filter(Boolean);
+        const oppositeType = forExpense
+          ? (includeMe || splitIncludeMe ? 'borrowed' : 'lent')
+          : (iouAction === 'borrowed' ? 'lent' : 'borrowed');
+        const hints = candidateNames
+          .map((name) => {
+            const key = name.toLowerCase();
+            const oppTotal = debts
+              .filter(
+                (d) =>
+                  d.status === 'open' &&
+                  d.type === oppositeType &&
+                  d.person_name.trim().toLowerCase() === key
+              )
+              .reduce((s, d) => s + Math.max(0, d.amount - (d.paid_amount || 0)), 0);
+            return oppTotal > 0 ? { name, oppTotal } : null;
+          })
+          .filter(Boolean) as { name: string; oppTotal: number }[];
+        if (hints.length === 0) return null;
+        return (
+          <View
+            style={{
+              marginTop: 6,
+              marginBottom: 4,
+              paddingHorizontal: 10,
+              paddingVertical: 7,
+              borderRadius: 10,
+              backgroundColor: theme.primaryContainer,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            <MaterialCommunityIcons name="swap-horizontal" size={15} color={theme.primary} />
+            <Text style={{ flex: 1, fontSize: 11.5, fontWeight: '700', color: theme.onPrimaryContainer }}>
+              {hints
+                .map((h) =>
+                  oppositeType === 'lent'
+                    ? `${h.name} already owes you ${formatCurrency(h.oppTotal, currency)}`
+                    : `You already owe ${h.name} ${formatCurrency(h.oppTotal, currency)}`
+                )
+                .join(' • ')}{' '}
+              (can be offset in Loans without cash)
+            </Text>
+          </View>
+        );
+      })()}
 
       <View style={styles.iouPersonInputRow}>
         <TouchableOpacity
