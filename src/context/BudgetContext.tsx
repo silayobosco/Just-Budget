@@ -219,7 +219,7 @@ interface BudgetContextType {
     paymentAmount: number,
     options?: { recordExcessAsCredit?: boolean; transactionId?: string }
   ) => Promise<void>;
-  offsetMutualDebts: (personName: string, maxAmount?: number) => Promise<number>;
+  offsetMutualDebts: (personName: string, maxAmount?: number, preferredDebtId?: string) => Promise<number>;
   deleteDebt: (id: string) => Promise<void>;
   debtSettlements: DebtSettlement[];
   undoTransactionDebtSettlements: (transactionId: string) => Promise<void>;
@@ -1797,23 +1797,34 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const db = getDB();
     const id = `debt-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     const nowIso = new Date().toISOString();
-    db.runSync(
-      `INSERT INTO debts (id, type, person_name, amount, paid_amount, currency, date, due_date, note, wallet_id, origin_transaction_id, status, created_at)
-       VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'open', ?)`,
-      [
-        id,
-        params.type,
-        params.person_name.trim(),
-        params.amount,
-        params.currency || settings.base_currency,
-        params.date,
-        params.due_date || null,
-        params.note?.trim() || null,
-        params.wallet_id || null,
-        params.origin_transaction_id || null,
-        nowIso,
-      ]
-    );
+    db.withTransactionSync(() => {
+      db.runSync(
+        `INSERT INTO debts (id, type, person_name, amount, paid_amount, currency, date, due_date, note, wallet_id, origin_transaction_id, status, created_at)
+         VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'open', ?)`,
+        [
+          id,
+          params.type,
+          params.person_name.trim(),
+          params.amount,
+          params.currency || settings.base_currency,
+          params.date,
+          params.due_date || null,
+          params.note?.trim() || null,
+          params.wallet_id || null,
+          params.origin_transaction_id || null,
+          nowIso,
+        ]
+      );
+
+      // Standalone Lend/Borrow (not linked to an existing expense/income transaction) updates the chosen wallet balance immediately
+      if (params.wallet_id && !params.origin_transaction_id && params.amount > 0) {
+        const delta = params.type === 'lent' ? -params.amount : params.amount;
+        db.runSync(`UPDATE wallets SET current_balance = current_balance + ? WHERE id = ?`, [
+          delta,
+          params.wallet_id,
+        ]);
+      }
+    });
     await loadData();
   };
 
@@ -1959,16 +1970,29 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   // Mutual offset: cancels open 'lent' and 'borrowed' debts for the same person without creating wallet cash transactions
-  const offsetMutualDebts = async (personName: string, maxAmount?: number): Promise<number> => {
+  const offsetMutualDebts = async (
+    personName: string,
+    maxAmount?: number,
+    preferredDebtId?: string
+  ): Promise<number> => {
     const key = personName.trim().toLowerCase();
     if (!key) return 0;
 
-    const openLent = debts
-      .filter((d) => d.status === 'open' && d.type === 'lent' && d.person_name.trim().toLowerCase() === key)
-      .sort((a, b) => a.date.localeCompare(b.date));
-    const openBorrowed = debts
-      .filter((d) => d.status === 'open' && d.type === 'borrowed' && d.person_name.trim().toLowerCase() === key)
-      .sort((a, b) => a.date.localeCompare(b.date));
+    const db = getDB();
+    const allOpen = db.getAllSync<DebtItem>(`SELECT * FROM debts WHERE status = 'open' ORDER BY date ASC`);
+    const sortPreferredFirst = (a: DebtItem, b: DebtItem) => {
+      if (preferredDebtId) {
+        if (a.id === preferredDebtId) return -1;
+        if (b.id === preferredDebtId) return 1;
+      }
+      return a.date.localeCompare(b.date);
+    };
+    const openLent = allOpen
+      .filter((d) => d.type === 'lent' && d.person_name.trim().toLowerCase() === key)
+      .sort(sortPreferredFirst);
+    const openBorrowed = allOpen
+      .filter((d) => d.type === 'borrowed' && d.person_name.trim().toLowerCase() === key)
+      .sort(sortPreferredFirst);
 
     const lentTotal = openLent.reduce((s, d) => s + Math.max(0, d.amount - (d.paid_amount || 0)), 0);
     const borrowedTotal = openBorrowed.reduce((s, d) => s + Math.max(0, d.amount - (d.paid_amount || 0)), 0);
@@ -1978,7 +2002,6 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     if (offsetTotal <= 0) return 0;
 
-    const db = getDB();
     const nowIso = new Date().toISOString();
 
     db.withTransactionSync(() => {
@@ -2019,7 +2042,20 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const deleteDebt = async (id: string) => {
     const db = getDB();
-    db.runSync(`DELETE FROM debts WHERE id = ?`, [id]);
+    const existing = db.getFirstSync<DebtItem>(`SELECT * FROM debts WHERE id = ?`, [id]);
+    db.withTransactionSync(() => {
+      if (existing && existing.wallet_id && !existing.origin_transaction_id) {
+        const rem = Math.max(0, existing.amount - (existing.paid_amount || 0));
+        if (rem > 0) {
+          const reverseDelta = existing.type === 'lent' ? rem : -rem;
+          db.runSync(`UPDATE wallets SET current_balance = current_balance + ? WHERE id = ?`, [
+            reverseDelta,
+            existing.wallet_id,
+          ]);
+        }
+      }
+      db.runSync(`DELETE FROM debts WHERE id = ?`, [id]);
+    });
     await loadData();
   };
 

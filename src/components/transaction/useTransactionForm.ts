@@ -130,6 +130,7 @@ export function useTransactionForm({
     addDebt,
     updateDebt,
     recordDebtPayment,
+    offsetMutualDebts,
     debtSettlements,
     undoTransactionDebtSettlements,
     getLastCreatedTransactionId,
@@ -225,6 +226,8 @@ export function useTransactionForm({
   const [calendarVisible, setCalendarVisible] = useState<boolean>(false);
   const [clockVisible, setClockVisible] = useState<boolean>(false);
   const [currencyPickerVisible, setCurrencyPickerVisible] = useState<boolean>(false);
+  const [autoOffsetOnSave, setAutoOffsetOnSave] = useState<boolean>(false);
+  const [offsetTargetDebtId, setOffsetTargetDebtId] = useState<string | null>(null);
 
   const animateLayout = () => {
     try {
@@ -248,6 +251,8 @@ export function useTransactionForm({
 
   useEffect(() => {
     if (!visible) return;
+    setAutoOffsetOnSave(false);
+    setOffsetTargetDebtId(null);
     setCurrentType(defaultTxType);
     setAmountStr(initialAmount > 0 ? formatTypingNumber(initialAmount.toString()) : '');
     setTaxAmountStr(
@@ -552,6 +557,11 @@ export function useTransactionForm({
     [debts]
   );
 
+  const openBorrowedDebts = useMemo(
+    () => debts.filter((d) => d.status === 'open' && d.type === 'borrowed'),
+    [debts]
+  );
+
   const allOpenDebts = useMemo(
     () => debts.filter((d) => d.status === 'open'),
     [debts]
@@ -835,6 +845,9 @@ export function useTransactionForm({
                 origin_transaction_id: originTxId,
                 note: note.trim() ? `${note.trim()} (Split)` : 'Split bill',
               });
+              if (autoOffsetOnSave) {
+                await offsetMutualDebts(participant.name, undefined, offsetTargetDebtId || undefined);
+              }
             }
           }
           onClose();
@@ -889,6 +902,9 @@ export function useTransactionForm({
                 wallet_id: walletIdForIou,
                 note: note.trim() || undefined,
               });
+              if (autoOffsetOnSave) {
+                await offsetMutualDebts(participant.name, undefined, offsetTargetDebtId || undefined);
+              }
             }
           }
           onClose();
@@ -907,6 +923,9 @@ export function useTransactionForm({
               wallet_id: walletIdForIou,
               note: note.trim() || undefined,
             });
+            if (autoOffsetOnSave) {
+              await offsetMutualDebts(participant.name, undefined, offsetTargetDebtId || undefined);
+            }
           }
         }
         onClose();
@@ -1086,11 +1105,14 @@ export function useTransactionForm({
               origin_transaction_id: originTxId,
               note: splitNote,
             });
+            if (autoOffsetOnSave) {
+              await offsetMutualDebts(participant.name, undefined, offsetTargetDebtId || undefined);
+            }
           }
         }
       }
 
-      if (formKind === 'income' && settleIouEnabled && selectedDebtId) {
+      if ((formKind === 'income' || formKind === 'expense') && settleIouEnabled && selectedDebtId) {
         const txId =
           isEditing && initialTransactionId
             ? initialTransactionId
@@ -1106,7 +1128,7 @@ export function useTransactionForm({
     const activeSettleDebtId =
       formKind === 'loan' && iouAction === 'settle'
         ? selectedDebtId
-        : formKind === 'income' && settleIouEnabled
+        : (formKind === 'income' || formKind === 'expense') && settleIouEnabled
           ? selectedDebtId
           : '';
 
@@ -1274,6 +1296,10 @@ export function useTransactionForm({
     setClockVisible,
     currencyPickerVisible,
     setCurrencyPickerVisible,
+    autoOffsetOnSave,
+    setAutoOffsetOnSave,
+    offsetTargetDebtId,
+    setOffsetTargetDebtId,
     // Derived helpers
     activeCategories,
     selectedCategory,
@@ -1283,6 +1309,7 @@ export function useTransactionForm({
     knownDebtPeople,
     splitSummary,
     openLentDebts,
+    openBorrowedDebts,
     allOpenDebts,
     existingTxSettlements,
     existingLinkedDebts,

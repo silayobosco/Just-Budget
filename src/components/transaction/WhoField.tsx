@@ -44,6 +44,7 @@ export const WhoField: React.FC<WhoFieldProps> = ({
     selectedDebtId,
     setSelectedDebtId,
     openLentDebts,
+    openBorrowedDebts,
     allOpenDebts,
     existingTxSettlements,
     undoTransactionDebtSettlements,
@@ -223,6 +224,80 @@ export const WhoField: React.FC<WhoFieldProps> = ({
             </TouchableOpacity>
             {activeSheet === 'iou' && (
               <PeopleSplitEditor form={form} theme={theme} forExpense={true} />
+            )}
+          </View>
+        )}
+
+        {/* Settle Borrowed Loan (when paying back someone you owe in cash) */}
+        {expenseSource === 'wallet' && !splitEnabled && openBorrowedDebts.length > 0 && (
+          <View style={{ marginTop: 8, paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.divider }}>
+            <View style={styles.toggleRow}>
+              <View style={styles.toggleTextCol}>
+                <View style={styles.labelWithIcon}>
+                  <MaterialCommunityIcons name="handshake-outline" size={18} color={theme.error} />
+                  <Text style={[styles.toggleTitle, { color: theme.onSurface }]}>Settle Borrowed Loan</Text>
+                </View>
+                <Text style={[styles.toggleSubtitle, { color: theme.onSurfaceVariant }]}>
+                  Apply this expense to repay an open loan you owe
+                </Text>
+              </View>
+              <Switch
+                value={settleIouEnabled}
+                onValueChange={(val) => {
+                  setSettleIouEnabled(val);
+                  if (val && !selectedDebtId && openBorrowedDebts.length === 1) {
+                    const only = openBorrowedDebts[0];
+                    setSelectedDebtId(only.id);
+                    const cur = parseCleanNumber(amountStr);
+                    if (isNaN(cur) || cur <= 0) {
+                      const rem = Math.max(0, only.amount - (only.paid_amount || 0));
+                      setAmountStr(formatTypingNumber(rem.toString()));
+                    }
+                  }
+                }}
+                trackColor={{ false: theme.outlineVariant, true: theme.errorContainer }}
+                thumbColor={settleIouEnabled ? theme.error : '#f4f3f4'}
+              />
+            </View>
+
+            {settleIouEnabled && (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ gap: 8, marginTop: 10 }}
+              >
+                {openBorrowedDebts.map((d) => {
+                  const rem = Math.max(0, d.amount - (d.paid_amount || 0));
+                  const selected = selectedDebtId === d.id;
+                  return (
+                    <TouchableOpacity
+                      key={d.id}
+                      style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        borderRadius: M3Shape.medium,
+                        borderWidth: 1,
+                        backgroundColor: selected ? theme.errorContainer : theme.pillBg,
+                        borderColor: selected ? theme.error : theme.divider,
+                      }}
+                      onPress={() => {
+                        setSelectedDebtId(d.id);
+                        const cur = parseCleanNumber(amountStr);
+                        if (isNaN(cur) || cur <= 0) {
+                          setAmountStr(formatTypingNumber(rem.toString()));
+                        }
+                      }}
+                    >
+                      <Text style={{ fontSize: 12.5, fontWeight: '800', color: selected ? theme.onErrorContainer : theme.onSurface }}>
+                        {d.person_name}
+                      </Text>
+                      <Text style={{ fontSize: 11, fontWeight: '600', color: selected ? theme.onErrorContainer : theme.onSurfaceVariant }}>
+                        {formatCurrency(rem, d.currency || currency)} • {d.date}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
             )}
           </View>
         )}

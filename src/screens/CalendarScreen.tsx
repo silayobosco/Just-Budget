@@ -46,6 +46,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     categories,
     wallets,
     debts,
+    debtSettlements,
     remainingCycleBalance,
     spentInCycle,
     totalConvertedBalance,
@@ -100,11 +101,11 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
   // Unified History Search & Filter States
   const [filtersExpanded, setFiltersExpanded] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [filterType, setFilterType] = useState<'all' | TransactionType>('all');
+  const [filterTypes, setFilterTypes] = useState<Array<TransactionType | 'loans'>>([]);
   const [filterPaid, setFilterPaid] = useState<'all' | 'paid' | 'unpaid'>('all');
   const [filterModifiedOnly, setFilterModifiedOnly] = useState<boolean>(false);
-  const [filterWalletId, setFilterWalletId] = useState<string | null>(null);
-  const [filterCategoryId, setFilterCategoryId] = useState<string | null>(null);
+  const [filterWalletIds, setFilterWalletIds] = useState<string[]>([]);
+  const [filterCategoryIds, setFilterCategoryIds] = useState<string[]>([]);
   const [filterPickerMode, setFilterPickerMode] = useState<'wallet' | 'category' | null>(null);
 
   useEffect(() => {
@@ -745,32 +746,56 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     return '';
   };
 
+  const loanLinkedTxIds = useMemo(() => {
+    const ids = new Set<string>();
+    debts.forEach((d) => {
+      if (d.origin_transaction_id) ids.add(d.origin_transaction_id);
+    });
+    debtSettlements.forEach((s) => {
+      if (s.transaction_id) ids.add(s.transaction_id);
+    });
+    return ids;
+  }, [debts, debtSettlements]);
+
   const hasActiveFilters =
     searchQuery.trim().length > 0 ||
-    filterType !== 'all' ||
+    filterTypes.length > 0 ||
     filterPaid !== 'all' ||
     filterModifiedOnly ||
-    filterWalletId !== null ||
-    filterCategoryId !== null;
+    filterWalletIds.length > 0 ||
+    filterCategoryIds.length > 0;
 
   const clearAllFilters = () => {
     setSearchQuery('');
-    setFilterType('all');
+    setFilterTypes([]);
     setFilterPaid('all');
     setFilterModifiedOnly(false);
-    setFilterWalletId(null);
-    setFilterCategoryId(null);
+    setFilterWalletIds([]);
+    setFilterCategoryIds([]);
   };
 
   const filteredTransactions = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return transactions.filter((tx) => {
-      if (filterType !== 'all' && tx.type !== filterType) return false;
+      if (filterTypes.length > 0) {
+        const matchesType = filterTypes.some((ft) =>
+          ft === 'loans' ? loanLinkedTxIds.has(tx.id) : tx.type === ft
+        );
+        if (!matchesType) return false;
+      }
       if (filterPaid === 'paid' && tx.is_paid === false) return false;
       if (filterPaid === 'unpaid' && tx.is_paid !== false) return false;
       if (filterModifiedOnly && (!tx.updated_at || tx.updated_at === tx.created_at)) return false;
-      if (filterWalletId && tx.wallet_id !== filterWalletId && tx.to_wallet_id !== filterWalletId) return false;
-      if (filterCategoryId && tx.category_id !== filterCategoryId) return false;
+      if (
+        filterWalletIds.length > 0 &&
+        !filterWalletIds.includes(tx.wallet_id) &&
+        !(tx.to_wallet_id && filterWalletIds.includes(tx.to_wallet_id))
+      ) {
+        return false;
+      }
+      if (filterCategoryIds.length > 0 && (!tx.category_id || !filterCategoryIds.includes(tx.category_id))) {
+        return false;
+      }
       if (q) {
         const cat = categories.find((c) => c.id === tx.category_id);
         const sub = cat?.subcategories?.find((s) => s.id === tx.subcategory_id);
@@ -791,14 +816,38 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
   }, [
     transactions,
     searchQuery,
-    filterType,
+    filterTypes,
+    loanLinkedTxIds,
     filterPaid,
     filterModifiedOnly,
-    filterWalletId,
-    filterCategoryId,
+    filterWalletIds,
+    filterCategoryIds,
     categories,
     wallets,
   ]);
+
+  // Standalone loans (debts without an origin transaction, e.g. direct Lend / Borrow)
+  const standaloneLoansByDate = useMemo(() => {
+    const map: Record<string, typeof debts> = {};
+    const showLoans = filterTypes.length === 0 || filterTypes.includes('loans');
+    if (!showLoans || filterCategoryIds.length > 0 || filterModifiedOnly) return map;
+
+    const q = searchQuery.trim().toLowerCase();
+    debts.forEach((d) => {
+      if (d.origin_transaction_id) return;
+      if (filterWalletIds.length > 0 && (!d.wallet_id || !filterWalletIds.includes(d.wallet_id))) return;
+      if (filterPaid === 'paid' && d.status !== 'settled') return;
+      if (filterPaid === 'unpaid' && d.status === 'settled') return;
+      if (q) {
+        const w = wallets.find((wl) => wl.id === d.wallet_id);
+        const hay = [d.person_name, d.note || '', w?.name || '', String(d.amount)].join(' ').toLowerCase();
+        if (!hay.includes(q)) return;
+      }
+      if (!map[d.date]) map[d.date] = [];
+      map[d.date].push(d);
+    });
+    return map;
+  }, [debts, filterTypes, filterCategoryIds, filterModifiedOnly, filterWalletIds, filterPaid, searchQuery, wallets]);
 
   // Group transactions by date, arranged with latest transaction last
   const transactionsByDate = useMemo(() => {
@@ -1332,13 +1381,18 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                     { key: 'expense', label: 'Expense' },
                     { key: 'income', label: 'Income' },
                     { key: 'transfer', label: 'Transfer' },
+                    { key: 'loans', label: 'Loans' },
                   ] as const
                 ).map((t) => {
-                  const active = filterType === t.key;
+                  const active = filterTypes.includes(t.key);
                   return (
                     <TouchableOpacity
                       key={t.key}
-                      onPress={() => setFilterType(active ? 'all' : t.key)}
+                      onPress={() =>
+                        setFilterTypes((prev) =>
+                          prev.includes(t.key) ? prev.filter((k) => k !== t.key) : [...prev, t.key]
+                        )
+                      }
                       style={{
                         paddingHorizontal: 10,
                         paddingVertical: 5,
@@ -1370,26 +1424,28 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                     paddingHorizontal: 10,
                     paddingVertical: 5,
                     borderRadius: M3Shape.full,
-                    backgroundColor: filterWalletId ? theme.primaryContainer : theme.pillBg,
+                    backgroundColor: filterWalletIds.length > 0 ? theme.primaryContainer : theme.pillBg,
                     borderWidth: 1,
-                    borderColor: filterWalletId ? theme.primary : theme.divider,
+                    borderColor: filterWalletIds.length > 0 ? theme.primary : theme.divider,
                   }}
                 >
                   <MaterialCommunityIcons
                     name="wallet-outline"
                     size={13}
-                    color={filterWalletId ? theme.onPrimaryContainer : theme.onSurfaceVariant}
+                    color={filterWalletIds.length > 0 ? theme.onPrimaryContainer : theme.onSurfaceVariant}
                   />
                   <Text
                     style={{
                       fontSize: 11.5,
                       fontWeight: '700',
-                      color: filterWalletId ? theme.onPrimaryContainer : theme.onSurfaceVariant,
+                      color: filterWalletIds.length > 0 ? theme.onPrimaryContainer : theme.onSurfaceVariant,
                     }}
                   >
-                    {filterWalletId
-                      ? wallets.find((w) => w.id === filterWalletId)?.name || 'Wallet'
-                      : 'Wallet'}
+                    {filterWalletIds.length === 0
+                      ? 'Wallet'
+                      : filterWalletIds.length === 1
+                        ? wallets.find((w) => w.id === filterWalletIds[0])?.name || 'Wallet'
+                        : `${filterWalletIds.length} Wallets`}
                   </Text>
                 </TouchableOpacity>
 
@@ -1402,26 +1458,28 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                     paddingHorizontal: 10,
                     paddingVertical: 5,
                     borderRadius: M3Shape.full,
-                    backgroundColor: filterCategoryId ? theme.primaryContainer : theme.pillBg,
+                    backgroundColor: filterCategoryIds.length > 0 ? theme.primaryContainer : theme.pillBg,
                     borderWidth: 1,
-                    borderColor: filterCategoryId ? theme.primary : theme.divider,
+                    borderColor: filterCategoryIds.length > 0 ? theme.primary : theme.divider,
                   }}
                 >
                   <MaterialCommunityIcons
                     name="shape-outline"
                     size={13}
-                    color={filterCategoryId ? theme.onPrimaryContainer : theme.onSurfaceVariant}
+                    color={filterCategoryIds.length > 0 ? theme.onPrimaryContainer : theme.onSurfaceVariant}
                   />
                   <Text
                     style={{
                       fontSize: 11.5,
                       fontWeight: '700',
-                      color: filterCategoryId ? theme.onPrimaryContainer : theme.onSurfaceVariant,
+                      color: filterCategoryIds.length > 0 ? theme.onPrimaryContainer : theme.onSurfaceVariant,
                     }}
                   >
-                    {filterCategoryId
-                      ? categories.find((c) => c.id === filterCategoryId)?.name || 'Category'
-                      : 'Category'}
+                    {filterCategoryIds.length === 0
+                      ? 'Category'
+                      : filterCategoryIds.length === 1
+                        ? categories.find((c) => c.id === filterCategoryIds[0])?.name || 'Category'
+                        : `${filterCategoryIds.length} Categories`}
                   </Text>
                 </TouchableOpacity>
 
@@ -1853,14 +1911,15 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
             {group.days.map((dateStr) => {
               const dayTxs = transactionsByDate[dateStr] || [];
               const dayBills = billOccurrencesMap.get(dateStr) || [];
+              const dayStandaloneLoans = standaloneLoansByDate[dateStr] || [];
               const spend = dailySpendMap[dateStr] || 0;
               const isSelected = dateStr === selectedDate;
               const isToday = dateStr === new Date().toISOString().slice(0, 10);
 
-              if (hasActiveFilters && dayTxs.length === 0) {
+              if (hasActiveFilters && dayTxs.length === 0 && dayStandaloneLoans.length === 0) {
                 return null;
               }
-              if (dayTxs.length === 0 && dayBills.length === 0 && !isToday && !isSelected) {
+              if (dayTxs.length === 0 && dayBills.length === 0 && dayStandaloneLoans.length === 0 && !isToday && !isSelected) {
                 return null;
               }
 
@@ -2081,7 +2140,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                   })}
 
                   {/* Transactions for this Day */}
-                  {dayTxs.length === 0 && dayBills.length === 0 ? (
+                  {dayTxs.length === 0 && dayBills.length === 0 && dayStandaloneLoans.length === 0 ? (
                     <View style={styles.compactEmptyDayRow}>
                       <View
                         style={[
@@ -2199,6 +2258,76 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                       );
                     })
                   )}
+
+                  {/* Standalone Loans on this Day */}
+                  {dayStandaloneLoans.map((loan) => {
+                    const isLent = loan.type === 'lent';
+                    const loanWallet = wallets.find((w) => w.id === loan.wallet_id);
+                    const loanCurr = loan.currency || settings.base_currency;
+                    return (
+                      <TouchableOpacity
+                        key={loan.id}
+                        style={[
+                          styles.dayTxItem,
+                          {
+                            backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.10)' : theme.cardBg,
+                            borderColor: isDarkMode ? 'rgba(129, 140, 248, 0.35)' : theme.divider,
+                            marginTop: 6,
+                          },
+                          M3Elevation.level1,
+                        ]}
+                        onPress={() => setDebtsModalVisible(true)}
+                        activeOpacity={0.75}
+                      >
+                        <View
+                          style={[
+                            styles.catDot,
+                            {
+                              backgroundColor: isLent ? '#4F46E5' : '#D97706',
+                              width: 28,
+                              height: 28,
+                              borderRadius: 14,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            },
+                          ]}
+                        >
+                          <MaterialCommunityIcons name="handshake-outline" size={14} color="#FFFFFF" />
+                        </View>
+                        <View style={{ flex: 1, marginLeft: 10 }}>
+                          <Text style={[styles.dayTxTitle, { color: theme.onSurface }]} numberOfLines={1}>
+                            {isLent ? `Lent to ${loan.person_name}` : `Borrowed from ${loan.person_name}`}
+                          </Text>
+                          <Text style={[styles.dayTxMeta, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
+                            {[
+                              loanWallet?.name,
+                              loan.status === 'settled' ? 'Settled' : 'Open Loan',
+                              loan.note || null,
+                            ]
+                              .filter(Boolean)
+                              .join(' • ')}
+                          </Text>
+                        </View>
+                        <View style={{ alignItems: 'flex-end' }}>
+                          <Text
+                            style={[
+                              styles.dayTxAmount,
+                              { color: isLent ? '#6366F1' : '#D97706' },
+                            ]}
+                          >
+                            {isLent ? '-' : '+'}
+                            {formatCurrency(loan.amount, loanCurr)}
+                          </Text>
+                        </View>
+                        <MaterialCommunityIcons
+                          name="chevron-right"
+                          size={18}
+                          color={theme.onSurfaceVariant}
+                          style={{ marginLeft: 6 }}
+                        />
+                      </TouchableOpacity>
+                    );
+                  })}
 
                   {/* Compact Day Report Footer */}
                   {dateStr <= todayStr && (() => {
@@ -2941,7 +3070,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
             onStartShouldSetResponder={() => true}
           >
             <Text style={[styles.quickTargetTitle, { color: theme.onSurface, marginBottom: 10 }]}>
-              {filterPickerMode === 'wallet' ? 'Filter by Wallet' : 'Filter by Category'}
+              {filterPickerMode === 'wallet' ? 'Filter by Wallets' : 'Filter by Categories'}
             </Text>
             <ScrollView showsVerticalScrollIndicator={false}>
               <TouchableOpacity
@@ -2950,15 +3079,14 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                   paddingHorizontal: 12,
                   borderRadius: M3Shape.small,
                   backgroundColor:
-                    (filterPickerMode === 'wallet' ? !filterWalletId : !filterCategoryId)
+                    (filterPickerMode === 'wallet' ? filterWalletIds.length === 0 : filterCategoryIds.length === 0)
                       ? theme.primaryContainer
                       : theme.pillBg,
                   marginBottom: 6,
                 }}
                 onPress={() => {
-                  if (filterPickerMode === 'wallet') setFilterWalletId(null);
-                  else setFilterCategoryId(null);
-                  setFilterPickerMode(null);
+                  if (filterPickerMode === 'wallet') setFilterWalletIds([]);
+                  else setFilterCategoryIds([]);
                 }}
               >
                 <Text
@@ -2966,7 +3094,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                     fontSize: 13.5,
                     fontWeight: '700',
                     color:
-                      (filterPickerMode === 'wallet' ? !filterWalletId : !filterCategoryId)
+                      (filterPickerMode === 'wallet' ? filterWalletIds.length === 0 : filterCategoryIds.length === 0)
                         ? theme.onPrimaryContainer
                         : theme.onSurface,
                   }}
@@ -2977,7 +3105,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
 
               {filterPickerMode === 'wallet'
                 ? wallets.map((w) => {
-                    const active = filterWalletId === w.id;
+                    const active = filterWalletIds.includes(w.id);
                     return (
                       <TouchableOpacity
                         key={w.id}
@@ -2992,8 +3120,9 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                           marginBottom: 6,
                         }}
                         onPress={() => {
-                          setFilterWalletId(w.id);
-                          setFilterPickerMode(null);
+                          setFilterWalletIds((prev) =>
+                            prev.includes(w.id) ? prev.filter((id) => id !== w.id) : [...prev, w.id]
+                          );
                         }}
                       >
                         <MaterialCommunityIcons
@@ -3011,11 +3140,14 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                         >
                           {w.name}
                         </Text>
+                        {active && (
+                          <MaterialCommunityIcons name="check" size={16} color={theme.onPrimaryContainer} />
+                        )}
                       </TouchableOpacity>
                     );
                   })
                 : categories.map((c) => {
-                    const active = filterCategoryId === c.id;
+                    const active = filterCategoryIds.includes(c.id);
                     return (
                       <TouchableOpacity
                         key={c.id}
@@ -3030,8 +3162,9 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                           marginBottom: 6,
                         }}
                         onPress={() => {
-                          setFilterCategoryId(c.id);
-                          setFilterPickerMode(null);
+                          setFilterCategoryIds((prev) =>
+                            prev.includes(c.id) ? prev.filter((id) => id !== c.id) : [...prev, c.id]
+                          );
                         }}
                       >
                         <MaterialCommunityIcons
@@ -3052,10 +3185,25 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                         <Text style={{ fontSize: 11, color: theme.onSurfaceVariant }}>
                           {c.type}
                         </Text>
+                        {active && (
+                          <MaterialCommunityIcons name="check" size={16} color={theme.onPrimaryContainer} />
+                        )}
                       </TouchableOpacity>
                     );
                   })}
             </ScrollView>
+            <TouchableOpacity
+              style={{
+                marginTop: 10,
+                paddingVertical: 10,
+                borderRadius: M3Shape.full,
+                backgroundColor: theme.primary,
+                alignItems: 'center',
+              }}
+              onPress={() => setFilterPickerMode(null)}
+            >
+              <Text style={{ fontSize: 13, fontWeight: '800', color: theme.onPrimary }}>Done</Text>
+            </TouchableOpacity>
           </View>
         </Pressable>
       </Modal>

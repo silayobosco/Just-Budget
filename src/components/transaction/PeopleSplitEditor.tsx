@@ -50,6 +50,10 @@ export const PeopleSplitEditor: React.FC<PeopleSplitEditorProps> = ({
     handlePickFromContacts,
     animateLayout,
     focusAmountInput,
+    autoOffsetOnSave,
+    setAutoOffsetOnSave,
+    offsetTargetDebtId,
+    setOffsetTargetDebtId,
   } = form;
 
   const { debts } = useBudget();
@@ -244,74 +248,162 @@ export const PeopleSplitEditor: React.FC<PeopleSplitEditorProps> = ({
               !p.customAmount?.trim()
                 ? Math.max(0, Math.round((totalAmt - singleMyShareVal) * 100) / 100)
                 : splitSummary.resolved[idx]?.share || 0;
+            const oppositeType = forExpense
+              ? (includeMe || splitIncludeMe ? 'borrowed' : 'lent')
+              : (iouAction === 'borrowed' ? 'lent' : 'borrowed');
+            const pKey = p.name.trim().toLowerCase();
+            const matchingDebts = pKey
+              ? debts.filter(
+                  (d) =>
+                    d.status === 'open' &&
+                    d.type === oppositeType &&
+                    d.person_name.trim().toLowerCase() === pKey
+                )
+              : [];
+            const oppTotal = matchingDebts.reduce(
+              (s, d) => s + Math.max(0, d.amount - (d.paid_amount || 0)),
+              0
+            );
+
             return (
-              <View
-                key={p.name}
-                style={[
-                  styles.walletSheetRow,
-                  {
-                    backgroundColor: container,
-                    borderColor: accent,
-                    paddingVertical: 7,
-                  },
-                ]}
-              >
-                <View style={styles.walletSheetLeft}>
-                  <MaterialCommunityIcons
-                    name="account-check-outline"
-                    size={16}
-                    color={accent}
-                  />
-                  <Text
-                    style={[
-                      styles.walletSheetName,
-                      { color: onContainer, fontWeight: '700' },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {p.name}
-                  </Text>
+              <View key={p.name} style={{ gap: 6 }}>
+                <View
+                  style={[
+                    styles.walletSheetRow,
+                    {
+                      backgroundColor: container,
+                      borderColor: accent,
+                      paddingVertical: 7,
+                    },
+                  ]}
+                >
+                  <View style={styles.walletSheetLeft}>
+                    <MaterialCommunityIcons
+                      name="account-check-outline"
+                      size={16}
+                      color={accent}
+                    />
+                    <Text
+                      style={[
+                        styles.walletSheetName,
+                        { color: onContainer, fontWeight: '700' },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {p.name}
+                    </Text>
+                  </View>
+                  <View style={styles.walletSheetRight}>
+                    <TextInput
+                      style={[
+                        styles.taxInput,
+                        {
+                          color: theme.onSurface,
+                          backgroundColor: theme.surface,
+                          borderColor: theme.divider,
+                          minWidth: 96,
+                          paddingVertical: 6,
+                          fontSize: 12.5,
+                        },
+                      ]}
+                      placeholder={
+                        resolvedShare > 0
+                          ? formatTypingNumber(resolvedShare.toString())
+                          : '0'
+                      }
+                      placeholderTextColor={theme.onSurfaceVariant}
+                      keyboardType={Platform.OS === 'android' ? 'numeric' : 'decimal-pad'}
+                      editable={true}
+                      value={p.customAmount || ''}
+                      onChangeText={(txt) => {
+                        const val = formatTypingNumber(txt);
+                        setSplitPeople((prev) =>
+                          prev.map((item, i) => (i === idx ? { ...item, customAmount: val } : item))
+                        );
+                      }}
+                    />
+                    <TouchableOpacity
+                      onPress={() => {
+                        animateLayout();
+                        setSplitPeople((prev) => prev.filter((_, i) => i !== idx));
+                      }}
+                      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                      accessibilityLabel={`Remove ${p.name}`}
+                    >
+                      <MaterialCommunityIcons name="close-circle" size={18} color={theme.error} />
+                    </TouchableOpacity>
+                  </View>
                 </View>
-                <View style={styles.walletSheetRight}>
-                  <TextInput
-                    style={[
-                      styles.taxInput,
-                      {
-                        color: theme.onSurface,
-                        backgroundColor: theme.surface,
-                        borderColor: theme.divider,
-                        minWidth: 96,
-                        paddingVertical: 6,
-                        fontSize: 12.5,
-                      },
-                    ]}
-                    placeholder={
-                      resolvedShare > 0
-                        ? formatTypingNumber(resolvedShare.toString())
-                        : '0'
-                    }
-                    placeholderTextColor={theme.onSurfaceVariant}
-                    keyboardType={Platform.OS === 'android' ? 'numeric' : 'decimal-pad'}
-                    editable={true}
-                    value={p.customAmount || ''}
-                    onChangeText={(txt) => {
-                      const val = formatTypingNumber(txt);
-                      setSplitPeople((prev) =>
-                        prev.map((item, i) => (i === idx ? { ...item, customAmount: val } : item))
-                      );
+
+                {oppTotal > 0 && (
+                  <View
+                    style={{
+                      padding: 10,
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: autoOffsetOnSave ? theme.primary : theme.divider,
+                      backgroundColor: autoOffsetOnSave ? theme.primaryContainer : theme.pillBg,
+                      gap: 8,
                     }}
-                  />
-                  <TouchableOpacity
-                    onPress={() => {
-                      animateLayout();
-                      setSplitPeople((prev) => prev.filter((_, i) => i !== idx));
-                    }}
-                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                    accessibilityLabel={`Remove ${p.name}`}
                   >
-                    <MaterialCommunityIcons name="close-circle" size={18} color={theme.error} />
-                  </TouchableOpacity>
-                </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <MaterialCommunityIcons name="handshake-outline" size={16} color={theme.primary} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 12, fontWeight: '800', color: autoOffsetOnSave ? theme.onPrimaryContainer : theme.onSurface }}>
+                          {oppositeType === 'lent'
+                            ? `${p.name} owes you ${formatCurrency(oppTotal, currency)}`
+                            : `You owe ${p.name} ${formatCurrency(oppTotal, currency)}`}
+                        </Text>
+                        <Text style={{ fontSize: 10.5, fontWeight: '600', color: autoOffsetOnSave ? theme.onPrimaryContainer : theme.onSurfaceVariant }}>
+                          {autoOffsetOnSave
+                            ? 'Will offset against selected loan on save'
+                            : 'Tap a loan or toggle on to offset'}
+                        </Text>
+                      </View>
+                      <Switch
+                        value={autoOffsetOnSave}
+                        onValueChange={setAutoOffsetOnSave}
+                        trackColor={{ false: theme.outlineVariant, true: theme.primary }}
+                        thumbColor="#FFFFFF"
+                      />
+                    </View>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+                      {matchingDebts.map((d) => {
+                        const rem = Math.max(0, d.amount - (d.paid_amount || 0));
+                        const isPicked = autoOffsetOnSave && offsetTargetDebtId === d.id;
+                        return (
+                          <TouchableOpacity
+                            key={d.id}
+                            activeOpacity={0.75}
+                            onPress={() => {
+                              if (isPicked) {
+                                setOffsetTargetDebtId(null);
+                              } else {
+                                setOffsetTargetDebtId(d.id);
+                                setAutoOffsetOnSave(true);
+                              }
+                            }}
+                            style={{
+                              paddingHorizontal: 10,
+                              paddingVertical: 6,
+                              borderRadius: 8,
+                              backgroundColor: isPicked ? theme.primary : theme.surface,
+                              borderWidth: 1,
+                              borderColor: isPicked ? theme.primary : theme.divider,
+                            }}
+                          >
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: isPicked ? theme.onPrimary : theme.onSurface }}>
+                              {formatCurrency(rem, d.currency || currency)}
+                            </Text>
+                            <Text style={{ fontSize: 10, color: isPicked ? theme.onPrimary : theme.onSurfaceVariant, opacity: isPicked ? 0.9 : 1 }}>
+                              {d.date}{d.note ? ` • ${d.note}` : ''}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                )}
               </View>
             );
           })}
@@ -375,53 +467,96 @@ export const PeopleSplitEditor: React.FC<PeopleSplitEditorProps> = ({
       )}
 
       {(() => {
-        const candidateNames = [
-          ...splitPeople.map((p) => p.name.trim()),
-          ...(splitPersonInput.trim() ? [splitPersonInput.trim()] : []),
-        ].filter(Boolean);
+        const typedName = splitPersonInput.trim();
+        if (!typedName) return null;
+        const alreadyInList = splitPeople.some(
+          (p) => p.name.trim().toLowerCase() === typedName.toLowerCase()
+        );
+        if (alreadyInList) return null;
         const oppositeType = forExpense
           ? (includeMe || splitIncludeMe ? 'borrowed' : 'lent')
           : (iouAction === 'borrowed' ? 'lent' : 'borrowed');
-        const hints = candidateNames
-          .map((name) => {
-            const key = name.toLowerCase();
-            const oppTotal = debts
-              .filter(
-                (d) =>
-                  d.status === 'open' &&
-                  d.type === oppositeType &&
-                  d.person_name.trim().toLowerCase() === key
-              )
-              .reduce((s, d) => s + Math.max(0, d.amount - (d.paid_amount || 0)), 0);
-            return oppTotal > 0 ? { name, oppTotal } : null;
-          })
-          .filter(Boolean) as { name: string; oppTotal: number }[];
-        if (hints.length === 0) return null;
+        const key = typedName.toLowerCase();
+        const matchingDebts = debts.filter(
+          (d) =>
+            d.status === 'open' &&
+            d.type === oppositeType &&
+            d.person_name.trim().toLowerCase() === key
+        );
+        const oppTotal = matchingDebts.reduce(
+          (s, d) => s + Math.max(0, d.amount - (d.paid_amount || 0)),
+          0
+        );
+        if (oppTotal <= 0) return null;
         return (
           <View
             style={{
-              marginTop: 6,
+              marginTop: 8,
               marginBottom: 4,
-              paddingHorizontal: 10,
-              paddingVertical: 7,
-              borderRadius: 10,
-              backgroundColor: theme.primaryContainer,
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 6,
+              padding: 10,
+              borderRadius: 12,
+              borderWidth: 1,
+              borderColor: autoOffsetOnSave ? theme.primary : theme.divider,
+              backgroundColor: autoOffsetOnSave ? theme.primaryContainer : theme.pillBg,
+              gap: 8,
             }}
           >
-            <MaterialCommunityIcons name="swap-horizontal" size={15} color={theme.primary} />
-            <Text style={{ flex: 1, fontSize: 11.5, fontWeight: '700', color: theme.onPrimaryContainer }}>
-              {hints
-                .map((h) =>
-                  oppositeType === 'lent'
-                    ? `${h.name} already owes you ${formatCurrency(h.oppTotal, currency)}`
-                    : `You already owe ${h.name} ${formatCurrency(h.oppTotal, currency)}`
-                )
-                .join(' • ')}{' '}
-              (can be offset in Loans without cash)
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <MaterialCommunityIcons name="handshake-outline" size={16} color={theme.primary} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 12, fontWeight: '800', color: autoOffsetOnSave ? theme.onPrimaryContainer : theme.onSurface }}>
+                  {oppositeType === 'lent'
+                    ? `${typedName} owes you ${formatCurrency(oppTotal, currency)}`
+                    : `You owe ${typedName} ${formatCurrency(oppTotal, currency)}`}
+                </Text>
+                <Text style={{ fontSize: 10.5, fontWeight: '600', color: autoOffsetOnSave ? theme.onPrimaryContainer : theme.onSurfaceVariant }}>
+                  {autoOffsetOnSave
+                    ? 'Will offset against selected loan on save'
+                    : 'Tap a loan or toggle on to offset'}
+                </Text>
+              </View>
+              <Switch
+                value={autoOffsetOnSave}
+                onValueChange={setAutoOffsetOnSave}
+                trackColor={{ false: theme.outlineVariant, true: theme.primary }}
+                thumbColor="#FFFFFF"
+              />
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+              {matchingDebts.map((d) => {
+                const rem = Math.max(0, d.amount - (d.paid_amount || 0));
+                const isPicked = autoOffsetOnSave && offsetTargetDebtId === d.id;
+                return (
+                  <TouchableOpacity
+                    key={d.id}
+                    activeOpacity={0.75}
+                    onPress={() => {
+                      if (isPicked) {
+                        setOffsetTargetDebtId(null);
+                      } else {
+                        setOffsetTargetDebtId(d.id);
+                        setAutoOffsetOnSave(true);
+                      }
+                    }}
+                    style={{
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                      borderRadius: 8,
+                      backgroundColor: isPicked ? theme.primary : theme.surface,
+                      borderWidth: 1,
+                      borderColor: isPicked ? theme.primary : theme.divider,
+                    }}
+                  >
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: isPicked ? theme.onPrimary : theme.onSurface }}>
+                      {formatCurrency(rem, d.currency || currency)}
+                    </Text>
+                    <Text style={{ fontSize: 10, color: isPicked ? theme.onPrimary : theme.onSurfaceVariant, opacity: isPicked ? 0.9 : 1 }}>
+                      {d.date}{d.note ? ` • ${d.note}` : ''}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
           </View>
         );
       })()}

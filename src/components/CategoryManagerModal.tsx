@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,10 +11,13 @@ import {
   Platform,
   Switch,
   Pressable,
+  Animated,
+  PanResponder,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
+import { getDB } from '../services/db';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
 import { Category, Subcategory, BudgetProgress, BudgetScope, TransactionType, Wallet } from '../types';
 import { formatCurrency, formatTypingNumber, parseCleanNumber } from '../utils/format';
@@ -60,6 +63,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
   const insets = useSafeAreaInsets();
   const {
     categories,
+    transactions,
     addCategory,
     updateCategory,
     deleteCategory,
@@ -91,7 +95,30 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
     txType === 'income' ? 'income' : 'expense'
   );
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
   const [manageFilter, setManageFilter] = useState<'all' | 'budgeted' | 'over' | 'untracked'>('all');
+  const [sortBy, setSortBy] = useState<'custom' | 'most_used' | 'amount' | 'name'>(() => {
+    try {
+      const db = getDB();
+      const row = db.getFirstSync<{ value: string }>(
+        `SELECT value FROM settings WHERE key = 'category_sort_by'`
+      );
+      if (row?.value === 'most_used' || row?.value === 'amount' || row?.value === 'name' || row?.value === 'custom') {
+        return row.value;
+      }
+    } catch {}
+    return 'custom';
+  });
+
+  const handleSelectSort = (nextSort: 'custom' | 'most_used' | 'amount' | 'name') => {
+    setSortBy(nextSort);
+    setSortMenuOpen(false);
+    try {
+      const db = getDB();
+      db.runSync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('category_sort_by', ?)`, [nextSort]);
+    } catch {}
+  };
   const [selectedCatId, setSelectedCatId] = useState<string | undefined>(initialCategoryId);
   const [selectedSubId, setSelectedSubId] = useState<string | undefined>(initialSubcategoryId);
 
@@ -104,6 +131,8 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
       setSelectedCatId(initialCategoryId);
       setSelectedSubId(initialSubcategoryId);
       setSearchQuery('');
+      setSearchOpen(false);
+      setSortMenuOpen(false);
       setManageFilter('all');
       setIsAddingNew(false);
       setEditingCategory(null);
@@ -153,7 +182,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
   const [expandedCatIds, setExpandedCatIds] = useState<Record<string, boolean>>({});
 
   const toggleExpand = (catId: string) => {
-    setExpandedCatIds((prev) => ({ ...prev, [catId]: !prev[catId] }));
+    setExpandedCatIds((prev) => (prev[catId] ? {} : { [catId]: true }));
   };
 
   const colors = [
@@ -449,9 +478,19 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
     [categories, filterType]
   );
 
+  const categoryUsageCount = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const tx of transactions) {
+      if (tx.category_id) {
+        counts[tx.category_id] = (counts[tx.category_id] || 0) + 1;
+      }
+    }
+    return counts;
+  }, [transactions]);
+
   const filteredCategories = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    return typeCategories.filter((c) => {
+    const list = typeCategories.filter((c) => {
       if (q) {
         const nameMatch = c.name.toLowerCase().includes(q);
         const subMatch = c.subcategories?.some((s) => s.name.toLowerCase().includes(q));
@@ -466,21 +505,108 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
       }
       return true;
     });
-  }, [typeCategories, searchQuery, activeMode, manageFilter, categoryBudgetProgressList]);
 
-  const canReorder = activeMode === 'manage' && !searchQuery.trim() && manageFilter === 'all';
+    if (sortBy === 'most_used') {
+      return [...list].sort((a, b) => {
+        const diff = (categoryUsageCount[b.id] || 0) - (categoryUsageCount[a.id] || 0);
+        return diff !== 0 ? diff : a.name.localeCompare(b.name);
+      });
+    }
+    if (sortBy === 'amount') {
+      return [...list].sort((a, b) => {
+        const spentA = categoryBudgetProgressList.find((p) => p.id === a.id)?.spent || 0;
+        const spentB = categoryBudgetProgressList.find((p) => p.id === b.id)?.spent || 0;
+        return spentB !== spentA ? spentB - spentA : a.name.localeCompare(b.name);
+      });
+    }
+    if (sortBy === 'name') {
+      return [...list].sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return list;
+  }, [typeCategories, searchQuery, activeMode, manageFilter, categoryBudgetProgressList, sortBy, categoryUsageCount]);
 
-  const handleMoveCategory = async (catId: string, direction: 'up' | 'down') => {
-    const idx = typeCategories.findIndex((c) => c.id === catId);
-    if (idx === -1) return;
-    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
-    if (swapIdx < 0 || swapIdx >= typeCategories.length) return;
-    const nextTypeIds = typeCategories.map((c) => c.id);
-    const tmp = nextTypeIds[idx];
-    nextTypeIds[idx] = nextTypeIds[swapIdx];
-    nextTypeIds[swapIdx] = tmp;
-    const otherIds = categories.filter((c) => c.type !== filterType).map((c) => c.id);
-    await reorderCategories([...nextTypeIds, ...otherIds]);
+  const [draggingCatId, setDraggingCatId] = useState<string | null>(null);
+  const [dragTargetIdx, setDragTargetIdx] = useState<number | null>(null);
+  const dragDy = useRef(new Animated.Value(0)).current;
+  const rowHeightsRef = useRef<Record<string, number>>({});
+  const dragTargetRef = useRef<number | null>(null);
+  const dragStartIdxRef = useRef<number>(0);
+
+  const canReorder =
+    activeMode === 'manage' && !searchQuery.trim() && manageFilter === 'all' && sortBy === 'custom';
+
+  const canReorderRef = useRef(canReorder);
+  canReorderRef.current = canReorder;
+  const typeCategoriesRef = useRef(typeCategories);
+  typeCategoriesRef.current = typeCategories;
+  const filteredCategoriesRef = useRef(filteredCategories);
+  filteredCategoriesRef.current = filteredCategories;
+  const categoriesRef = useRef(categories);
+  categoriesRef.current = categories;
+  const filterTypeRef = useRef(filterType);
+  filterTypeRef.current = filterType;
+  const reorderCategoriesRef = useRef(reorderCategories);
+  reorderCategoriesRef.current = reorderCategories;
+
+  const panRespondersRef = useRef<Record<string, ReturnType<typeof PanResponder.create>>>({});
+
+  const getDragResponder = (catId: string) => {
+    if (!panRespondersRef.current[catId]) {
+      panRespondersRef.current[catId] = PanResponder.create({
+        onStartShouldSetPanResponder: () => canReorderRef.current,
+        onMoveShouldSetPanResponder: () => canReorderRef.current,
+        onPanResponderTerminationRequest: () => false,
+        onPanResponderGrant: () => {
+          const idx = filteredCategoriesRef.current.findIndex((c) => c.id === catId);
+          if (idx < 0) return;
+          setExpandedCatIds({});
+          dragDy.setValue(0);
+          dragStartIdxRef.current = idx;
+          dragTargetRef.current = idx;
+          setDraggingCatId(catId);
+          setDragTargetIdx(idx);
+        },
+        onPanResponderMove: (_, gestureState) => {
+          dragDy.setValue(gestureState.dy);
+          const avgH = rowHeightsRef.current[catId] || 76;
+          const startIdx = dragStartIdxRef.current;
+          const maxIdx = Math.max(0, filteredCategoriesRef.current.length - 1);
+          const steps = Math.round(gestureState.dy / avgH);
+          const nextIdx = Math.max(0, Math.min(maxIdx, startIdx + steps));
+          if (nextIdx !== dragTargetRef.current) {
+            dragTargetRef.current = nextIdx;
+            setDragTargetIdx(nextIdx);
+          }
+        },
+        onPanResponderRelease: () => {
+          const startIdx = dragStartIdxRef.current;
+          const finalIdx = dragTargetRef.current ?? startIdx;
+          setDraggingCatId(null);
+          setDragTargetIdx(null);
+          dragTargetRef.current = null;
+          dragDy.setValue(0);
+          if (finalIdx !== startIdx) {
+            const tc = typeCategoriesRef.current;
+            if (startIdx >= 0 && finalIdx >= 0 && startIdx < tc.length && finalIdx < tc.length) {
+              const nextTypeIds = tc.map((c) => c.id);
+              const [moved] = nextTypeIds.splice(startIdx, 1);
+              nextTypeIds.splice(finalIdx, 0, moved);
+              const otherIds = categoriesRef.current
+                .filter((c) => c.type !== filterTypeRef.current)
+                .map((c) => c.id);
+              reorderCategoriesRef.current([...nextTypeIds, ...otherIds]);
+            }
+          }
+        },
+        onPanResponderTerminate: () => {
+          setDraggingCatId(null);
+          setDragTargetIdx(null);
+          dragTargetRef.current = null;
+          dragDy.setValue(0);
+        },
+      });
+    }
+    return panRespondersRef.current[catId];
   };
 
   if (!visible) return null;
@@ -526,7 +652,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                 paddingVertical: 6,
                 borderRadius: M3Shape.full,
                 backgroundColor: activeMode === 'manage' ? theme.primary : theme.primaryContainer,
-                marginRight: 8,
+                marginRight: 6,
               }}
               activeOpacity={0.8}
             >
@@ -547,10 +673,55 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
             </TouchableOpacity>
           )}
 
+          <TouchableOpacity
+            onPress={() => {
+              setSortMenuOpen((prev) => !prev);
+            }}
+            style={[
+              styles.restoreBtn,
+              {
+                backgroundColor: sortMenuOpen || sortBy !== 'custom' ? theme.primaryContainer : theme.pillBg,
+                marginRight: 6,
+              },
+            ]}
+            accessibilityLabel="Sort Categories"
+          >
+            <MaterialCommunityIcons
+              name="sort-variant"
+              size={18}
+              color={sortMenuOpen || sortBy !== 'custom' ? theme.primary : theme.onSurface}
+            />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => {
+              if (searchOpen) {
+                setSearchQuery('');
+                setSearchOpen(false);
+              } else {
+                setSearchOpen(true);
+              }
+            }}
+            style={[
+              styles.restoreBtn,
+              {
+                backgroundColor: searchOpen || searchQuery ? theme.primaryContainer : theme.pillBg,
+                marginRight: 6,
+              },
+            ]}
+            accessibilityLabel="Search Categories"
+          >
+            <MaterialCommunityIcons
+              name="magnify"
+              size={18}
+              color={searchOpen || searchQuery ? theme.primary : theme.onSurface}
+            />
+          </TouchableOpacity>
+
           {activeMode === 'manage' && (
             <TouchableOpacity
               onPress={handleRestoreDefaults}
-              style={[styles.restoreBtn, { backgroundColor: theme.pillBg }]}
+              style={[styles.restoreBtn, { backgroundColor: theme.pillBg, marginRight: 6 }]}
               accessibilityLabel="Restore Default Categories"
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
@@ -562,33 +733,94 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
           </TouchableOpacity>
         </View>
 
-        {/* Search Bar */}
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 8,
-            paddingHorizontal: 12,
-            height: 38,
-            borderRadius: M3Shape.full,
-            backgroundColor: theme.pillBg,
-            marginBottom: 8,
-          }}
-        >
-          <MaterialCommunityIcons name="magnify" size={18} color={theme.onSurfaceVariant} />
-          <TextInput
-            style={{ flex: 1, fontSize: 13, color: theme.onSurface, paddingVertical: 0 }}
-            placeholder="Search categories or subcategories..."
-            placeholderTextColor={theme.onSurfaceVariant}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
-          {Boolean(searchQuery) && (
-            <TouchableOpacity onPress={() => setSearchQuery('')}>
-              <MaterialCommunityIcons name="close-circle" size={16} color={theme.onSurfaceVariant} />
-            </TouchableOpacity>
-          )}
-        </View>
+        {/* Collapsible Search Bar */}
+        {searchOpen && (
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 8,
+              paddingHorizontal: 12,
+              height: 38,
+              borderRadius: M3Shape.full,
+              backgroundColor: theme.pillBg,
+              marginBottom: 8,
+            }}
+          >
+            <MaterialCommunityIcons name="magnify" size={18} color={theme.onSurfaceVariant} />
+            <TextInput
+              autoFocus
+              style={{ flex: 1, fontSize: 13, color: theme.onSurface, paddingVertical: 0 }}
+              placeholder="Search categories or subcategories..."
+              placeholderTextColor={theme.onSurfaceVariant}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+            {Boolean(searchQuery) && (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <MaterialCommunityIcons name="close-circle" size={16} color={theme.onSurfaceVariant} />
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
+        {/* Collapsible Sort Menu */}
+        {sortMenuOpen && (
+          <View
+            style={{
+              flexDirection: 'row',
+              flexWrap: 'wrap',
+              gap: 6,
+              padding: 8,
+              borderRadius: M3Shape.medium,
+              backgroundColor: theme.cardBg,
+              borderWidth: 1,
+              borderColor: theme.divider,
+              marginBottom: 8,
+            }}
+          >
+            {(
+              [
+                { key: 'custom', label: 'Custom Order' },
+                { key: 'most_used', label: 'Most Used' },
+                { key: 'amount', label: 'Top Amount' },
+                { key: 'name', label: 'Name (A–Z)' },
+              ] as const
+            ).map((s) => {
+              const active = sortBy === s.key;
+              return (
+                <TouchableOpacity
+                  key={s.key}
+                  onPress={() => handleSelectSort(s.key)}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 4,
+                    paddingHorizontal: 10,
+                    paddingVertical: 5,
+                    borderRadius: M3Shape.full,
+                    backgroundColor: active ? theme.primaryContainer : theme.pillBg,
+                    borderWidth: 1,
+                    borderColor: active ? theme.primary : 'transparent',
+                  }}
+                >
+                  {active && (
+                    <MaterialCommunityIcons name="check" size={12} color={theme.onPrimaryContainer} />
+                  )}
+                  <Text
+                    style={{
+                      fontSize: 11.5,
+                      fontWeight: active ? '800' : '600',
+                      color: active ? theme.onPrimaryContainer : theme.onSurfaceVariant,
+                    }}
+                  >
+                    {s.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
 
         {/* Filter Expense / Income Tabs (shown in Manage mode, or Pick mode when txType wasn't fixed) */}
         {(activeMode === 'manage' || !txType) && (
@@ -931,7 +1163,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
           )}
 
           {/* Category List */}
-          <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.list} showsVerticalScrollIndicator={false} scrollEnabled={!draggingCatId}>
             {filteredCategories.length === 0 ? (
               <View style={[styles.emptyCategoryBox, { backgroundColor: theme.pillBg }]}>
                 <MaterialCommunityIcons name="folder-alert-outline" size={40} color={theme.outlineVariant} />
@@ -982,28 +1214,49 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                 }
               }
 
+              const isDragging = draggingCatId === cat.id;
+              const isDropTarget = Boolean(draggingCatId) && !isDragging && dragTargetIdx === idx;
+              const dragResponder = canReorder ? getDragResponder(cat.id) : null;
+
               return (
-                <View
+                <Animated.View
                   key={cat.id}
+                  onLayout={(e) => {
+                    if (!draggingCatId) {
+                      rowHeightsRef.current[cat.id] = e.nativeEvent.layout.height + 10;
+                    }
+                  }}
                   style={[
                     styles.categoryCard,
                     {
                       backgroundColor: isCatSelected ? theme.primaryContainer : theme.cardBg,
-                      borderColor: isCatSelected ? theme.primary : theme.divider,
+                      borderColor: isDragging || isDropTarget || isCatSelected ? theme.primary : theme.divider,
+                      borderWidth: isDragging || isDropTarget ? 2 : 1,
+                    },
+                    isDragging && {
+                      zIndex: 50,
+                      elevation: 8,
+                      transform: [{ translateY: dragDy }, { scale: 1.02 }],
                     },
                   ]}
                 >
                   {/* Category Header */}
                   <TouchableOpacity
-                    activeOpacity={activeMode === 'pick' ? 0.7 : 1}
+                    activeOpacity={0.7}
                     onPress={() => {
-                      if (activeMode !== 'pick') return;
+                      if (activeMode !== 'pick') {
+                        toggleExpand(cat.id);
+                        return;
+                      }
                       setSelectedCatId(cat.id);
                       setSelectedSubId(undefined);
                       if (cat.subcategories && cat.subcategories.length > 0) {
-                        setExpandedCatIds((prev) => ({ ...prev, [cat.id]: true }));
-                      } else if (selectOnly && onSave) {
-                        onSave({ categoryId: cat.id, subcategoryId: undefined });
+                        setExpandedCatIds((prev) => (prev[cat.id] ? {} : { [cat.id]: true }));
+                      } else {
+                        setExpandedCatIds({});
+                        if (selectOnly && onSave) {
+                          onSave({ categoryId: cat.id, subcategoryId: undefined });
+                        }
                       }
                     }}
                     style={styles.catHeader}
@@ -1059,31 +1312,15 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                     </View>
 
                     {/* Action buttons */}
+                    {activeMode === 'pick' && cat.subcategories && cat.subcategories.length > 0 && (
+                      <MaterialCommunityIcons
+                        name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                        size={18}
+                        color={isCatSelected ? theme.onPrimaryContainer : theme.onSurfaceVariant}
+                      />
+                    )}
                     {activeMode === 'manage' && (
-                      <View style={[styles.catActions, { flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
-                        {canReorder && (
-                          <>
-                            <TouchableOpacity
-                              onPress={() => handleMoveCategory(cat.id, 'up')}
-                              disabled={idx === 0}
-                              style={[styles.smallIconBtn, { backgroundColor: theme.pillBg, opacity: idx === 0 ? 0.35 : 1 }]}
-                              accessibilityLabel="Move Category Up"
-                            >
-                              <MaterialCommunityIcons name="chevron-up" size={16} color={theme.onSurface} />
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              onPress={() => handleMoveCategory(cat.id, 'down')}
-                              disabled={idx === filteredCategories.length - 1}
-                              style={[
-                                styles.smallIconBtn,
-                                { backgroundColor: theme.pillBg, opacity: idx === filteredCategories.length - 1 ? 0.35 : 1 },
-                              ]}
-                              accessibilityLabel="Move Category Down"
-                            >
-                              <MaterialCommunityIcons name="chevron-down" size={16} color={theme.onSurface} />
-                            </TouchableOpacity>
-                          </>
-                        )}
+                      <View style={[styles.catActions, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
                         <TouchableOpacity
                           onPress={() => handleStartEdit(cat)}
                           style={[styles.smallIconBtn, { backgroundColor: theme.pillBg }]}
@@ -1091,40 +1328,48 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                         >
                           <MaterialCommunityIcons name="pencil" size={16} color={theme.onSurface} />
                         </TouchableOpacity>
+                        {canReorder && dragResponder && (
+                          <View
+                            {...dragResponder.panHandlers}
+                            style={[styles.smallIconBtn, { backgroundColor: theme.pillBg }]}
+                            accessibilityLabel="Drag to reorder category"
+                          >
+                            <MaterialCommunityIcons name="drag" size={18} color={theme.onSurfaceVariant} />
+                          </View>
+                        )}
                       </View>
                     )}
                   </TouchableOpacity>
 
-                  {/* Subcategories Toggle */}
-                  <View style={styles.subToggleRow}>
-                    <TouchableOpacity
-                      style={styles.subToggleBtn}
-                      onPress={() => toggleExpand(cat.id)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={[styles.subToggleText, { color: theme.primary }]}>
-                        {isExpanded
-                          ? 'Hide Subcategories'
-                          : `Subcategories (${cat.subcategories?.length || 0})`}
-                      </Text>
-                      <MaterialCommunityIcons
-                        name={isExpanded ? 'chevron-up' : 'chevron-down'}
-                        size={18}
-                        color={theme.primary}
-                      />
-                    </TouchableOpacity>
+                  {/* Subcategories Toggle (only shown while expanded to keep collapsed cards compact) */}
+                  {isExpanded && (
+                    <View style={styles.subToggleRow}>
+                      <TouchableOpacity
+                        style={styles.subToggleBtn}
+                        onPress={() => toggleExpand(cat.id)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[styles.subToggleText, { color: theme.primary }]}>
+                          Hide Subcategories
+                        </Text>
+                        <MaterialCommunityIcons
+                          name="chevron-up"
+                          size={18}
+                          color={theme.primary}
+                        />
+                      </TouchableOpacity>
 
-                    <TouchableOpacity
-                      style={[styles.addSubToggleBtn, { backgroundColor: theme.pillBg }]}
-                      onPress={() => {
-                        setActiveSubInputCatId(isAddingSubHere ? null : cat.id);
-                        if (!isExpanded) toggleExpand(cat.id);
-                      }}
-                    >
-                      <MaterialCommunityIcons name="plus" size={14} color={theme.primary} />
-                      <Text style={[styles.addSubToggleBtnText, { color: theme.primary }]}>Add Sub</Text>
-                    </TouchableOpacity>
-                  </View>
+                      <TouchableOpacity
+                        style={[styles.addSubToggleBtn, { backgroundColor: theme.pillBg }]}
+                        onPress={() => {
+                          setActiveSubInputCatId(isAddingSubHere ? null : cat.id);
+                        }}
+                      >
+                        <MaterialCommunityIcons name="plus" size={14} color={theme.primary} />
+                        <Text style={[styles.addSubToggleBtnText, { color: theme.primary }]}>Add Sub</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
 
                   {/* Expanded Subcategories */}
                   {isExpanded && (
@@ -1264,7 +1509,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                       )}
                     </View>
                   )}
-                </View>
+                </Animated.View>
               );
             })
           )}

@@ -201,34 +201,51 @@ export const DebtsModal: React.FC<DebtsModalProps> = ({ visible, onClose, embedd
     Alert.alert(
       overlap > 0 ? `Offset & Settle with ${displayName}?` : `Settle All with ${displayName}?`,
       msg,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: overlap > 0 && netRem <= 0.009 ? 'Offset Mutually' : 'Settle All',
-          onPress: async () => {
-            if (overlap > 0) {
-              await offsetMutualDebts(displayName);
-            }
-            if (netRem > 0.009) {
-              const remType = lentOpen > borrowedOpen ? 'lent' : 'borrowed';
-              const remItems =
-                overlap > 0
-                  ? openItems.filter((d) => d.type === remType)
-                  : openItems;
-              let toPay = overlap > 0 ? netRem : Infinity;
-              for (const item of remItems) {
-                if (toPay <= 0.009) break;
-                const rem = Math.max(0, item.amount - (item.paid_amount || 0));
-                const payAmt = Math.min(rem, toPay);
-                if (payAmt > 0) {
-                  await recordDebtPayment(item.id, payAmt);
-                  if (overlap > 0) toPay -= payAmt;
+      overlap > 0
+        ? [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Settle Separately',
+              onPress: async () => {
+                for (const item of openItems) {
+                  const rem = Math.max(0, item.amount - (item.paid_amount || 0));
+                  if (rem > 0) await recordDebtPayment(item.id, rem);
                 }
-              }
-            }
-          },
-        },
-      ]
+              },
+            },
+            {
+              text: netRem <= 0.009 ? 'Offset Mutually' : 'Offset & Settle',
+              onPress: async () => {
+                await offsetMutualDebts(displayName);
+                if (netRem > 0.009) {
+                  const remType = lentOpen > borrowedOpen ? 'lent' : 'borrowed';
+                  const remItems = openItems.filter((d) => d.type === remType);
+                  let toPay = netRem;
+                  for (const item of remItems) {
+                    if (toPay <= 0.009) break;
+                    const rem = Math.max(0, item.amount - (item.paid_amount || 0));
+                    const payAmt = Math.min(rem, toPay);
+                    if (payAmt > 0) {
+                      await recordDebtPayment(item.id, payAmt);
+                      toPay -= payAmt;
+                    }
+                  }
+                }
+              },
+            },
+          ]
+        : [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Settle All',
+              onPress: async () => {
+                for (const item of openItems) {
+                  const rem = Math.max(0, item.amount - (item.paid_amount || 0));
+                  if (rem > 0) await recordDebtPayment(item.id, rem);
+                }
+              },
+            },
+          ]
     );
   };
 

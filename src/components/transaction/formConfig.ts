@@ -64,6 +64,15 @@ export const FORM_VALIDATION: Record<FormKind, readonly ValidationRule[]> = {
   expense: [
     validateAmount,
     (ctx) => {
+      if (ctx.settleIouEnabled && !ctx.selectedDebtId) {
+        return {
+          title: 'Select a Loan',
+          message: 'Choose which borrowed loan this expense is repaying, or turn off Settle Borrowed Loan.',
+        };
+      }
+      return null;
+    },
+    (ctx) => {
       if (ctx.expenseSource !== 'wallet') {
         if (ctx.splitPeopleCount === 0 && !ctx.splitPersonInput.trim()) {
           return {
