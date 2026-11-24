@@ -1217,6 +1217,158 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
               const isDragging = draggingCatId === cat.id;
               const isDropTarget = Boolean(draggingCatId) && !isDragging && dragTargetIdx === idx;
               const dragResponder = canReorder ? getDragResponder(cat.id) : null;
+              const subs = cat.subcategories || [];
+
+              if (activeMode === 'pick') {
+                return (
+                  <View key={cat.id} style={{ marginBottom: 8 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <TouchableOpacity
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          setSelectedCatId(cat.id);
+                          setSelectedSubId(undefined);
+                          if (subs.length > 0) {
+                            setExpandedCatIds((prev) => (prev[cat.id] ? {} : { [cat.id]: true }));
+                          } else {
+                            setExpandedCatIds({});
+                            if (selectOnly && onSave) {
+                              onSave({ categoryId: cat.id, subcategoryId: undefined });
+                            }
+                          }
+                        }}
+                        style={{
+                          flex: 1,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 10,
+                          paddingHorizontal: 12,
+                          paddingVertical: 10,
+                          borderRadius: M3Shape.medium,
+                          borderWidth: 1,
+                          backgroundColor: isCatSelected ? theme.primaryContainer : theme.pillBg,
+                          borderColor: isCatSelected ? theme.primary : 'transparent',
+                        }}
+                      >
+                        <View
+                          style={{
+                            width: 30,
+                            height: 30,
+                            borderRadius: 15,
+                            backgroundColor: cat.color,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <MaterialCommunityIcons name={cat.icon as any} size={16} color="#FFFFFF" />
+                        </View>
+                        <Text
+                          style={{
+                            flex: 1,
+                            fontSize: 14,
+                            color: isCatSelected ? theme.onPrimaryContainer : theme.onSurface,
+                            fontWeight: isCatSelected ? '800' : '600',
+                          }}
+                          numberOfLines={1}
+                        >
+                          {cat.name}
+                        </Text>
+                        {subs.length > 0 && (
+                          <Text style={{ fontSize: 11.5, fontWeight: '700', color: theme.onSurfaceVariant }}>
+                            {subs.length}
+                          </Text>
+                        )}
+                      </TouchableOpacity>
+
+                      {subs.length > 0 && (
+                        <TouchableOpacity
+                          style={{
+                            width: 38,
+                            height: 38,
+                            borderRadius: M3Shape.medium,
+                            borderWidth: 1,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            backgroundColor: isExpanded ? theme.primary : theme.surface,
+                            borderColor: isExpanded ? theme.primary : theme.divider,
+                          }}
+                          onPress={() => toggleExpand(cat.id)}
+                          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                          accessibilityLabel={`Expand ${cat.name} subcategories`}
+                        >
+                          <MaterialCommunityIcons
+                            name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                            size={18}
+                            color={isExpanded ? theme.onPrimary : theme.onSurfaceVariant}
+                          />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+
+                    {isExpanded && subs.length > 0 && (
+                      <View
+                        style={{
+                          marginTop: 6,
+                          marginLeft: 18,
+                          paddingLeft: 12,
+                          borderLeftWidth: 2,
+                          borderLeftColor: theme.divider,
+                          gap: 6,
+                        }}
+                      >
+                        {subs.map((sub) => {
+                          const isSubSel = selectedCatId === cat.id && selectedSubId === sub.id;
+                          return (
+                            <TouchableOpacity
+                              key={sub.id}
+                              activeOpacity={0.7}
+                              onPress={() => {
+                                setSelectedCatId(cat.id);
+                                const nextSubId = isSubSel ? undefined : sub.id;
+                                setSelectedSubId(nextSubId);
+                                if (selectOnly && onSave) {
+                                  onSave({ categoryId: cat.id, subcategoryId: nextSubId });
+                                }
+                              }}
+                              style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 8,
+                                paddingHorizontal: 12,
+                                paddingVertical: 9,
+                                borderRadius: M3Shape.small,
+                                borderWidth: 1,
+                                backgroundColor: isSubSel ? theme.primaryContainer : theme.surface,
+                                borderColor: isSubSel ? theme.primary : theme.divider,
+                              }}
+                            >
+                              <MaterialCommunityIcons
+                                name="subdirectory-arrow-right"
+                                size={15}
+                                color={isSubSel ? theme.primary : theme.onSurfaceVariant}
+                              />
+                              <Text
+                                style={{
+                                  flex: 1,
+                                  fontSize: 13,
+                                  color: isSubSel ? theme.onPrimaryContainer : theme.onSurface,
+                                  fontWeight: isSubSel ? '700' : '500',
+                                }}
+                                numberOfLines={1}
+                              >
+                                {sub.name}
+                              </Text>
+                              {isSubSel && (
+                                <MaterialCommunityIcons name="check" size={15} color={theme.primary} />
+                              )}
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    )}
+                  </View>
+                );
+              }
 
               return (
                 <Animated.View
@@ -1243,22 +1395,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                   {/* Category Header */}
                   <TouchableOpacity
                     activeOpacity={0.7}
-                    onPress={() => {
-                      if (activeMode !== 'pick') {
-                        toggleExpand(cat.id);
-                        return;
-                      }
-                      setSelectedCatId(cat.id);
-                      setSelectedSubId(undefined);
-                      if (cat.subcategories && cat.subcategories.length > 0) {
-                        setExpandedCatIds((prev) => (prev[cat.id] ? {} : { [cat.id]: true }));
-                      } else {
-                        setExpandedCatIds({});
-                        if (selectOnly && onSave) {
-                          onSave({ categoryId: cat.id, subcategoryId: undefined });
-                        }
-                      }
-                    }}
+                    onPress={() => toggleExpand(cat.id)}
                     style={styles.catHeader}
                   >
                     <View style={[styles.catIconWrap, { backgroundColor: cat.color }]}>
@@ -1312,15 +1449,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                     </View>
 
                     {/* Action buttons */}
-                    {activeMode === 'pick' && cat.subcategories && cat.subcategories.length > 0 && (
-                      <MaterialCommunityIcons
-                        name={isExpanded ? 'chevron-up' : 'chevron-down'}
-                        size={18}
-                        color={isCatSelected ? theme.onPrimaryContainer : theme.onSurfaceVariant}
-                      />
-                    )}
-                    {activeMode === 'manage' && (
-                      <View style={[styles.catActions, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
+                    <View style={[styles.catActions, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
                         <TouchableOpacity
                           onPress={() => handleStartEdit(cat)}
                           style={[styles.smallIconBtn, { backgroundColor: theme.pillBg }]}
@@ -1338,7 +1467,6 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                           </View>
                         )}
                       </View>
-                    )}
                   </TouchableOpacity>
 
                   {/* Subcategories Toggle (only shown while expanded to keep collapsed cards compact) */}
@@ -1377,28 +1505,11 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                       {cat.subcategories?.map((sub) => {
                         const subProgress = catProgress?.subBudgets?.find((s) => s.id === sub.id);
                         const subHasLimit = subProgress && subProgress.limit > 0;
-                        const isSubSelected = activeMode === 'pick' && selectedCatId === cat.id && selectedSubId === sub.id;
 
                         return (
-                          <TouchableOpacity
+                          <View
                             key={sub.id}
-                            activeOpacity={activeMode === 'pick' ? 0.7 : 1}
-                            onPress={() => {
-                              if (activeMode !== 'pick') return;
-                              setSelectedCatId(cat.id);
-                              setSelectedSubId(sub.id);
-                              if (selectOnly && onSave) {
-                                onSave({ categoryId: cat.id, subcategoryId: sub.id });
-                              }
-                            }}
-                            style={[
-                              styles.subItemRow,
-                              {
-                                backgroundColor: isSubSelected ? theme.primaryContainer : theme.pillBg,
-                                borderWidth: isSubSelected ? 1 : 0,
-                                borderColor: isSubSelected ? theme.primary : 'transparent',
-                              },
-                            ]}
+                            style={[styles.subItemRow, { backgroundColor: theme.pillBg }]}
                           >
                             <View style={styles.subMainInfo}>
                               <View style={styles.subTitleRow}>
@@ -1453,18 +1564,16 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                               )}
                             </View>
 
-                            {activeMode === 'manage' && (
-                              <View style={styles.subItemActions}>
-                                <TouchableOpacity
-                                  style={[styles.subIconBtn, { backgroundColor: theme.surface }]}
-                                  onPress={() => handleStartEditSub(cat, sub)}
-                                  accessibilityLabel="Edit Subcategory"
-                                >
-                                  <MaterialCommunityIcons name="pencil-outline" size={14} color={theme.onSurface} />
-                                </TouchableOpacity>
-                              </View>
-                            )}
-                          </TouchableOpacity>
+                            <View style={styles.subItemActions}>
+                              <TouchableOpacity
+                                style={[styles.subIconBtn, { backgroundColor: theme.surface }]}
+                                onPress={() => handleStartEditSub(cat, sub)}
+                                accessibilityLabel="Edit Subcategory"
+                              >
+                                <MaterialCommunityIcons name="pencil-outline" size={14} color={theme.onSurface} />
+                              </TouchableOpacity>
+                            </View>
+                          </View>
                         );
                       })}
 
