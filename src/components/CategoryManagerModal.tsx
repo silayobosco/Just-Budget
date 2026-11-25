@@ -1318,6 +1318,8 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                       >
                         {subs.map((sub) => {
                           const isSubSel = selectedCatId === cat.id && selectedSubId === sub.id;
+                          const subProgress = catProgress?.subBudgets?.find((s) => s.id === sub.id);
+                          const subHasLimit = Boolean(subProgress && subProgress.limit > 0);
                           return (
                             <TouchableOpacity
                               key={sub.id}
@@ -1335,7 +1337,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                                 alignItems: 'center',
                                 gap: 8,
                                 paddingHorizontal: 12,
-                                paddingVertical: 9,
+                                paddingVertical: 8,
                                 borderRadius: M3Shape.small,
                                 borderWidth: 1,
                                 backgroundColor: isSubSel ? theme.primaryContainer : theme.surface,
@@ -1347,17 +1349,71 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                                 size={15}
                                 color={isSubSel ? theme.primary : theme.onSurfaceVariant}
                               />
-                              <Text
-                                style={{
-                                  flex: 1,
-                                  fontSize: 13,
-                                  color: isSubSel ? theme.onPrimaryContainer : theme.onSurface,
-                                  fontWeight: isSubSel ? '700' : '500',
-                                }}
-                                numberOfLines={1}
-                              >
-                                {sub.name}
-                              </Text>
+                              <View style={{ flex: 1, gap: 2 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                                  <Text
+                                    style={{
+                                      flex: 1,
+                                      fontSize: 13,
+                                      color: isSubSel ? theme.onPrimaryContainer : theme.onSurface,
+                                      fontWeight: isSubSel ? '700' : '500',
+                                    }}
+                                    numberOfLines={1}
+                                  >
+                                    {sub.name}
+                                  </Text>
+                                  {subHasLimit && subProgress && (
+                                    <Text
+                                      style={{
+                                        fontSize: 11,
+                                        fontWeight: '700',
+                                        color:
+                                          filterType === 'expense'
+                                            ? (subProgress.isOverBudget ? theme.error : theme.primary)
+                                            : (subProgress.spent >= subProgress.limit ? theme.success : theme.primary),
+                                      }}
+                                    >
+                                      {filterType === 'expense' ? 'Limit: ' : 'Target: '}
+                                      {formatCurrency(subProgress.limit, curr)}
+                                    </Text>
+                                  )}
+                                </View>
+                                <Text
+                                  style={{
+                                    fontSize: 11,
+                                    color: isSubSel ? theme.onPrimaryContainer : theme.onSurfaceVariant,
+                                    opacity: isSubSel ? 0.9 : 1,
+                                  }}
+                                >
+                                  {filterType === 'expense' ? 'Spent: ' : 'Earned: '}
+                                  {formatCurrency(subProgress?.spent || 0, curr)}
+                                  {subHasLimit && subProgress
+                                    ? ` (${Math.round(subProgress.percent)}%)`
+                                    : (filterType === 'expense' ? ' • No limit' : ' • No target')}
+                                </Text>
+                                {subHasLimit && subProgress && (
+                                  <View style={[styles.subProgressBg, { backgroundColor: theme.surfaceVariant, marginTop: 2 }]}>
+                                    <View
+                                      style={[
+                                        styles.subProgressFill,
+                                        {
+                                          width: `${Math.min(100, Math.round(subProgress.percent))}%`,
+                                          backgroundColor:
+                                            filterType === 'expense'
+                                              ? (subProgress.isOverBudget
+                                                ? theme.error
+                                                : subProgress.isNearLimit
+                                                ? '#D97706'
+                                                : theme.primary)
+                                              : (subProgress.spent >= subProgress.limit
+                                                ? theme.success
+                                                : theme.primary),
+                                        },
+                                      ]}
+                                    />
+                                  </View>
+                                )}
+                              </View>
                               {isSubSel && (
                                 <MaterialCommunityIcons name="check" size={15} color={theme.primary} />
                               )}
