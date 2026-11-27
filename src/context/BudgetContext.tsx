@@ -78,6 +78,8 @@ interface BudgetContextType {
   getLastCalendarJumpAt: () => number;
   selectedTransactionIdForCalendar: string | null;
   setSelectedTransactionIdForCalendar: (id: string | null) => void;
+  calendarCategoryFilterId: string | null;
+  setCalendarCategoryFilterId: (id: string | null) => void;
   selectedCalendarCycle: BudgetCycle | null;
   setSelectedCalendarCycle: (cycle: BudgetCycle | null) => void;
   selectedAnalyticsCycle: BudgetCycle | null;
@@ -283,6 +285,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, []);
   const getLastCalendarJumpAt = useCallback(() => lastCalendarDateChangeAtRef.current, []);
   const [selectedTransactionIdForCalendar, setSelectedTransactionIdForCalendar] = useState<string | null>(null);
+  const [calendarCategoryFilterId, setCalendarCategoryFilterId] = useState<string | null>(null);
   const [selectedCalendarCycle, setSelectedCalendarCycle] = useState<BudgetCycle | null>(null);
   const [selectedAnalyticsCycle, setSelectedAnalyticsCycle] = useState<BudgetCycle | null>(null);
 
@@ -2483,6 +2486,8 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         getLastCalendarJumpAt,
         selectedTransactionIdForCalendar,
         setSelectedTransactionIdForCalendar,
+        calendarCategoryFilterId,
+        setCalendarCategoryFilterId,
         selectedCalendarCycle,
         setSelectedCalendarCycle,
         selectedAnalyticsCycle,

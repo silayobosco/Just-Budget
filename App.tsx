@@ -69,7 +69,7 @@ const MainApp: React.FC = () => {
         {currentTab === 'home' && <HomeScreen onNavigateTab={setCurrentTab} />}
         {currentTab === 'calendar' && <CalendarScreen onNavigateTab={setCurrentTab} />}
         {currentTab === 'wallets' && <WalletsScreen />}
-        {currentTab === 'analytics' && <AnalyticsScreen />}
+        {currentTab === 'analytics' && <AnalyticsScreen onNavigateTab={setCurrentTab} />}
         {currentTab === 'settings' && <SettingsScreen />}
       </View>
 

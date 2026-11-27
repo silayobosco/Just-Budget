@@ -54,6 +54,8 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
     setSelectedCalendarDate,
     selectedTransactionIdForCalendar,
     setSelectedTransactionIdForCalendar,
+    calendarCategoryFilterId,
+    setCalendarCategoryFilterId,
     selectedCalendarCycle,
     setSelectedCalendarCycle,
     selectedAnalyticsCycle,
@@ -107,6 +109,14 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
   const [filterWalletIds, setFilterWalletIds] = useState<string[]>([]);
   const [filterCategoryIds, setFilterCategoryIds] = useState<string[]>([]);
   const [filterPickerMode, setFilterPickerMode] = useState<'wallet' | 'category' | null>(null);
+
+  useEffect(() => {
+    if (calendarCategoryFilterId) {
+      setFilterCategoryIds([calendarCategoryFilterId]);
+      setFiltersExpanded(true);
+      setCalendarCategoryFilterId(null);
+    }
+  }, [calendarCategoryFilterId, setCalendarCategoryFilterId]);
 
   useEffect(() => {
     Animated.spring(fabAnim, {
@@ -1811,102 +1821,6 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
               }
             }}
           >
-            {/* Cycle Title Card Header (Tapping opens the Analysis page for this cycle) */}
-            <TouchableOpacity
-              style={[
-                styles.cycleGroupHeaderCard,
-                {
-                  backgroundColor: group.isSelected
-                    ? (isDarkMode ? 'rgba(99, 102, 241, 0.22)' : '#EEF2FF')
-                    : (isDarkMode ? 'rgba(255, 255, 255, 0.05)' : theme.cardBg),
-                  borderColor: group.isSelected
-                    ? (isDarkMode ? '#818CF8' : theme.primary)
-                    : theme.divider,
-                },
-                M3Elevation.level1,
-              ]}
-              onPress={() => handleOpenCycleAnalytics(group.cycle)}
-              activeOpacity={0.75}
-              accessibilityLabel={`Open Analysis for cycle ${group.displayName}`}
-            >
-              <View style={styles.cycleGroupHeaderLeft}>
-                <View
-                  style={[
-                    styles.cycleGroupIconWrap,
-                    {
-                      backgroundColor: group.isSelected
-                        ? (isDarkMode ? '#818CF8' : theme.primary)
-                        : (isDarkMode ? 'rgba(99, 102, 241, 0.2)' : theme.pillBg),
-                    },
-                  ]}
-                >
-                  <MaterialCommunityIcons
-                    name="chart-pie"
-                    size={18}
-                    color={group.isSelected ? (isDarkMode ? '#0F172A' : '#FFFFFF') : theme.primary}
-                  />
-                </View>
-                <View style={styles.cycleGroupTitleCol}>
-                  <View style={styles.cycleGroupTitleRow}>
-                    <Text
-                      style={[
-                        styles.cycleGroupTitleText,
-                        { color: theme.onSurface },
-                        group.isSelected && { fontWeight: '800' },
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {group.displayName}
-                    </Text>
-                    {group.isCurrent && (
-                      <View
-                        style={[
-                          styles.cycleCurrentBadge,
-                          { backgroundColor: isDarkMode ? 'rgba(16, 185, 129, 0.25)' : '#D1FAE5' },
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.cycleCurrentBadgeText,
-                            { color: isDarkMode ? '#6EE7B7' : '#047857' },
-                          ]}
-                        >
-                          Current
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                  <Text style={[styles.cycleGroupMetaText, { color: theme.onSurfaceVariant }]}>
-                    Spent: {formatCurrency(group.cycleSpent, curr)}
-                    {group.cycleIncome > 0 && ` • Income: ${formatCurrency(group.cycleIncome, curr)}`}
-                  </Text>
-                </View>
-              </View>
-
-              <View
-                style={[
-                  styles.openAnalyticsActionPill,
-                  {
-                    backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.25)' : theme.primaryContainer,
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.openAnalyticsActionText,
-                    { color: isDarkMode ? '#C7D2FE' : theme.onPrimaryContainer },
-                  ]}
-                >
-                  Analysis
-                </Text>
-                <MaterialCommunityIcons
-                  name="chevron-right"
-                  size={15}
-                  color={isDarkMode ? '#C7D2FE' : theme.onPrimaryContainer}
-                />
-              </View>
-            </TouchableOpacity>
-
             {/* Days and Transactions in this Cycle */}
             {group.days.map((dateStr) => {
               const dayTxs = transactionsByDate[dateStr] || [];
@@ -2439,6 +2353,103 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ onNavigateTab })
                 </View>
               );
             })}
+
+            {/* Cycle Summary Banner at the end of the cycle */}
+            <TouchableOpacity
+              style={[
+                styles.cycleGroupHeaderCard,
+                {
+                  backgroundColor: group.isSelected
+                    ? (isDarkMode ? 'rgba(99, 102, 241, 0.22)' : '#EEF2FF')
+                    : (isDarkMode ? 'rgba(255, 255, 255, 0.05)' : theme.cardBg),
+                  borderColor: group.isSelected
+                    ? (isDarkMode ? '#818CF8' : theme.primary)
+                    : theme.divider,
+                  marginTop: 6,
+                },
+                M3Elevation.level1,
+              ]}
+              onPress={() => handleOpenCycleAnalytics(group.cycle)}
+              activeOpacity={0.75}
+              accessibilityLabel={`Open Analysis for cycle ${group.displayName}`}
+            >
+              <View style={styles.cycleGroupHeaderLeft}>
+                <View
+                  style={[
+                    styles.cycleGroupIconWrap,
+                    {
+                      backgroundColor: group.isSelected
+                        ? (isDarkMode ? '#818CF8' : theme.primary)
+                        : (isDarkMode ? 'rgba(99, 102, 241, 0.2)' : theme.pillBg),
+                    },
+                  ]}
+                >
+                  <MaterialCommunityIcons
+                    name="chart-pie"
+                    size={18}
+                    color={group.isSelected ? (isDarkMode ? '#0F172A' : '#FFFFFF') : theme.primary}
+                  />
+                </View>
+                <View style={styles.cycleGroupTitleCol}>
+                  <View style={styles.cycleGroupTitleRow}>
+                    <Text
+                      style={[
+                        styles.cycleGroupTitleText,
+                        { color: theme.onSurface },
+                        group.isSelected && { fontWeight: '800' },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {group.displayName}
+                    </Text>
+                    {group.isCurrent && (
+                      <View
+                        style={[
+                          styles.cycleCurrentBadge,
+                          { backgroundColor: isDarkMode ? 'rgba(16, 185, 129, 0.25)' : '#D1FAE5' },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.cycleCurrentBadgeText,
+                            { color: isDarkMode ? '#6EE7B7' : '#047857' },
+                          ]}
+                        >
+                          Current
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={[styles.cycleGroupMetaText, { color: theme.onSurfaceVariant }]}>
+                    Spent: {formatCurrency(group.cycleSpent, curr)}
+                    {group.cycleIncome > 0 && ` • Income: ${formatCurrency(group.cycleIncome, curr)}`}
+                  </Text>
+                </View>
+              </View>
+
+              <View
+                style={[
+                  styles.openAnalyticsActionPill,
+                  {
+                    backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.25)' : theme.primaryContainer,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.openAnalyticsActionText,
+                    { color: isDarkMode ? '#C7D2FE' : theme.onPrimaryContainer },
+                  ]}
+                >
+                  Analysis
+                </Text>
+                <MaterialCommunityIcons
+                  name="chevron-right"
+                  size={15}
+                  color={isDarkMode ? '#C7D2FE' : theme.onPrimaryContainer}
+                />
+              </View>
+            </TouchableOpacity>
           </View>
         ))}
       </ScrollView>

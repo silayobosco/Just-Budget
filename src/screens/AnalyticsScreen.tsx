@@ -30,9 +30,11 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useBudget } from '../context/BudgetContext';
 import { lightTheme, darkTheme, M3Shape, M3Elevation } from '../theme';
 import { formatCurrency } from '../utils/format';
-import { TransactionType, BillFrequency, RecurrenceEndType } from '../types';
+import { Transaction, TransactionType, BillFrequency, RecurrenceEndType } from '../types';
 import { CategoryManagerModal } from '../components/CategoryManagerModal';
+import { TransactionDetailModal } from '../components/TransactionDetailModal';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
+import { TabType } from '../components/BottomTabs';
 import { CalendarPickerModal } from '../components/CalendarPickerModal';
 import { DebtsModal } from '../components/DebtsModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -862,7 +864,7 @@ export const AnalyticsFilterModal: React.FC<AnalyticsFilterModalProps> = ({
   );
 };
 
-export const AnalyticsScreen: React.FC = () => {
+export const AnalyticsScreen: React.FC<{ onNavigateTab?: (tab: TabType) => void }> = ({ onNavigateTab }) => {
   const insets = useSafeAreaInsets();
   const {
     settings,
@@ -872,7 +874,10 @@ export const AnalyticsScreen: React.FC = () => {
     debts,
     allCycles,
     addTransaction,
+    updateTransaction,
+    deleteTransaction,
     addSubcategory,
+    setCalendarCategoryFilterId,
     currentCycle,
     selectedAnalyticsCycle,
     setSelectedAnalyticsCycle,
@@ -907,6 +912,18 @@ export const AnalyticsScreen: React.FC = () => {
 
   // Zoomed category in Expense Analyzer for drilldown subcategory Donut chart
   const [zoomedCategoryId, setZoomedCategoryId] = useState<string | null>(null);
+
+  // Category / Subcategory Transactions Drilldown Sheet
+  const [drilldownFilter, setDrilldownFilter] = useState<{
+    categoryId: string;
+    categoryName: string;
+    subcategoryId?: string;
+    subcategoryName?: string;
+    txType: 'expense' | 'income';
+    color: string;
+  } | null>(null);
+  const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
 
   const toggleCategoryExpand = (catId: string) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -1467,7 +1484,7 @@ export const AnalyticsScreen: React.FC = () => {
 
   // Category income breakdown (Income)
   const categoryIncome = useMemo(() => {
-    const map: Record<string, { categoryName: string; color: string; icon: string; amount: number; count: number }> = {};
+    const map: Record<string, { categoryId: string; categoryName: string; color: string; icon: string; amount: number; count: number }> = {};
 
     activeTransactions
       .filter((t) => t.type === 'income')
@@ -1479,7 +1496,7 @@ export const AnalyticsScreen: React.FC = () => {
         const icon = cat ? cat.icon : 'cash-plus';
 
         if (!map[catId]) {
-          map[catId] = { categoryName: name, color, icon, amount: 0, count: 0 };
+          map[catId] = { categoryId: catId, categoryName: name, color, icon, amount: 0, count: 0 };
         }
         map[catId].amount += (t.amount || t.base_amount || 0);
         map[catId].count += 1;
@@ -1487,6 +1504,24 @@ export const AnalyticsScreen: React.FC = () => {
 
     return Object.values(map).sort((a, b) => b.amount - a.amount);
   }, [activeTransactions, categories]);
+
+  const drilldownTransactions = useMemo(() => {
+    if (!drilldownFilter) return [];
+    return activeTransactions
+      .filter((t) => {
+        if (t.type !== drilldownFilter.txType) return false;
+        const catMatch =
+          drilldownFilter.categoryId === 'other' || drilldownFilter.categoryId === 'other-inc'
+            ? !t.category_id || !categories.some((c) => c.id === t.category_id)
+            : t.category_id === drilldownFilter.categoryId;
+        if (!catMatch) return false;
+        if (drilldownFilter.subcategoryId) {
+          return t.subcategory_id === drilldownFilter.subcategoryId;
+        }
+        return true;
+      })
+      .sort((a, b) => (b.date !== a.date ? b.date.localeCompare(a.date) : (b.created_at || b.id).localeCompare(a.created_at || a.id)));
+  }, [drilldownFilter, activeTransactions, categories]);
 
   // Zoomed Category object
   const zoomedCategory = useMemo(() => {
@@ -2379,7 +2414,21 @@ export const AnalyticsScreen: React.FC = () => {
                         </Text>
 
                         {cat.subcategories.map((sub) => (
-                          <View key={sub.id} style={styles.subItemRow}>
+                          <TouchableOpacity
+                            key={sub.id}
+                            style={styles.subItemRow}
+                            activeOpacity={0.7}
+                            onPress={() =>
+                              setDrilldownFilter({
+                                categoryId: cat.categoryId,
+                                categoryName: cat.categoryName,
+                                subcategoryId: sub.id,
+                                subcategoryName: sub.name,
+                                txType: 'expense',
+                                color: cat.color,
+                              })
+                            }
+                          >
                             <View style={styles.subItemHeader}>
                               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
                                 <View style={[styles.subDot, { backgroundColor: cat.color }]} />
@@ -2431,8 +2480,36 @@ export const AnalyticsScreen: React.FC = () => {
                                 </Text>
                               </View>
                             )}
-                          </View>
+                          </TouchableOpacity>
                         ))}
+
+                        <TouchableOpacity
+                          style={{
+                            marginTop: 8,
+                            marginBottom: 4,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6,
+                            paddingVertical: 9,
+                            borderRadius: M3Shape.medium,
+                            backgroundColor: theme.primaryContainer,
+                          }}
+                          activeOpacity={0.75}
+                          onPress={() =>
+                            setDrilldownFilter({
+                              categoryId: cat.categoryId,
+                              categoryName: cat.categoryName,
+                              txType: 'expense',
+                              color: cat.color,
+                            })
+                          }
+                        >
+                          <MaterialCommunityIcons name="format-list-bulleted" size={16} color={theme.onPrimaryContainer} />
+                          <Text style={{ fontSize: 12.5, fontWeight: '800', color: theme.onPrimaryContainer }}>
+                            View Transactions ({cat.count})
+                          </Text>
+                        </TouchableOpacity>
 
                         {/* Smart Category Savings & Habit Advice Box */}
                         {cat.savingsInsight && (
@@ -2586,7 +2663,19 @@ export const AnalyticsScreen: React.FC = () => {
               categoryIncome.map((cat, idx) => {
                 const percent = totalIncome > 0 ? Math.round((cat.amount / totalIncome) * 100) : 0;
                 return (
-                  <View key={idx} style={[styles.categoryRowCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }]}>
+                  <TouchableOpacity
+                    key={cat.categoryId || idx}
+                    activeOpacity={0.75}
+                    onPress={() =>
+                      setDrilldownFilter({
+                        categoryId: cat.categoryId,
+                        categoryName: cat.categoryName,
+                        txType: 'income',
+                        color: cat.color,
+                      })
+                    }
+                    style={[styles.categoryRowCard, { backgroundColor: theme.cardBg, borderColor: theme.divider }]}
+                  >
                     <View style={styles.catRowHeader}>
                       <View style={[styles.catIconCircle, { backgroundColor: cat.color }]}>
                         <MaterialCommunityIcons name={cat.icon as any} size={18} color="#FFFFFF" />
@@ -2610,7 +2699,7 @@ export const AnalyticsScreen: React.FC = () => {
                         trackColor={theme.pillBg}
                       />
                     </View>
-                  </View>
+                  </TouchableOpacity>
                 );
               })
             )}
@@ -3672,6 +3761,193 @@ export const AnalyticsScreen: React.FC = () => {
         visible={debtsModalVisible}
         onClose={() => setDebtsModalVisible(false)}
       />
+
+      {/* CATEGORY / SUBCATEGORY TRANSACTIONS DRILLDOWN SHEET */}
+      <Modal
+        visible={Boolean(drilldownFilter)}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setDrilldownFilter(null)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setDrilldownFilter(null)} />
+          <View
+            style={{
+              maxHeight: '82%',
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              backgroundColor: theme.surface,
+              paddingHorizontal: 18,
+              paddingTop: 12,
+              paddingBottom: Math.max(insets.bottom, 16) + 8,
+            }}
+          >
+            <View style={{ alignItems: 'center', marginBottom: 10 }}>
+              <View style={{ width: 38, height: 4, borderRadius: 2, backgroundColor: theme.outlineVariant }} />
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <View
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 17,
+                  backgroundColor: drilldownFilter?.color || theme.primary,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <MaterialCommunityIcons name="format-list-bulleted" size={18} color="#FFFFFF" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 16, fontWeight: '800', color: theme.onSurface }} numberOfLines={1}>
+                  {drilldownFilter?.subcategoryName
+                    ? `${drilldownFilter.categoryName} • ${drilldownFilter.subcategoryName}`
+                    : drilldownFilter?.categoryName}
+                </Text>
+                <Text style={{ fontSize: 12, fontWeight: '600', color: theme.onSurfaceVariant }}>
+                  {drilldownTransactions.length} {drilldownTransactions.length === 1 ? 'transaction' : 'transactions'} •{' '}
+                  {formatCurrency(
+                    drilldownTransactions.reduce((s, t) => s + (drilldownFilter?.txType === 'expense' ? getEffectiveAmount(t) : t.amount), 0),
+                    curr
+                  )}
+                </Text>
+              </View>
+              {drilldownFilter && drilldownFilter.categoryId !== 'other' && drilldownFilter.categoryId !== 'other-inc' && onNavigateTab && (
+                <TouchableOpacity
+                  onPress={() => {
+                    const catId = drilldownFilter.categoryId;
+                    setDrilldownFilter(null);
+                    setCalendarCategoryFilterId(catId);
+                    onNavigateTab('calendar');
+                  }}
+                  style={{
+                    paddingHorizontal: 10,
+                    paddingVertical: 6,
+                    borderRadius: M3Shape.full,
+                    backgroundColor: theme.primaryContainer,
+                  }}
+                >
+                  <Text style={{ fontSize: 11.5, fontWeight: '800', color: theme.onPrimaryContainer }}>
+                    History →
+                  </Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                onPress={() => setDrilldownFilter(null)}
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 17,
+                  backgroundColor: theme.pillBg,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <MaterialCommunityIcons name="close" size={18} color={theme.onSurface} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 12 }}>
+              {drilldownTransactions.length === 0 ? (
+                <Text style={{ textAlign: 'center', color: theme.onSurfaceVariant, paddingVertical: 24 }}>
+                  No matching transactions found.
+                </Text>
+              ) : (
+                drilldownTransactions.map((tx) => {
+                  const cat = categories.find((c) => c.id === tx.category_id);
+                  const sub = cat?.subcategories?.find((s) => s.id === tx.subcategory_id);
+                  const wallet = wallets.find((w) => w.id === tx.wallet_id);
+                  const isExp = tx.type === 'expense';
+                  const eff = isExp ? getEffectiveAmount(tx) : tx.amount;
+                  return (
+                    <TouchableOpacity
+                      key={tx.id}
+                      onPress={() => setViewingTransaction(tx)}
+                      activeOpacity={0.75}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 10,
+                        padding: 12,
+                        borderRadius: M3Shape.medium,
+                        backgroundColor: theme.cardBg,
+                        borderWidth: 1,
+                        borderColor: theme.divider,
+                      }}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 13.5, fontWeight: '700', color: theme.onSurface }} numberOfLines={1}>
+                          {sub?.name || cat?.name || 'Transaction'}
+                        </Text>
+                        <Text style={{ fontSize: 11.5, color: theme.onSurfaceVariant }} numberOfLines={1}>
+                          {[tx.date, wallet?.name, tx.note || null].filter(Boolean).join(' • ')}
+                        </Text>
+                      </View>
+                      <Text style={{ fontSize: 14, fontWeight: '800', color: isExp ? theme.error : theme.success }}>
+                        {isExp ? '-' : '+'}{formatCurrency(eff, tx.currency || curr)}
+                      </Text>
+                      <MaterialCommunityIcons name="chevron-right" size={16} color={theme.onSurfaceVariant} />
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      <TransactionDetailModal
+        visible={Boolean(viewingTransaction)}
+        transaction={viewingTransaction}
+        categories={categories}
+        wallets={wallets}
+        theme={theme}
+        baseCurrency={curr}
+        onClose={() => setViewingTransaction(null)}
+        onEdit={(tx) => {
+          setViewingTransaction(null);
+          setEditingTransaction(tx);
+        }}
+        onDelete={async (id) => {
+          await deleteTransaction(id);
+          setViewingTransaction(null);
+        }}
+      />
+
+      {Boolean(editingTransaction) && (
+        <TransactionDetailsModal
+          visible={Boolean(editingTransaction)}
+          txType={editingTransaction?.type || 'expense'}
+          initialTransactionId={editingTransaction?.id}
+          initialAmount={editingTransaction?.amount || 0}
+          initialWalletId={editingTransaction?.wallet_id || ''}
+          initialToWalletId={editingTransaction?.to_wallet_id || undefined}
+          initialCategoryId={editingTransaction?.category_id || undefined}
+          initialSubcategoryId={editingTransaction?.subcategory_id || undefined}
+          initialDate={editingTransaction?.date}
+          initialTime={editingTransaction?.time}
+          initialNote={editingTransaction?.note}
+          initialMediaUri={editingTransaction?.media_uri}
+          initialIsPaid={editingTransaction?.is_paid}
+          initialTaxAmount={editingTransaction?.tax_amount || 0}
+          initialCurrency={editingTransaction?.currency}
+          isEditing={true}
+          wallets={wallets}
+          categories={categories}
+          theme={theme}
+          baseCurrency={curr}
+          onClose={() => setEditingTransaction(null)}
+          onSave={async (data) => {
+            if (!editingTransaction) return;
+            await updateTransaction({
+              id: editingTransaction.id,
+              ...data,
+            });
+            setEditingTransaction(null);
+          }}
+          onAddSubcategory={addSubcategory}
+        />
+      )}
 
       {/* EXPORT ANALYTICS MODAL */}
       <Modal
