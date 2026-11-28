@@ -2979,7 +2979,21 @@ export const AnalyticsScreen: React.FC<{ onNavigateTab?: (tab: TabType) => void 
                       </Text>
 
                       {cat.subcategories.map((sub) => (
-                        <View key={sub.id} style={styles.subItemRow}>
+                        <TouchableOpacity
+                          key={sub.id}
+                          style={styles.subItemRow}
+                          activeOpacity={0.7}
+                          onPress={() =>
+                            setDrilldownFilter({
+                              categoryId: cat.categoryId,
+                              categoryName: cat.categoryName,
+                              subcategoryId: sub.id,
+                              subcategoryName: sub.name,
+                              txType: 'expense',
+                              color: cat.color,
+                            })
+                          }
+                        >
                           <View style={styles.subItemHeader}>
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
                               <View style={[styles.subDot, { backgroundColor: cat.color }]} />
@@ -3031,8 +3045,36 @@ export const AnalyticsScreen: React.FC<{ onNavigateTab?: (tab: TabType) => void 
                               </Text>
                             </View>
                           )}
-                        </View>
+                        </TouchableOpacity>
                       ))}
+
+                      <TouchableOpacity
+                        style={{
+                          marginTop: 8,
+                          marginBottom: 4,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 6,
+                          paddingVertical: 9,
+                          borderRadius: M3Shape.medium,
+                          backgroundColor: theme.primaryContainer,
+                        }}
+                        activeOpacity={0.75}
+                        onPress={() =>
+                          setDrilldownFilter({
+                            categoryId: cat.categoryId,
+                            categoryName: cat.categoryName,
+                            txType: 'expense',
+                            color: cat.color,
+                          })
+                        }
+                      >
+                        <MaterialCommunityIcons name="format-list-bulleted" size={16} color={theme.onPrimaryContainer} />
+                        <Text style={{ fontSize: 12.5, fontWeight: '800', color: theme.onPrimaryContainer }}>
+                          View Transactions ({cat.count})
+                        </Text>
+                      </TouchableOpacity>
 
                       {/* Category Savings / Habit Insight if any */}
                       {cat.savingsInsight && (
